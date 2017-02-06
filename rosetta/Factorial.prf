@@ -1,0 +1,25 @@
+# # Recursive
+
+factorial n =
+    @if n < 2:
+        1
+    else:
+        n * factorial (n - 1)
+
+factorial 0 = 1
+factorial n = n * factorial (n - 1)
+
+# # Tail Recursive
+
+factorial n =
+    loop n res =
+        @if n < 2:
+            res
+        else:
+            loop (n - 1) (n * res)
+    loop n 1
+
+factorial n =
+    loop 0 res = 0
+    loop n res = loop (n - 1) (n * res)
+    loop n 1

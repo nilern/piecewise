@@ -1,0 +1,121 @@
+use lexer::{Tok, LocTok, LexicalError};
+use ast::AST;
+
+use std::str::FromStr;
+
+#[LALR] grammar;
+
+Comma<T>: Vec<T> = {
+    <v: (<T> ",")*> <e: T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+CommaPlus<T>: Vec<T> = {
+    <v: (<T> ",")*> <e: T> => {
+        let mut v = v;
+        v.push(e);
+        v
+    }
+};
+
+SemiColon<T>: Vec<T> = {
+    <v: (<T> ";")*> <e: T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+Stmt = {
+    <Expr>,
+    <Def>
+};
+
+pub Expr = {
+    <App>,
+    <NonApp>
+};
+
+NonApp = {
+    <Block>,
+    <Coll>,
+    <Atom>
+};
+
+DefPat = {
+    <App>,
+    <Pat>
+};
+
+Pat = {
+    <Coll>,
+    <Atom>
+};
+
+Atom: AST = {
+    Id => AST::Symbol(<>),
+    //<Int>
+};
+
+App: AST = {
+    <f: Expr> <arg: NonApp> => AST::App(Box::new(f), Box::new(arg))
+};
+
+Block: AST = {
+    "{" "|" <formals: Pat*> "|" <stmts: SemiColon<Stmt>> "}" => AST::Block(formals, stmts)
+};
+
+pub BlockBody: AST = {
+    <stmts: SemiColon<Stmt>> => AST::Block(vec![], stmts)
+};
+
+Def: AST = {
+    <pat: DefPat> "=" <value: Expr> => AST::Def(Box::new(pat), Box::new(value))
+};
+
+Coll: AST = {
+    "(" <elems: Comma<Expr>> ")"     => AST::Tuple(elems),
+    "[" <elems: Comma<Expr>> "]"     => AST::Array(elems),
+    "{" <elems: CommaPlus<Expr>> "}" => AST::Set(elems),
+    //"{" <kvs: Comma<MapPair>> "}"    => AST::Map(kvs)
+};
+
+//MapPair: (AST, AST) = {
+//    <key: Expr> ":" <val: Expr> => (key, val)
+//};
+
+//Symbol: AST =  {
+//    r"[@_a-zA-Z][@_a-zA-Z0-9]*" => AST::Symbol(<>.to_string())
+//};
+
+//Int: AST = {
+//    r"[0-9]+" => AST::Int(isize::from_str(<>).unwrap())
+//};
+
+extern {
+    type Location = usize;
+    type Error = LexicalError;
+    enum LocTok {
+        Id  => LocTok { tok: Tok::Id(<String>), .. },
+        "(" => LocTok { tok: Tok::LParen, .. },
+        ")" => LocTok { tok: Tok::RParen, .. },
+        "[" => LocTok { tok: Tok::LBracket, .. },
+        "]" => LocTok { tok: Tok::RBracket, .. },
+        "{" => LocTok { tok: Tok::LBrace, .. },
+        "}" => LocTok { tok: Tok::RBrace, .. },
+        "|" => LocTok { tok: Tok::Pipe, .. },
+        "=" => LocTok { tok: Tok::Eq, .. },
+        "," => LocTok { tok: Tok::Comma, .. },
+        ";" => LocTok { tok: Tok::Semicolon, .. },
+        Indent => LocTok { tok: Tok::Indent, .. }
+    }
+}
