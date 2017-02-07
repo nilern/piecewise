@@ -18,7 +18,7 @@ pub enum Tok {
     Number(String), // r"\d[^\s'\"\(\)\[\]\{\},;]*"
     Char(String),   // r"'[^']+'"
     String(String), // r"\"[^\"]\""
-    
+
     LParen,   // r"("
     RParen,   // r")"
     LBracket, // r"["
@@ -27,7 +27,7 @@ pub enum Tok {
     RBrace,   // r"}"
     Indent,
     Dedent,
-    
+
     Comma,     // r","
     Semicolon, // r";"
     Newline
@@ -41,8 +41,8 @@ pub struct LocTok {
 }
 
 impl LocTok {
-    fn new(tok: Tok, line: usize, col: usize) -> LocTok {
-        LocTok { tok: tok, line: line, col: col }
+    fn at(tok: Tok, start: usize, line: usize, col: usize, end: usize) -> (usize, LocTok, usize) {
+        (start, LocTok { tok: tok, line: line, col: col }, end)
     }
 }
 
@@ -64,16 +64,16 @@ impl LocTokBuilder {
             col: col
         }
     }
-    
-    fn char(pos: usize, line: usize, col: usize) -> LocTokBuilder {
-        LocTokBuilder {
-            tok: Tok::Char(String::new()),
-            spos: pos,
-            epos: None,
-            line: line,
-            col: col
-        }
-    }
+
+    // fn char(pos: usize, line: usize, col: usize) -> LocTokBuilder {
+    //     LocTokBuilder {
+    //         tok: Tok::Char(String::new()),
+    //         spos: pos,
+    //         epos: None,
+    //         line: line,
+    //         col: col
+    //     }
+    // }
 
     fn push(mut self, c: char) -> LocTokBuilder {
         self.chars_mut().push(c);
@@ -87,9 +87,9 @@ impl LocTokBuilder {
 
     fn build(self) -> (usize, LocTok, usize) {
         let epos = self.epos.unwrap_or_else(|| self.spos + self.chars().len());
-        (self.spos, LocTok::new(self.tok, self.line, self.col), epos)
+        LocTok::at(self.tok, self.spos, self.line, self.col, epos)
     }
-    
+
     fn chars(&self) -> &String {
         match self.tok {
             Tok::Name(ref cs) | Tok::Op(ref cs) | Tok::Symbol(ref cs)
@@ -134,14 +134,14 @@ impl<'input> Lexer<'input> {
             None => ()
         }
     }
-    
+
     fn char_token(&mut self, builder: Option<LocTokBuilder>, tok: Tok, i: usize)
         -> Option<Spanned<LocTok, usize, LexicalError>> {
 
         match builder {
             Some(builder) => Some(Ok(builder.ends_at(i).build())),
             None => {
-                let res = Some(Ok((i, LocTok::new(tok, self.line, self.col), i + 1)));
+                let res = Some(Ok(LocTok::at(tok, i, self.line, self.col, i + 1)));
                 self.advance();
                 res
             }
@@ -165,7 +165,7 @@ impl<'input> Iterator for Lexer<'input> {
     // TODO: operators, numbers, characters, strings
     fn next(&mut self) -> Option<Self::Item> {
         let mut acc = None;
-        
+
         loop {
             match self.chars.peek() {
                 Some(&(i, '('))  => return self.char_token(acc, Tok::LParen, i),
@@ -189,7 +189,7 @@ impl<'input> Iterator for Lexer<'input> {
                     } else {
                         acc = Some(LocTokBuilder::name(i, self.line, self.col).push(c));
                     },
-                
+
                 None => return acc.map(|b| Ok(b.build()))
             }
             self.advance();
@@ -205,61 +205,76 @@ pub struct WSLexer<'input> {
     indents: Vec<usize>
 }
 
+impl<'input> WSLexer<'input> {
+    fn curr_indent(&self) -> usize {
+        *self.indents.last().unwrap_or(&1)
+    }
+
+    fn pop(&mut self) -> Option<(usize, LocTok, usize)> {
+        self.pending.pop_front()
+                    .map(|tok| {
+                        self.prev = Some((tok.1.line, tok.1.col, tok.2));
+                        tok
+                    })
+    }
+
+    fn newline(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
+        self.pending.push_back(LocTok::at(Tok::Newline, start, sline, scol, end))
+    }
+
+    fn indent(&mut self, start: usize, sline: usize, scol: usize, end: usize, ecol: usize) {
+        self.indents.push(ecol);
+        self.pending.push_back(LocTok::at(Tok::Indent, start, sline, scol, end))
+    }
+
+    fn dedent(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
+        self.indents.pop();
+        self.pending.push_back(LocTok::at(Tok::Dedent, start, sline, scol, end))
+    }
+
+    fn shift(&mut self) -> Result<bool, LexicalError> {
+        match self.tokens.next() {
+            Some(Ok(tok)) => {
+                let &(si, LocTok { line, col, .. }, _) = &tok;
+                let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((line, 1, 0));
+
+                if line > prev_line {
+                    match col.cmp(&self.curr_indent()) {
+                        Ordering::Equal => self.newline(prev_end, prev_line, prev_col, si),
+                        Ordering::Greater => self.indent(prev_end, prev_line, prev_col, si, col),
+                        Ordering::Less => {
+                            while col < self.curr_indent() {
+                                self.dedent(prev_end, prev_line, prev_col, si);
+                            }
+
+                            if col > self.curr_indent() {
+                                return Err(LexicalError::WildDedent)
+                            }
+                        }
+                    }
+                }
+
+                self.pending.push_back(tok);
+                Ok(true)
+            }
+            Some(Err(err)) => return Err(err),
+            None => Ok(false)
+        }
+    }
+}
+
 impl<'input> Iterator for WSLexer<'input> {
     type Item = Spanned<LocTok, usize, LexicalError>;
 
     // TODO: EOF dedents
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pending.is_empty() {
-            match self.tokens.next() {
-                Some(Ok(tok)) => {
-                    let &(si, LocTok { line, col, .. }, _) = &tok;
-                    let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((line, 1, 0));
-                
-                    if tok.1.line > prev_line {
-                        match col.cmp(self.indents.last().unwrap_or(&1)) {
-                            Ordering::Equal => {
-                                self.pending.push_back((prev_end,
-                                                LocTok::new(Tok::Newline, prev_line, prev_col),
-                                                si));
-                                self.pending.push_back(tok);
-                            },
-                            Ordering::Greater => {
-                                self.indents.push(col);
-                                self.pending.push_back((prev_end,
-                                                LocTok::new(Tok::Indent, prev_line, prev_col),
-                                                si));
-                                self.pending.push_back(tok);
-                            }
-                            Ordering::Less => {
-                                loop {
-                                    match col.cmp(self.indents.last().unwrap_or(&1)) {
-                                        Ordering::Equal => break,
-                                        Ordering::Less => {
-                                            self.indents.pop();
-                                            self.pending.push_back(
-                                                (prev_end,
-                                                 LocTok::new(Tok::Dedent, prev_line, prev_col),
-                                                 si));
-                                        },
-                                        Ordering::Greater =>
-                                            return Some(Err(LexicalError::WildDedent))
-                                    }
-                                }
-                                self.pending.push_back(tok);
-                            }
-                        }
-                    } else {
-                        self.pending.push_back(tok);
-                    }
+        self.pop().map(|v| Ok(v))
+            .or_else(|| {
+                match self.shift() {
+                    Ok(true) => self.next(),
+                    Ok(false) => None,
+                    Err(err) => Some(Err(err))
                 }
-                err @ Some(Err(_)) => return err,
-                None => return None
-            }
-        }
-
-        let &(_, LocTok { line, col, .. }, ei) = self.pending.front().unwrap();
-        self.prev = Some((line, col, ei));
-        self.pending.pop_front().map(|v| Ok(v))
+            })
     }
 }
