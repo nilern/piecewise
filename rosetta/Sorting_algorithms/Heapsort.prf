@@ -1,0 +1,2 @@
+
+heapSort coll = coll |> into Heap.empty _ |> into (empty coll) _

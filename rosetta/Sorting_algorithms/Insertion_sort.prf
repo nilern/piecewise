@@ -1,0 +1,8 @@
+
+insert x (coll && []) = conj coll x
+insert x (ys && y::yys) =
+  @if x <= y
+    x :: ys
+    y :: insert x ys
+
+insertionSort = foldRight insert [] _
