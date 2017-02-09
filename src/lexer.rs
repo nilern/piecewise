@@ -7,10 +7,11 @@ pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
 #[derive(Debug)]
 pub enum LexicalError {
-    WildDedent
+    WildDedent,
+    Delimiter(Tok, Tok)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Tok {
     Name(String),   // r"[\p{Alphabetic}_@][^\s'\"\(\)\[\]\{\},;]*"
     Op(String),     // _
@@ -25,12 +26,26 @@ pub enum Tok {
     RBracket, // r"]"
     LBrace,   // r"{"
     RBrace,   // r"}"
-    Indent,
-    Dedent,
+    // Indent,
+    // Dedent,
 
     Comma,     // r","
     Semicolon, // r";"
-    Newline
+    // Newline
+}
+
+impl Tok {
+    fn pair(&self) -> Option<Tok> {
+        match *self {
+            Tok::LParen => Some(Tok::RParen),
+            Tok::RParen => Some(Tok::LParen),
+            Tok::LBracket => Some(Tok::RBracket),
+            Tok::RBracket => Some(Tok::LBracket),
+            Tok::LBrace => Some(Tok::RBrace),
+            Tok::RBrace => Some(Tok::LBrace),
+            _ => None
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -153,7 +168,8 @@ impl<'input> Lexer<'input> {
             tokens: self.peekable(),
             prev: None,
             pending: VecDeque::new(),
-            indents: Vec::new()
+            indents: Vec::new(),
+            delimiters: Vec::new()
         }
     }
 }
@@ -197,12 +213,12 @@ impl<'input> Iterator for Lexer<'input> {
     }
 }
 
-// TODO: ignore indentation inside ()[]{}
 pub struct WSLexer<'input> {
     tokens: Peekable<Lexer<'input>>,
     prev: Option<(usize, usize, usize)>,
     pending: VecDeque<(usize, LocTok, usize)>,
-    indents: Vec<usize>
+    indents: Vec<usize>,
+    delimiters: Vec<Tok>
 }
 
 impl<'input> WSLexer<'input> {
@@ -219,40 +235,71 @@ impl<'input> WSLexer<'input> {
     }
 
     fn newline(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
-        self.pending.push_back(LocTok::at(Tok::Newline, start, sline, scol, end))
+        self.pending.push_back(LocTok::at(Tok::Semicolon, start, sline, scol, end))
     }
 
     fn indent(&mut self, start: usize, sline: usize, scol: usize, end: usize, ecol: usize) {
         self.indents.push(ecol);
-        self.pending.push_back(LocTok::at(Tok::Indent, start, sline, scol, end))
+        self.pending.push_back(LocTok::at(Tok::LBrace, start, sline, scol, end))
     }
 
     fn dedent(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
         self.indents.pop();
-        self.pending.push_back(LocTok::at(Tok::Dedent, start, sline, scol, end))
+        self.pending.push_back(LocTok::at(Tok::RBrace, start, sline, scol, end))
+    }
+
+    fn delimiter(&mut self, tok: &Tok) -> Result<(), LexicalError> {
+        match tok {
+            &Tok::LParen | &Tok::LBracket | &Tok::LBrace =>
+                self.delimiters.push(tok.clone()),
+            &Tok::RParen | &Tok::RBracket | &Tok::RBrace => {
+                let actual = self.delimiters.last().unwrap().clone();
+                let expected = tok.pair().unwrap();
+
+                if !self.delimiters.is_empty() && actual == expected {
+                    self.delimiters.pop();
+                } else {
+                    return Err(LexicalError::Delimiter(actual, expected));
+                }
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn sig_indents(&self) -> bool {
+        self.delimiters.is_empty()
     }
 
     fn shift(&mut self) -> Result<bool, LexicalError> {
         match self.tokens.next() {
             Some(Ok(tok)) => {
-                let &(si, LocTok { line, col, .. }, _) = &tok;
-                let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((line, 1, 0));
+                if self.sig_indents() {
+                    let &(si, LocTok { line, col, .. }, _) = &tok;
+                    let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((line, 1, 0));
 
-                if line > prev_line {
-                    match col.cmp(&self.curr_indent()) {
-                        Ordering::Equal => self.newline(prev_end, prev_line, prev_col, si),
-                        Ordering::Greater => self.indent(prev_end, prev_line, prev_col, si, col),
-                        Ordering::Less => {
-                            while col < self.curr_indent() {
-                                self.dedent(prev_end, prev_line, prev_col, si);
-                            }
+                    if line > prev_line {
+                        match col.cmp(&self.curr_indent()) {
+                            Ordering::Equal =>
+                                self.newline(prev_end, prev_line, prev_col, si),
+                            Ordering::Greater =>
+                                self.indent(prev_end, prev_line, prev_col, si, col),
+                            Ordering::Less => {
+                                while col < self.curr_indent() {
+                                    self.dedent(prev_end, prev_line, prev_col, si);
+                                }
 
-                            if col > self.curr_indent() {
-                                return Err(LexicalError::WildDedent)
+                                // TODO: add newlines after dedent runs unless the next token would
+                                //       also be a RBrace or dedent
+                                if col > self.curr_indent() {
+                                    return Err(LexicalError::WildDedent)
+                                }
                             }
                         }
                     }
                 }
+
+                try!(self.delimiter(&tok.1.tok));
 
                 self.pending.push_back(tok);
                 Ok(true)
