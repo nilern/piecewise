@@ -225,6 +225,11 @@ pub struct WSLexer<'input> {
 }
 
 impl<'input> WSLexer<'input> {
+    /// Is indentation significant (that is, are we outside all 'concrete' delmiters)?
+    fn sig_indents(&self) -> bool {
+        self.delimiters.is_empty()
+    }
+
     /// Get the current indentation level.
     fn curr_indent(&self) -> usize {
         *self.indents.last().unwrap_or(&1)
@@ -268,6 +273,32 @@ impl<'input> WSLexer<'input> {
         }
     }
 
+    /// Enqueue relevant whitespace tokens based on `self.prev_end` and `start`.
+    fn enqueue_ws_tokens(&mut self, start: SrcPos) -> Result<(), LexicalError> {
+        if self.sig_indents() {
+            let prev_end = self.prev_end(SrcPos { index: 0, line: start.line, col: 1 });
+
+            if start.line > prev_end.line {
+                match start.col.cmp(&self.curr_indent()) {
+                    Ordering::Equal =>
+                        self.newline(prev_end, start),
+                    Ordering::Greater =>
+                        self.indent(prev_end, start),
+                    Ordering::Less => {
+                        self.dedent_downto(start.col, prev_end, start);
+
+                        if start.col > self.curr_indent() {
+                            return Err(LexicalError::WildDedent);
+                        } else {
+                            self.newline(prev_end, start);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Push a delimiter to or pop its pair from the delimiter stack.
     fn delimiter(&mut self, tok: &Tok) -> Result<(), LexicalError> {
         match tok {
@@ -289,40 +320,13 @@ impl<'input> WSLexer<'input> {
         Ok(())
     }
 
-    /// Is indentation significant (that is, are we outside all 'concrete' delmiters)?
-    fn sig_indents(&self) -> bool {
-        self.delimiters.is_empty()
-    }
-
     /// Enqueue the next token from `self.tokens`, possibly preceded by whitespace-inferred tokens.
     /// Returns `Ok(true)` if some tokens were shifted and `Ok(false)` if at EOF.
     fn shift(&mut self) -> Result<bool, LexicalError> {
         match self.tokens.next() {
             Some(Ok(tok)) => {
-                if self.sig_indents() {
-                    let prev_end = self.prev_end(SrcPos { index: 0, line: tok.0.line, col: 1 });
-
-                    if tok.0.line > prev_end.line {
-                        match tok.0.col.cmp(&self.curr_indent()) {
-                            Ordering::Equal =>
-                                self.newline(prev_end, tok.0),
-                            Ordering::Greater =>
-                                self.indent(prev_end, tok.0),
-                            Ordering::Less => {
-                                self.dedent_downto(tok.0.col, prev_end, tok.0);
-
-                                if tok.0.col > self.curr_indent() {
-                                    return Err(LexicalError::WildDedent);
-                                } else {
-                                    self.newline(prev_end, tok.0);
-                                }
-                            }
-                        }
-                    }
-                }
-
+                try!(self.enqueue_ws_tokens(tok.0));
                 try!(self.delimiter(&tok.1));
-
                 self.pending.push_back(tok);
                 Ok(true)
             },
