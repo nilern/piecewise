@@ -169,7 +169,8 @@ impl<'input> Lexer<'input> {
             prev: None,
             pending: VecDeque::new(),
             indents: Vec::new(),
-            delimiters: Vec::new()
+            delimiters: Vec::new(),
+            done: false
         }
     }
 }
@@ -218,7 +219,8 @@ pub struct WSLexer<'input> {
     prev: Option<(usize, usize, usize)>,
     pending: VecDeque<(usize, LocTok, usize)>,
     indents: Vec<usize>,
-    delimiters: Vec<Tok>
+    delimiters: Vec<Tok>,
+    done: bool
 }
 
 impl<'input> WSLexer<'input> {
@@ -285,14 +287,14 @@ impl<'input> WSLexer<'input> {
                             Ordering::Greater =>
                                 self.indent(prev_end, prev_line, prev_col, si, col),
                             Ordering::Less => {
-                                while col < self.curr_indent() {
+                                while self.curr_indent() > col {
                                     self.dedent(prev_end, prev_line, prev_col, si);
                                 }
 
-                                // TODO: add newlines after dedent runs unless the next token would
-                                //       also be a RBrace or dedent
                                 if col > self.curr_indent() {
                                     return Err(LexicalError::WildDedent)
+                                } else {
+                                    self.newline(prev_end, prev_line, prev_col, si);
                                 }
                             }
                         }
@@ -305,7 +307,17 @@ impl<'input> WSLexer<'input> {
                 Ok(true)
             }
             Some(Err(err)) => return Err(err),
-            None => Ok(false)
+            None =>
+                if !self.done {
+                    let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((0, 1, 0));
+                    while self.curr_indent() > 1 {
+                        self.dedent(prev_end, prev_line, prev_col, prev_end);
+                    }
+                    self.done = true;
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
         }
     }
 }
@@ -313,7 +325,6 @@ impl<'input> WSLexer<'input> {
 impl<'input> Iterator for WSLexer<'input> {
     type Item = Spanned<LocTok, usize, LexicalError>;
 
-    // TODO: EOF dedents
     fn next(&mut self) -> Option<Self::Item> {
         self.pop().map(|v| Ok(v))
             .or_else(|| {
