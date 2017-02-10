@@ -5,6 +5,14 @@ use std::cmp::Ordering;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
+#[derive(Debug, Clone, Copy)]
+pub struct SrcPos {
+    index: usize,
+    line: usize,
+    col: usize
+}
+
+pub type LocTok = (SrcPos, Tok, SrcPos);
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
 #[derive(Debug)]
@@ -51,78 +59,49 @@ impl Tok {
     }
 }
 
-/// A token with line and column information.
-#[derive(Clone, Debug)]
-pub struct LocTok {
-    pub tok: Tok,
-    line: usize,
-    col: usize
-}
-
-impl LocTok {
-    /// Create a `(usize, LocTok, usize)` at the specified position.
-    fn at(tok: Tok, start: usize, line: usize, col: usize, end: usize) -> (usize, LocTok, usize) {
-        (start, LocTok { tok: tok, line: line, col: col }, end)
-    }
-}
-
 /// Like a StringBuilder, but for tokens.
-struct LocTokBuilder {
+struct TokBuilder {
     tok: Tok,
-    spos: usize,
-    epos: Option<usize>,
-    line: usize,
-    col: usize
+    start: SrcPos,
+    end: Option<SrcPos>
 }
 
-impl LocTokBuilder {
+impl TokBuilder {
     /// Start building a Tok::Name.
-    fn name(pos: usize, line: usize, col: usize) -> LocTokBuilder {
-        LocTokBuilder {
+    fn name(pos: SrcPos) -> TokBuilder {
+        TokBuilder {
             tok: Tok::Name(String::new()),
-            spos: pos,
-            epos: None,
-            line: line,
-            col: col
+            start: pos,
+            end: None
         }
     }
 
-    // fn char(pos: usize, line: usize, col: usize) -> LocTokBuilder {
-    //     LocTokBuilder {
-    //         tok: Tok::Char(String::new()),
-    //         spos: pos,
-    //         epos: None,
-    //         line: line,
-    //         col: col
-    //     }
-    // }
-
     /// Add a character.
-    fn push(mut self, c: char) -> LocTokBuilder {
+    fn push(mut self, c: char) -> TokBuilder {
         self.chars_mut().push(c);
         self
     }
 
     /// Set end position.
-    fn ends_at(mut self, i: usize) -> LocTokBuilder {
-        self.epos = Some(i);
+    fn ends_at(mut self, pos: SrcPos) -> TokBuilder {
+        self.end = Some(pos);
         self
     }
 
     /// Build the position-informed token.
-    fn build(self) -> (usize, LocTok, usize) {
-        let epos = self.epos.unwrap_or_else(|| self.spos + self.chars().len());
-        LocTok::at(self.tok, self.spos, self.line, self.col, epos)
+    fn build(self) -> LocTok {
+        let end = self.end.unwrap_or_else(|| self.start); // HACK
+        (self.start, self.tok, end)
     }
 
-    /// Get a reference to the character buffer.
-    fn chars(&self) -> &str {
-        match self.tok {
-            Tok::Name(ref cs) | Tok::Op(ref cs) | Tok::Symbol(ref cs)
-            | Tok::Number(ref cs) | Tok::Char(ref cs) | Tok::String(ref cs) => cs,
-            _ => unreachable!()
-        }
-    }
+    // /// Get a reference to the character buffer.
+    // fn chars(&self) -> &str {
+    //     match self.tok {
+    //         Tok::Name(ref cs) | Tok::Op(ref cs) | Tok::Symbol(ref cs)
+    //         | Tok::Number(ref cs) | Tok::Char(ref cs) | Tok::String(ref cs) => cs,
+    //         _ => unreachable!()
+    //     }
+    // }
 
     /// Get a mutable reference to the character buffer.
     fn chars_mut(&mut self) -> &mut String {
@@ -136,8 +115,7 @@ impl LocTokBuilder {
 
 pub struct Lexer<'input> {
     chars: Peekable<CharIndices<'input>>,
-    line: usize,
-    col: usize
+    pos: SrcPos
 }
 
 impl<'input> Lexer<'input> {
@@ -145,20 +123,26 @@ impl<'input> Lexer<'input> {
     pub fn new(input: &'input str) -> Self {
         Lexer {
             chars: input.char_indices().peekable(),
-            line: 1,
-            col: 1
+            pos: SrcPos { index: 0, line: 1, col: 1}
         }
     }
 
     /// Advance to the next position, updating the line and column on the way.
     fn advance(&mut self) {
         match self.chars.next() {
-            Some((_, '\n')) => {
-                self.line += 1;
-                self.col = 1;
+            Some((i, '\n')) => {
+                self.pos = SrcPos {
+                    index: i + 1,
+                    line: self.pos.line + 1,
+                    col: 1
+                }
             },
-            Some((_, _)) => {
-                self.col += 1;
+            Some((i, _)) => {
+                self.pos = SrcPos {
+                    index: i + 1,
+                    line: self.pos.line,
+                    col: self.pos.col + 1
+                }
             },
             None => ()
         }
@@ -166,15 +150,16 @@ impl<'input> Lexer<'input> {
 
     /// A delimiter or separator was encountered, either build the extended token that was pending
     /// or emit the delimiter/separator.
-    fn char_token(&mut self, builder: Option<LocTokBuilder>, tok: Tok, i: usize)
-        -> Option<Spanned<LocTok, usize, LexicalError>> {
+    fn char_token(&mut self, builder: Option<TokBuilder>, tok: Tok)
+        -> Option<Spanned<Tok, SrcPos, LexicalError>> {
 
         match builder {
-            Some(builder) => Some(Ok(builder.ends_at(i).build())),
+            Some(builder) => Some(Ok(builder.ends_at(self.pos).build())),
             None => {
-                let res = Some(Ok(LocTok::at(tok, i, self.line, self.col, i + 1)));
+                let start = self.pos;
                 self.advance();
-                res
+                let end = self.pos;
+                Some(Ok((start, tok, end)))
             }
         }
     }
@@ -183,7 +168,7 @@ impl<'input> Lexer<'input> {
     pub fn with_ws_stx(self) -> WSLexer<'input> {
         WSLexer {
             tokens: self.peekable(),
-            prev: None,
+            prev_end: None,
             pending: VecDeque::new(),
             indents: Vec::new(),
             delimiters: Vec::new(),
@@ -192,9 +177,8 @@ impl<'input> Lexer<'input> {
     }
 }
 
-
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<LocTok, usize, LexicalError>;
+    type Item = Spanned<Tok, SrcPos, LexicalError>;
 
     // TODO: operators, numbers, characters, strings
     fn next(&mut self) -> Option<Self::Item> {
@@ -202,26 +186,26 @@ impl<'input> Iterator for Lexer<'input> {
 
         loop {
             match self.chars.peek() {
-                Some(&(i, '('))  => return self.char_token(acc, Tok::LParen, i),
-                Some(&(i, ')'))  => return self.char_token(acc, Tok::RParen, i),
-                Some(&(i, '['))  => return self.char_token(acc, Tok::LBracket, i),
-                Some(&(i, ']'))  => return self.char_token(acc, Tok::RBracket, i),
-                Some(&(i, '{'))  => return self.char_token(acc, Tok::LBrace, i),
-                Some(&(i, '}'))  => return self.char_token(acc, Tok::RBrace, i),
+                Some(&(_, '('))  => return self.char_token(acc, Tok::LParen,),
+                Some(&(_, ')'))  => return self.char_token(acc, Tok::RParen),
+                Some(&(_, '['))  => return self.char_token(acc, Tok::LBracket),
+                Some(&(_, ']'))  => return self.char_token(acc, Tok::RBracket),
+                Some(&(_, '{'))  => return self.char_token(acc, Tok::LBrace,),
+                Some(&(_, '}'))  => return self.char_token(acc, Tok::RBrace),
 
-                Some(&(i, ',')) => return self.char_token(acc, Tok::Comma, i),
-                Some(&(i, ';')) => return self.char_token(acc, Tok::Semicolon, i),
+                Some(&(_, ',')) => return self.char_token(acc, Tok::Comma),
+                Some(&(_, ';')) => return self.char_token(acc, Tok::Semicolon),
 
                 Some(&(_, c)) if c.is_whitespace() =>
                     if let Some(b) = acc {
                         return Some(Ok(b.build()));
                     },
 
-                Some(&(i, c)) =>
+                Some(&(_, c)) =>
                     if let Some(b) = acc {
                         acc = Some(b.push(c));
                     } else {
-                        acc = Some(LocTokBuilder::name(i, self.line, self.col).push(c));
+                        acc = Some(TokBuilder::name(self.pos).push(c));
                     },
 
                 None => return acc.map(|b| Ok(b.build()))
@@ -233,8 +217,8 @@ impl<'input> Iterator for Lexer<'input> {
 
 pub struct WSLexer<'input> {
     tokens: Peekable<Lexer<'input>>,
-    prev: Option<(usize, usize, usize)>,
-    pending: VecDeque<(usize, LocTok, usize)>,
+    prev_end: Option<SrcPos>,
+    pending: VecDeque<LocTok>,
     indents: Vec<usize>,
     delimiters: Vec<Tok>,
     done: bool
@@ -246,37 +230,41 @@ impl<'input> WSLexer<'input> {
         *self.indents.last().unwrap_or(&1)
     }
 
+    /// Get the end position of the previous token.
+    fn prev_end(&self, default: SrcPos) -> SrcPos {
+        self.prev_end.unwrap_or(default)
+    }
+
     /// Get the first token in self.pending.
-    fn pop(&mut self) -> Option<(usize, LocTok, usize)> {
+    fn pop(&mut self) -> Option<LocTok> {
         self.pending.pop_front()
                     .map(|tok| {
-                        self.prev = Some((tok.1.line, tok.1.col, tok.2));
+                        self.prev_end = Some(tok.2);
                         tok
                     })
     }
 
     /// Enqueue a separator corresponding to a newline in the source.
-    fn newline(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
-        self.pending.push_back(LocTok::at(Tok::Semicolon, start, sline, scol, end))
+    fn newline(&mut self, start: SrcPos, end: SrcPos) {
+        self.pending.push_back((start, Tok::Semicolon, end))
     }
 
     /// Enqueue a delimiter corresponding to an indent in the source.
-    fn indent(&mut self, start: usize, sline: usize, scol: usize, end: usize, ecol: usize) {
-        self.indents.push(ecol);
-        self.pending.push_back(LocTok::at(Tok::LBrace, start, sline, scol, end))
+    fn indent(&mut self, start: SrcPos, end: SrcPos) {
+        self.indents.push(end.col);
+        self.pending.push_back((start, Tok::LBrace, end))
     }
 
     /// Enqueue a delimiter corresponding to an dedent in the source.
-    fn dedent(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
+    fn dedent(&mut self, start: SrcPos, end: SrcPos) {
         self.indents.pop();
-        self.pending.push_back(LocTok::at(Tok::RBrace, start, sline, scol, end))
+        self.pending.push_back((start, Tok::RBrace, end))
     }
 
     /// Enqueue enough dedents to get down to `dest_col`.
-    fn dedent_downto(&mut self, dest_col: usize,
-                     start: usize, sline: usize, scol: usize, end: usize) {
+    fn dedent_downto(&mut self, dest_col: usize, start: SrcPos, end: SrcPos) {
         while self.curr_indent() > dest_col {
-            self.dedent(start, sline, scol, end);
+            self.dedent(start, end);
         }
     }
 
@@ -312,37 +300,36 @@ impl<'input> WSLexer<'input> {
         match self.tokens.next() {
             Some(Ok(tok)) => {
                 if self.sig_indents() {
-                    let &(si, LocTok { line, col, .. }, _) = &tok;
-                    let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((line, 1, 0));
+                    let prev_end = self.prev_end(SrcPos { index: 0, line: tok.0.line, col: 1 });
 
-                    if line > prev_line {
-                        match col.cmp(&self.curr_indent()) {
+                    if tok.0.line > prev_end.line {
+                        match tok.0.col.cmp(&self.curr_indent()) {
                             Ordering::Equal =>
-                                self.newline(prev_end, prev_line, prev_col, si),
+                                self.newline(prev_end, tok.0),
                             Ordering::Greater =>
-                                self.indent(prev_end, prev_line, prev_col, si, col),
+                                self.indent(prev_end, tok.0),
                             Ordering::Less => {
-                                self.dedent_downto(col, prev_end, prev_line, prev_col, si);
+                                self.dedent_downto(tok.0.col, prev_end, tok.0);
 
-                                if col > self.curr_indent() {
+                                if tok.0.col > self.curr_indent() {
                                     return Err(LexicalError::WildDedent);
                                 } else {
-                                    self.newline(prev_end, prev_line, prev_col, si);
+                                    self.newline(prev_end, tok.0);
                                 }
                             }
                         }
                     }
                 }
 
-                try!(self.delimiter(&tok.1.tok));
+                try!(self.delimiter(&tok.1));
 
                 self.pending.push_back(tok);
                 Ok(true)
             },
             Some(Err(err)) => Err(err),
             None if !self.done => {
-                let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((1, 1, 0));
-                self.dedent_downto(1, prev_end, prev_line, prev_col, prev_end);
+                let prev_end = self.prev_end(SrcPos { index: 0, line: 0, col: 0 });
+                self.dedent_downto(1, prev_end, prev_end);
                 self.done = true;
                 Ok(true)
             },
@@ -352,10 +339,11 @@ impl<'input> WSLexer<'input> {
 }
 
 impl<'input> Iterator for WSLexer<'input> {
-    type Item = Spanned<LocTok, usize, LexicalError>;
+    type Item = Spanned<Tok, SrcPos, LexicalError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.pop().map(|v| Ok(v))
+        self.pop()
+            .map(|v| Ok(v))
             .or_else(|| {
                 match self.shift() {
                     Ok(true) => self.next(),
