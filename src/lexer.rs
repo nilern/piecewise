@@ -3,12 +3,14 @@ use std::iter::Peekable;
 use std::collections::VecDeque;
 use std::cmp::Ordering;
 
+// TODO: remember whether braces and semicolons resulted from whitespace
+
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
 #[derive(Debug)]
 pub enum LexicalError {
     WildDedent,
-    Delimiter(Tok, Tok)
+    Delimiter(Tok, Option<Tok>)
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -35,6 +37,7 @@ pub enum Tok {
 }
 
 impl Tok {
+    /// Get the matching delimiter, if applicable.
     fn pair(&self) -> Option<Tok> {
         match *self {
             Tok::LParen => Some(Tok::RParen),
@@ -48,6 +51,7 @@ impl Tok {
     }
 }
 
+/// A token with line and column information.
 #[derive(Clone, Debug)]
 pub struct LocTok {
     pub tok: Tok,
@@ -56,11 +60,13 @@ pub struct LocTok {
 }
 
 impl LocTok {
+    /// Create a `(usize, LocTok, usize)` at the specified position.
     fn at(tok: Tok, start: usize, line: usize, col: usize, end: usize) -> (usize, LocTok, usize) {
         (start, LocTok { tok: tok, line: line, col: col }, end)
     }
 }
 
+/// Like a StringBuilder, but for tokens.
 struct LocTokBuilder {
     tok: Tok,
     spos: usize,
@@ -70,6 +76,7 @@ struct LocTokBuilder {
 }
 
 impl LocTokBuilder {
+    /// Start building a Tok::Name.
     fn name(pos: usize, line: usize, col: usize) -> LocTokBuilder {
         LocTokBuilder {
             tok: Tok::Name(String::new()),
@@ -90,22 +97,26 @@ impl LocTokBuilder {
     //     }
     // }
 
+    /// Add a character.
     fn push(mut self, c: char) -> LocTokBuilder {
         self.chars_mut().push(c);
         self
     }
 
+    /// Set end position.
     fn ends_at(mut self, i: usize) -> LocTokBuilder {
         self.epos = Some(i);
         self
     }
 
+    /// Build the position-informed token.
     fn build(self) -> (usize, LocTok, usize) {
         let epos = self.epos.unwrap_or_else(|| self.spos + self.chars().len());
         LocTok::at(self.tok, self.spos, self.line, self.col, epos)
     }
 
-    fn chars(&self) -> &String {
+    /// Get a reference to the character buffer.
+    fn chars(&self) -> &str {
         match self.tok {
             Tok::Name(ref cs) | Tok::Op(ref cs) | Tok::Symbol(ref cs)
             | Tok::Number(ref cs) | Tok::Char(ref cs) | Tok::String(ref cs) => cs,
@@ -113,6 +124,7 @@ impl LocTokBuilder {
         }
     }
 
+    /// Get a mutable reference to the character buffer.
     fn chars_mut(&mut self) -> &mut String {
         match self.tok {
             Tok::Name(ref mut cs) | Tok::Op(ref mut cs) | Tok::Symbol(ref mut cs)
@@ -129,6 +141,7 @@ pub struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
+    /// Create a new lexer for lexing the given input string.
     pub fn new(input: &'input str) -> Self {
         Lexer {
             chars: input.char_indices().peekable(),
@@ -137,6 +150,7 @@ impl<'input> Lexer<'input> {
         }
     }
 
+    /// Advance to the next position, updating the line and column on the way.
     fn advance(&mut self) {
         match self.chars.next() {
             Some((_, '\n')) => {
@@ -150,6 +164,8 @@ impl<'input> Lexer<'input> {
         }
     }
 
+    /// A delimiter or separator was encountered, either build the extended token that was pending
+    /// or emit the delimiter/separator.
     fn char_token(&mut self, builder: Option<LocTokBuilder>, tok: Tok, i: usize)
         -> Option<Spanned<LocTok, usize, LexicalError>> {
 
@@ -163,6 +179,7 @@ impl<'input> Lexer<'input> {
         }
     }
 
+    /// Add the whitespace-inferred tokens to this token stream.
     pub fn with_ws_stx(self) -> WSLexer<'input> {
         WSLexer {
             tokens: self.peekable(),
@@ -224,10 +241,12 @@ pub struct WSLexer<'input> {
 }
 
 impl<'input> WSLexer<'input> {
+    /// Get the current indentation level.
     fn curr_indent(&self) -> usize {
         *self.indents.last().unwrap_or(&1)
     }
 
+    /// Get the first token in self.pending.
     fn pop(&mut self) -> Option<(usize, LocTok, usize)> {
         self.pending.pop_front()
                     .map(|tok| {
@@ -236,43 +255,59 @@ impl<'input> WSLexer<'input> {
                     })
     }
 
+    /// Enqueue a separator corresponding to a newline in the source.
     fn newline(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
         self.pending.push_back(LocTok::at(Tok::Semicolon, start, sline, scol, end))
     }
 
+    /// Enqueue a delimiter corresponding to an indent in the source.
     fn indent(&mut self, start: usize, sline: usize, scol: usize, end: usize, ecol: usize) {
         self.indents.push(ecol);
         self.pending.push_back(LocTok::at(Tok::LBrace, start, sline, scol, end))
     }
 
+    /// Enqueue a delimiter corresponding to an dedent in the source.
     fn dedent(&mut self, start: usize, sline: usize, scol: usize, end: usize) {
         self.indents.pop();
         self.pending.push_back(LocTok::at(Tok::RBrace, start, sline, scol, end))
     }
 
+    /// Enqueue enough dedents to get down to `dest_col`.
+    fn dedent_downto(&mut self, dest_col: usize,
+                     start: usize, sline: usize, scol: usize, end: usize) {
+        while self.curr_indent() > dest_col {
+            self.dedent(start, sline, scol, end);
+        }
+    }
+
+    /// Push a delimiter to or pop its pair from the delimiter stack.
     fn delimiter(&mut self, tok: &Tok) -> Result<(), LexicalError> {
         match tok {
             &Tok::LParen | &Tok::LBracket | &Tok::LBrace =>
                 self.delimiters.push(tok.clone()),
-            &Tok::RParen | &Tok::RBracket | &Tok::RBrace => {
-                let actual = self.delimiters.last().unwrap().clone();
-                let expected = tok.pair().unwrap();
-
-                if !self.delimiters.is_empty() && actual == expected {
-                    self.delimiters.pop();
+            &Tok::RParen | &Tok::RBracket | &Tok::RBrace =>
+                if !self.delimiters.is_empty() {
+                    let expected = self.delimiters.last().unwrap().pair().unwrap();
+                    if *tok == expected {
+                        self.delimiters.pop();
+                    } else {
+                        return Err(LexicalError::Delimiter(tok.clone(), Some(expected)));
+                    }
                 } else {
-                    return Err(LexicalError::Delimiter(actual, expected));
-                }
-            },
+                    return Err(LexicalError::Delimiter(tok.clone(), None));
+                },
             _ => {}
         }
         Ok(())
     }
 
+    /// Is indentation significant (that is, are we outside all 'concrete' delmiters)?
     fn sig_indents(&self) -> bool {
         self.delimiters.is_empty()
     }
 
+    /// Enqueue the next token from `self.tokens`, possibly preceded by whitespace-inferred tokens.
+    /// Returns `Ok(true)` if some tokens were shifted and `Ok(false)` if at EOF.
     fn shift(&mut self) -> Result<bool, LexicalError> {
         match self.tokens.next() {
             Some(Ok(tok)) => {
@@ -287,12 +322,10 @@ impl<'input> WSLexer<'input> {
                             Ordering::Greater =>
                                 self.indent(prev_end, prev_line, prev_col, si, col),
                             Ordering::Less => {
-                                while self.curr_indent() > col {
-                                    self.dedent(prev_end, prev_line, prev_col, si);
-                                }
+                                self.dedent_downto(col, prev_end, prev_line, prev_col, si);
 
                                 if col > self.curr_indent() {
-                                    return Err(LexicalError::WildDedent)
+                                    return Err(LexicalError::WildDedent);
                                 } else {
                                     self.newline(prev_end, prev_line, prev_col, si);
                                 }
@@ -305,19 +338,15 @@ impl<'input> WSLexer<'input> {
 
                 self.pending.push_back(tok);
                 Ok(true)
-            }
-            Some(Err(err)) => return Err(err),
-            None =>
-                if !self.done {
-                    let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((0, 1, 0));
-                    while self.curr_indent() > 1 {
-                        self.dedent(prev_end, prev_line, prev_col, prev_end);
-                    }
-                    self.done = true;
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+            },
+            Some(Err(err)) => Err(err),
+            None if !self.done => {
+                let (prev_line, prev_col, prev_end) = self.prev.unwrap_or((1, 1, 0));
+                self.dedent_downto(1, prev_end, prev_line, prev_col, prev_end);
+                self.done = true;
+                Ok(true)
+            },
+            None => Ok(false)
         }
     }
 }
