@@ -23,10 +23,13 @@ fn main() {
                     Ok(line) => {
                         rl.add_history_entry(&line);
                         for tok in Lexer::new(&line).with_ws_stx() {
-                            println!("{:?}", tok);
+                            match tok {
+                                Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
+                                Err(err) => println!("Error: {:?}", err)
+                            }
                         }
                         println!("");
-                        println!("1: {:?}", parser::parse_Expr(Lexer::new(&line).with_ws_stx()));
+                        println!("{:?}", parser::parse_Expr(Lexer::new(&line).with_ws_stx()));
                     },
                     Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
                     Err(err) => {
@@ -42,10 +45,13 @@ fn main() {
             let mut code = String::new();
             f.read_to_string(&mut code).expect("error reading from file");
             for tok in Lexer::new(&code).with_ws_stx() {
-                println!("{:?}", tok);
+                match tok {
+                    Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
+                    Err(err) => println!("Error: {:?}", err)
+                }
             }
             println!("");
-            println!("1: {:?}", parser::parse_Exprs(Lexer::new(&code).with_ws_stx()));
+            println!("{:?}", parser::parse_Exprs(Lexer::new(&code).with_ws_stx()));
         },
         _ => println!("Too many command line arguments.")
     }

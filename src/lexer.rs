@@ -2,6 +2,8 @@ use std::str::CharIndices;
 use std::iter::Peekable;
 use std::collections::VecDeque;
 use std::cmp::Ordering;
+use std::fmt;
+use std::fmt::Display;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
@@ -19,6 +21,12 @@ impl Default for SrcPos {
             line: 1,
             col: 1
         }
+    }
+}
+
+impl Display for SrcPos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{},{}:{}", self.index, self.line, self.col)
     }
 }
 
@@ -46,14 +54,33 @@ pub enum Tok {
     RBracket, // r"]"
     LBrace,   // r"{"
     RBrace,   // r"}"
-    // Indent,
-    // Dedent,
 
     Comma,     // r","
     Semicolon, // r";"
-    // Newline
 
     Eq // r"="
+}
+
+impl Display for Tok {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Tok::Name(_) | &Tok::Op(_) | &Tok::Symbol(_) | &Tok::Number(_) | &Tok::Char(_)
+            | &Tok::String(_) =>
+                write!(f, "{:?}", *self),
+
+            &Tok::LParen => write!(f, "("),
+            &Tok::RParen => write!(f, ")"),
+            &Tok::LBracket => write!(f, "["),
+            &Tok::RBracket => write!(f, "]"),
+            &Tok::LBrace => write!(f, "{{"),
+            &Tok::RBrace => write!(f, "}}"),
+
+            &Tok::Comma => write!(f, ","),
+            &Tok::Semicolon => write!(f, ";"),
+
+            &Tok::Eq => write!(f, "=")
+        }
+    }
 }
 
 impl Tok {
