@@ -12,7 +12,17 @@ pub struct SrcPos {
     col: usize
 }
 
-pub type LocTok = (SrcPos, Tok, SrcPos);
+impl Default for SrcPos {
+    fn default() -> SrcPos {
+        SrcPos {
+            index: 0,
+            line: 1,
+            col: 1
+        }
+    }
+}
+
+type LocTok = (SrcPos, Tok, SrcPos);
 pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 
 #[derive(Debug)]
@@ -42,6 +52,8 @@ pub enum Tok {
     Comma,     // r","
     Semicolon, // r";"
     // Newline
+
+    Eq // r"="
 }
 
 impl Tok {
@@ -76,6 +88,24 @@ impl TokBuilder {
         }
     }
 
+    /// Start building a Tok::Op.
+    fn op(pos: SrcPos) -> TokBuilder {
+        TokBuilder {
+            tok: Tok::Op(String::new()),
+            start: pos,
+            end: None
+        }
+    }
+
+    /// Start building a Tok::Number.
+    fn number(pos: SrcPos) -> TokBuilder {
+        TokBuilder {
+            tok: Tok::Number(String::new()),
+            start: pos,
+            end: None
+        }
+    }
+
     /// Add a character.
     fn push(mut self, c: char) -> TokBuilder {
         self.chars_mut().push(c);
@@ -93,15 +123,6 @@ impl TokBuilder {
         let end = self.end.unwrap_or_else(|| self.start); // HACK
         (self.start, self.tok, end)
     }
-
-    // /// Get a reference to the character buffer.
-    // fn chars(&self) -> &str {
-    //     match self.tok {
-    //         Tok::Name(ref cs) | Tok::Op(ref cs) | Tok::Symbol(ref cs)
-    //         | Tok::Number(ref cs) | Tok::Char(ref cs) | Tok::String(ref cs) => cs,
-    //         _ => unreachable!()
-    //     }
-    // }
 
     /// Get a mutable reference to the character buffer.
     fn chars_mut(&mut self) -> &mut String {
@@ -196,6 +217,8 @@ impl<'input> Iterator for Lexer<'input> {
                 Some(&(_, ',')) => return self.char_token(acc, Tok::Comma),
                 Some(&(_, ';')) => return self.char_token(acc, Tok::Semicolon),
 
+                Some(&(_, '=')) => return self.char_token(acc, Tok::Eq),
+
                 Some(&(_, c)) if c.is_whitespace() =>
                     if let Some(b) = acc {
                         return Some(Ok(b.build()));
@@ -204,8 +227,12 @@ impl<'input> Iterator for Lexer<'input> {
                 Some(&(_, c)) =>
                     if let Some(b) = acc {
                         acc = Some(b.push(c));
-                    } else {
+                    } else if c.is_alphabetic() || c == '@' {
                         acc = Some(TokBuilder::name(self.pos).push(c));
+                    } else if c.is_digit(10) {
+                        acc = Some(TokBuilder::number(self.pos).push(c));
+                    } else {
+                        acc = Some(TokBuilder::op(self.pos).push(c))
                     },
 
                 None => return acc.map(|b| Ok(b.build()))

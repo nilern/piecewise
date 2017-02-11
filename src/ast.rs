@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum AST {
     App(Box<AST>, Box<AST>),   // foo bar
-    Block(Vec<AST>, Vec<AST>), // {|foo| bar; baz}
+    Block(Vec<AST>), // {|foo| bar; baz}
     Def(Box<AST>, Box<AST>),   // foo = bar
 
     Tuple(Vec<AST>),           // (,)

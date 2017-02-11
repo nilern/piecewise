@@ -1,4 +1,4 @@
-use lexer::{Tok, LocTok, LexicalError};
+use lexer::{Tok, LexicalError, SrcPos};
 use ast::AST;
 
 use std::str::FromStr;
@@ -14,6 +14,11 @@ Comma<T>: Vec<T> = {
             v
         }
     }
+};
+
+CommaT<T>: Vec<T> = {
+    <v: (<T> ",")+> => v,
+    "," => vec![]
 };
 
 CommaPlus<T>: Vec<T> = {
@@ -35,87 +40,68 @@ SemiColon<T>: Vec<T> = {
     }
 };
 
-Stmt = {
-    <Expr>,
-    <Def>
+pub Exprs: AST = {
+    <stmts: SemiColon<Stmt>> => AST::Block(stmts)
 };
 
-pub Expr = {
-    <App>,
-    <NonApp>
+pub Expr: AST = {
+    <Stmt>
 };
 
-NonApp = {
-    <Block>,
-    <Coll>,
-    <Atom>
+Stmt: AST = {
+    <lhs: Infix> "=" <rhs: Infix> => AST::Def(Box::new(lhs), Box::new(rhs)),
+    <Infix>
 };
 
-DefPat = {
-    <App>,
-    <Pat>
-};
-
-Pat = {
-    <Coll>,
-    <Atom>
-};
-
-Atom: AST = {
-    Id => AST::Symbol(<>),
-    //<Int>
+Infix: AST = {
+    <l: Infix> <op: Op> <r: App> => AST::App(Box::new(AST::Symbol(op)),
+                                             Box::new(AST::Tuple(vec![l, r]))),
+    <App>
 };
 
 App: AST = {
-    <f: Expr> <arg: NonApp> => AST::App(Box::new(f), Box::new(arg))
+    <f: App> <arg: Simple> => AST::App(Box::new(f), Box::new(arg)),
+    <Simple>
 };
 
-Block: AST = {
-    "{" "|" <formals: Pat*> "|" <stmts: SemiColon<Stmt>> "}" => AST::Block(formals, stmts)
-};
-
-pub BlockBody: AST = {
-    <stmts: SemiColon<Stmt>> => AST::Block(vec![], stmts)
-};
-
-Def: AST = {
-    <pat: DefPat> "=" <value: Expr> => AST::Def(Box::new(pat), Box::new(value))
+Simple: AST = {
+    "{" <Exprs> "}",
+    "(" <Expr> ")",
+    <Coll>,
+    <Atom>
 };
 
 Coll: AST = {
-    "(" <elems: Comma<Expr>> ")"     => AST::Tuple(elems),
-    "[" <elems: Comma<Expr>> "]"     => AST::Array(elems),
-    "{" <elems: CommaPlus<Expr>> "}" => AST::Set(elems),
+    "(" <elems: CommaT<Expr>> ")"     => AST::Tuple(elems),
+    "[" <elems: Comma<Expr>> "]"     => AST::Array(elems)//,
+    //"{" <elems: CommaPlus<Expr>> "}" => AST::Set(elems),
     //"{" <kvs: Comma<MapPair>> "}"    => AST::Map(kvs)
+};
+
+Atom: AST = {
+    Name => AST::Symbol(<>),
+    Number => AST::Int(isize::from_str(&<>).unwrap())
 };
 
 //MapPair: (AST, AST) = {
 //    <key: Expr> ":" <val: Expr> => (key, val)
 //};
 
-//Symbol: AST =  {
-//    r"[@_a-zA-Z][@_a-zA-Z0-9]*" => AST::Symbol(<>.to_string())
-//};
-
-//Int: AST = {
-//    r"[0-9]+" => AST::Int(isize::from_str(<>).unwrap())
-//};
-
 extern {
-    type Location = usize;
+    type Location = SrcPos;
     type Error = LexicalError;
-    enum LocTok {
-        Id  => LocTok { tok: Tok::Id(<String>), .. },
-        "(" => LocTok { tok: Tok::LParen, .. },
-        ")" => LocTok { tok: Tok::RParen, .. },
-        "[" => LocTok { tok: Tok::LBracket, .. },
-        "]" => LocTok { tok: Tok::RBracket, .. },
-        "{" => LocTok { tok: Tok::LBrace, .. },
-        "}" => LocTok { tok: Tok::RBrace, .. },
-        "|" => LocTok { tok: Tok::Pipe, .. },
-        "=" => LocTok { tok: Tok::Eq, .. },
-        "," => LocTok { tok: Tok::Comma, .. },
-        ";" => LocTok { tok: Tok::Semicolon, .. },
-        Indent => LocTok { tok: Tok::Indent, .. }
+    enum Tok {
+        Name => Tok::Name(<String>),
+        Op => Tok::Op(<String>),
+        Number => Tok::Number(<String>),
+        "(" => Tok::LParen,
+        ")" => Tok::RParen,
+        "[" => Tok::LBracket,
+        "]" => Tok::RBracket,
+        "{" => Tok::LBrace,
+        "}" => Tok::RBrace,
+        "," => Tok::Comma,
+        ";" => Tok::Semicolon,
+        "=" => Tok::Eq
     }
 }
