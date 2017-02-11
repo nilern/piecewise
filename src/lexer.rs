@@ -101,8 +101,7 @@ impl Tok {
 /// Like a StringBuilder, but for tokens.
 struct TokBuilder {
     tok: Tok,
-    start: SrcPos,
-    end: Option<SrcPos>
+    start: SrcPos
 }
 
 impl TokBuilder {
@@ -110,8 +109,7 @@ impl TokBuilder {
     fn name(pos: SrcPos) -> TokBuilder {
         TokBuilder {
             tok: Tok::Name(String::new()),
-            start: pos,
-            end: None
+            start: pos
         }
     }
 
@@ -119,8 +117,7 @@ impl TokBuilder {
     fn op(pos: SrcPos) -> TokBuilder {
         TokBuilder {
             tok: Tok::Op(String::new()),
-            start: pos,
-            end: None
+            start: pos
         }
     }
 
@@ -128,8 +125,7 @@ impl TokBuilder {
     fn number(pos: SrcPos) -> TokBuilder {
         TokBuilder {
             tok: Tok::Number(String::new()),
-            start: pos,
-            end: None
+            start: pos
         }
     }
 
@@ -139,16 +135,9 @@ impl TokBuilder {
         self
     }
 
-    /// Set end position.
-    fn ends_at(mut self, pos: SrcPos) -> TokBuilder {
-        self.end = Some(pos);
-        self
-    }
-
     /// Build the position-informed token.
-    fn build(self) -> LocTok {
-        let end = self.end.unwrap_or_else(|| self.start); // HACK
-        (self.start, self.tok, end)
+    fn build(self, pos: SrcPos) -> LocTok {
+        (self.start, self.tok, pos)
     }
 
     /// Get a mutable reference to the character buffer.
@@ -202,7 +191,7 @@ impl<'input> Lexer<'input> {
         -> Option<Spanned<Tok, SrcPos, LexicalError>> {
 
         match builder {
-            Some(builder) => Some(Ok(builder.ends_at(self.pos).build())),
+            Some(builder) => Some(Ok(builder.build(self.pos))),
             None => {
                 let start = self.pos;
                 self.advance();
@@ -248,7 +237,7 @@ impl<'input> Iterator for Lexer<'input> {
 
                 Some(&(_, c)) if c.is_whitespace() =>
                     if let Some(b) = acc {
-                        return Some(Ok(b.build()));
+                        return Some(Ok(b.build(self.pos)));
                     },
 
                 Some(&(_, c)) =>
@@ -262,7 +251,7 @@ impl<'input> Iterator for Lexer<'input> {
                         acc = Some(TokBuilder::op(self.pos).push(c))
                     },
 
-                None => return acc.map(|b| Ok(b.build()))
+                None => return acc.map(|b| Ok(b.build(self.pos)))
             }
             self.advance();
         }
