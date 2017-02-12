@@ -54,13 +54,12 @@ Stmt: AST = {
 };
 
 Infix: AST = {
-    <l: Infix> <op: Op> <r: App> => AST::App(Box::new(AST::Symbol(op)),
-                                             Box::new(AST::Tuple(vec![l, r]))),
+    <l: Infix> <op: Op> <r: App> => AST::App(Box::new(AST::Symbol(op)), vec![l, r]),
     <App>
 };
 
 App: AST = {
-    <f: App> <arg: Simple> => AST::App(Box::new(f), Box::new(arg)),
+    <f: Simple> <args: Simple+> => AST::App(Box::new(f), args),
     <Simple>
 };
 

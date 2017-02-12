@@ -29,7 +29,10 @@ fn main() {
                             }
                         }
                         println!("");
-                        println!("{:?}", parser::parse_Expr(Lexer::new(&line).with_ws_stx()));
+                        match parser::parse_Expr(Lexer::new(&line).with_ws_stx()) {
+                            Ok(ast) => println!("{}", ast),
+                            Err(err) => println!("{:?}", err)
+                        }
                     },
                     Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
                     Err(err) => {
@@ -51,7 +54,10 @@ fn main() {
                 }
             }
             println!("");
-            println!("{:?}", parser::parse_Exprs(Lexer::new(&code).with_ws_stx()));
+            match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()) {
+                Ok(ast) => println!("{}", ast),
+                Err(err) => println!("{:?}", err)
+            }
         },
         _ => println!("Too many command line arguments.")
     }
