@@ -58,7 +58,8 @@ pub enum Tok {
     Comma,     // r","
     Semicolon, // r";"
 
-    Eq // r"="
+    Eq,   // =
+    Arrow // =>
 }
 
 impl Display for Tok {
@@ -78,7 +79,8 @@ impl Display for Tok {
             &Tok::Comma => write!(f, ","),
             &Tok::Semicolon => write!(f, ";"),
 
-            &Tok::Eq => write!(f, "=")
+            &Tok::Eq => write!(f, "="),
+            &Tok::Arrow => write!(f, "=>")
         }
     }
 }

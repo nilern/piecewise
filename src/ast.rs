@@ -2,24 +2,25 @@ use std::fmt;
 use std::fmt::Display;
 
 #[derive(Debug)]
-pub enum AST {
-    App(Box<AST>, Vec<AST>),   // foo bar
-    Block(Vec<AST>),          // {foo; bar}
-    Def(Box<AST>, Box<AST>),   // foo = bar
+pub enum CST {
+    Block(Vec<CST>),          // {foo; bar}
+    Def(Box<CST>, Box<CST>),   // foo = bar
+    Params(Box<CST>, Box<CST>), // foo bar => baz
+    App(Box<CST>, Vec<CST>),   // foo bar
 
-    Tuple(Vec<AST>),           // (,)
-    Array(Vec<AST>),           // [,]
-    // Set(Vec<AST>),             // {,}
-    // Map(Vec<(AST, AST)>),      // {:,}
+    Tuple(Vec<CST>),           // (,)
+    Array(Vec<CST>),           // [,]
+    // Set(Vec<CST>),             // {,}
+    // Map(Vec<(CST, CST)>),      // {:,}
 
     Symbol(String),            // foo
     Int(isize)                 // 123
 }
 
-impl Display for AST {
+impl Display for CST {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &AST::App(ref op, ref args) => {
+            &CST::App(ref op, ref args) => {
                 try!(write!(f, "({} ", op));
                 let mut it = args.iter();
                 if let Some(arg) = it.next() {
@@ -30,7 +31,7 @@ impl Display for AST {
                 }
                 write!(f, ")")
             },
-            &AST::Block(ref stmts) => {
+            &CST::Block(ref stmts) => {
                 try!(write!(f, "{{"));
                 let mut it = stmts.iter();
                 if let Some(arg) = it.next() {
@@ -41,8 +42,9 @@ impl Display for AST {
                 }
                 write!(f, "}}")
             },
-            &AST::Def(ref pat, ref val) => write!(f, "{} = {}", pat, val),
-            &AST::Tuple(ref vals) => {
+            &CST::Def(ref pat, ref val) => write!(f, "{} = {}", pat, val),
+            &CST::Params(ref pat, ref val) => write!(f, "{} => {}", pat, val),
+            &CST::Tuple(ref vals) => {
                 try!(write!(f, "("));
                 let mut it = vals.iter();
                 if let Some(arg) = it.next() {
@@ -53,7 +55,7 @@ impl Display for AST {
                 }
                 write!(f, ")")
             },
-            &AST::Array(ref vals) => {
+            &CST::Array(ref vals) => {
                 try!(write!(f, "["));
                 let mut it = vals.iter();
                 if let Some(v) = it.next() {
@@ -64,8 +66,23 @@ impl Display for AST {
                 }
                 write!(f, "]")
             },
-            &AST::Symbol(ref chars) => write!(f, "{}", chars),
-            &AST::Int(i) => write!(f, "{}", i)
+            &CST::Symbol(ref chars) => write!(f, "{}", chars),
+            &CST::Int(i) => write!(f, "{}", i)
         }
     }
 }
+
+// enum AST {
+//     Block(Vec<AST>),
+//     Fn(Vec<Clause>),
+//     App(Box<AST>, Vec<AST>),
+//
+//     Var(String),
+//     Const(isize) // TODO: Const(Value)
+// }
+//
+// struct Clause {
+//     params: Vec<AST>,
+//     cond: AST,
+//     body: AST
+// }
