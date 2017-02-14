@@ -1,5 +1,5 @@
 [package]
-name = "furby-syntax"
+name = "proff"
 version = "0.1.0"
 authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 
