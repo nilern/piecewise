@@ -81,9 +81,9 @@
 * Immediate values include
     - Small integers `v & 3 == 0`
     - Object headers `v & 3 == 3`
-    - ??? `v & 3 == 2`
+    - Small floats `v & 3 == 2`
 * Allocated values are represented by pointers tagged so that `v & 3 == 1` and
   include
     - Tagpairs `[Header, ValueRef, ValueRef]`
-    - Tuples `[Header, UInt, ValueRef*]`
-    - Blobs `[Header, UInt, u8*]`
+    - Tuples `[Header, ValueRef*]`
+    - Blobs `[Header, u8*]`

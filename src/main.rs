@@ -6,6 +6,8 @@ use std::io::Read;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
+pub mod gc;
+pub mod value;
 pub mod ast;
 pub mod lexer;
 pub mod parser;
