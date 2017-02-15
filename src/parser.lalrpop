@@ -1,4 +1,4 @@
-use lexer::{Tok, LexicalError, SrcPos};
+use lexer::{Precedence, Tok, LexicalError, SrcPos};
 use ast::CST;
 
 use std::str::FromStr;
@@ -40,6 +40,11 @@ SemiColon<T>: Vec<T> = {
     }
 };
 
+Infix<Self, Op, Next>: CST = {
+    <l: Self> <op: Op> <r: Next> => CST::App(Box::new(CST::Symbol(op)), vec![l, r]),
+    <Next>
+};
+
 pub Exprs: CST = {
     <stmts: SemiColon<Stmt>> => CST::Block(stmts)
 };
@@ -49,15 +54,24 @@ pub Expr: CST = {
 };
 
 Stmt: CST = {
-    <lhs: Infix> "=>" <rhs: Infix> => CST::Params(Box::new(lhs), Box::new(rhs)),
-    <lhs: Infix> "=" <rhs: Infix> => CST::Def(Box::new(lhs), Box::new(rhs)),
-    <Infix>
+    <lhs: Infix1> "=>" <rhs: Infix1> => CST::Params(Box::new(lhs), Box::new(rhs)),
+    <lhs: Infix1> "=" <rhs: Infix1> => CST::Def(Box::new(lhs), Box::new(rhs)),
+    <Infix1>
 };
 
-Infix: CST = {
-    <l: Infix> <op: Op> <r: App> => CST::App(Box::new(CST::Symbol(op)), vec![l, r]),
-    <App>
-};
+Infix1: CST = <Infix<Infix1, Op1, Infix2>>;
+
+Infix2: CST = <Infix<Infix2, Op2, Infix3>>;
+
+Infix3: CST = <Infix<Infix3, Op3, Infix4>>;
+
+Infix4: CST = <Infix<Infix4, Op4, Infix5>>;
+
+Infix5: CST = <Infix<Infix5, Op5, Infix6>>;
+
+Infix6: CST = <Infix<Infix6, Op6, Infix7>>;
+
+Infix7: CST = <Infix<Infix7, Op7, App>>;
 
 App: CST = {
     <f: Simple> <args: Simple+> => CST::App(Box::new(f), args),
@@ -92,7 +106,13 @@ extern {
     type Error = LexicalError;
     enum Tok {
         Name => Tok::Name(<String>),
-        Op => Tok::Op(<String>),
+        Op1 => Tok::Op(<String>, Precedence::One),
+        Op2 => Tok::Op(<String>, Precedence::Two),
+        Op3 => Tok::Op(<String>, Precedence::Three),
+        Op4 => Tok::Op(<String>, Precedence::Four),
+        Op5 => Tok::Op(<String>, Precedence::Five),
+        Op6 => Tok::Op(<String>, Precedence::Six),
+        Op7 => Tok::Op(<String>, Precedence::Seven),
         Number => Tok::Number(<String>),
         "(" => Tok::LParen,
         ")" => Tok::RParen,

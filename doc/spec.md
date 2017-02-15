@@ -43,7 +43,15 @@
     atom = ID
          | NUMBER
 
-# Concrete Syntax Tree
+# IRs
+
+    Const = Int isize
+          | Float fsize
+          | Char char
+          | String String
+          | Symbol Symbol
+
+## Concrete Syntax Tree
 
     CST = Block  { pos: SrcPos, stmts: CST* }
         | Def    { pos: SrcPos, pat: CST, val: CST }
@@ -55,25 +63,7 @@
         | Set    { pos: SrcPos, vals: CST* }
         | Map    { pos: SrcPos, vals: (CST, CST)* }
         | Id     { pos: SrcPos, name: Symbol }
-        | Atom   { pos: SrcPos, val: Any }
-
-# Abstract Syntax Tree
-
-    AST = Block { pos: SrcPos, decls: String*, stmts: Stmt* }
-        | Fn    { pos: SrcPos, clauses: Clause* }
-        | App   { pos: SrcPos, op: AST, args: AST+ }
-        | Var   { pos: SrcPos, name: Symbol }
-        | Const { pos: SrcPos, val: Value }
-
-    Stmt = Def  { pos: SrcPos, pat: AST, val: AST }
-         | Expr { pos: SrcPos, expr: AST }
-
-    Clause = Clause {
-        pos: SrcPos,
-        params: AST+,
-        condition: AST,
-        body: AST
-    }
+        | Atom   { pos: SrcPos, val: Const }
 
 # Value Representation
 

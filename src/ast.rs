@@ -1,6 +1,26 @@
+use lexer::SrcPos;
+
 use std::fmt;
 use std::fmt::Display;
 
+/// Values that originated in source code, IR trees and suchlike.
+trait Sourced {
+    /// Return the source position.
+    fn pos(&self) -> SrcPos;
+}
+
+/// A type for variable names.
+pub type Name = String;
+
+/// Source constants.
+pub enum Const {
+    Int(isize),
+    Float(f64),
+    Char(char),
+    String(String)
+}
+
+/// Concrete Syntax Tree.
 #[derive(Debug)]
 pub enum CST {
     Block(Vec<CST>),          // {foo; bar}
@@ -72,17 +92,51 @@ impl Display for CST {
     }
 }
 
-// enum AST {
-//     Block(Vec<AST>),
-//     Fn(Vec<Clause>),
-//     App(Box<AST>, Vec<AST>),
-//
-//     Var(String),
-//     Const(isize) // TODO: Const(Value)
-// }
-//
-// struct Clause {
-//     params: Vec<AST>,
-//     cond: AST,
-//     body: AST
-// }
+/// Abstract Syntax Tree
+pub enum AST {
+    Block { pos: SrcPos, decls: Vec<String>, stmts: Vec<Stmt> },
+    Fn { pos: SrcPos, clauses: Vec<Clause> },
+    App { pos: SrcPos, op: Box<AST>, args: Vec<AST> },
+
+    Var { pos: SrcPos, name: String },
+    Const { pos: SrcPos, val: Const }
+}
+
+impl Sourced for AST {
+    fn pos(&self) -> SrcPos {
+        match self {
+            &AST::Block { pos, .. } => pos,
+            &AST::Fn { pos, .. } => pos,
+            &AST::App { pos, .. } => pos,
+            &AST::Var { pos, .. } => pos,
+            &AST::Const { pos, .. } => pos
+        }
+    }
+}
+
+/// Statement (for `Block`s).
+pub enum Stmt {
+    Def { pos: SrcPos, name: String, val: AST },
+    Expr { pos: SrcPos, expr: AST}
+}
+
+impl Sourced for Stmt {
+    fn pos(&self) -> SrcPos {
+        match self {
+            &Stmt::Def { pos, .. } => pos,
+            &Stmt::Expr { pos, .. } => pos
+        }
+    }
+}
+
+/// Function clause.
+pub struct Clause {
+    pos: SrcPos,
+    params: Vec<AST>,
+    cond: AST,
+    body: AST
+}
+
+impl Sourced for Clause {
+    fn pos(&self) -> SrcPos { self.pos }
+}

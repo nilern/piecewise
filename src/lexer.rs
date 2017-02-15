@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
+use std::convert::TryFrom;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
@@ -36,13 +37,45 @@ pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 #[derive(Debug)]
 pub enum LexicalError {
     WildDedent,
-    Delimiter(Tok, Option<Tok>)
+    Delimiter(Tok, Option<Tok>),
+    UnprecedentedOp(char)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Precedence {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven
+}
+
+impl TryFrom<char> for Precedence {
+    type Err = LexicalError;
+
+    fn try_from(c: char) -> Result<Precedence, LexicalError> {
+        use self::Precedence::*;
+
+        // TODO: actually think about this instead of blindly copying Scala
+        match c {
+            '|' => Ok(One),
+            '^' => Ok(Two),
+            '&' => Ok(Three),
+            '=' | '!' => Ok(Four),
+            '<' | '>' => Ok(Five),
+            '+' | '-' => Ok(Six),
+            '*' | '/' | '%' => Ok(Seven),
+            _ => Err(LexicalError::UnprecedentedOp(c))
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Tok {
     Name(String),   // r"[\p{Alphabetic}_@][^\s'\"\(\)\[\]\{\},;]*"
-    Op(String),     // _
+    Op(String, Precedence),     // _
     Symbol(String), // r":[^\s'\"\(\)\[\]\{\},;]+"
     Number(String), // r"\d[^\s'\"\(\)\[\]\{\},;]*"
     Char(String),   // r"'[^']+'"
@@ -65,7 +98,7 @@ pub enum Tok {
 impl Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &Tok::Name(_) | &Tok::Op(_) | &Tok::Symbol(_) | &Tok::Number(_) | &Tok::Char(_)
+            &Tok::Name(_) | &Tok::Op(_, _) | &Tok::Symbol(_) | &Tok::Number(_) | &Tok::Char(_)
             | &Tok::String(_) =>
                 write!(f, "{:?}", *self),
 
@@ -116,9 +149,9 @@ impl TokBuilder {
     }
 
     /// Start building a Tok::Op.
-    fn op(pos: SrcPos) -> TokBuilder {
+    fn op(pos: SrcPos, prec: Precedence) -> TokBuilder {
         TokBuilder {
-            tok: Tok::Op(String::new()),
+            tok: Tok::Op(String::new(), prec),
             start: pos
         }
     }
@@ -145,7 +178,7 @@ impl TokBuilder {
     /// Get a mutable reference to the character buffer.
     fn chars_mut(&mut self) -> &mut String {
         match self.tok {
-            Tok::Name(ref mut cs) | Tok::Op(ref mut cs) | Tok::Symbol(ref mut cs)
+            Tok::Name(ref mut cs) | Tok::Op(ref mut cs, _) | Tok::Symbol(ref mut cs)
             | Tok::Number(ref mut cs) | Tok::Char(ref mut cs) | Tok::String(ref mut cs) => cs,
             _ => unreachable!()
         }
@@ -250,7 +283,8 @@ impl<'input> Iterator for Lexer<'input> {
                     } else if c.is_digit(10) {
                         acc = Some(TokBuilder::number(self.pos).push(c));
                     } else {
-                        acc = Some(TokBuilder::op(self.pos).push(c))
+                        acc = Some(TokBuilder::op(self.pos,
+                                                  Precedence::try_from(c).unwrap()).push(c))
                     },
 
                 None => return acc.map(|b| Ok(b.build(self.pos)))
