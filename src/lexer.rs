@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
-use std::convert::TryFrom;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
@@ -38,7 +37,8 @@ pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
 pub enum LexicalError {
     WildDedent,
     Delimiter(Tok, Option<Tok>),
-    UnprecedentedOp(char)
+    UnprecedentedOp(char),
+    EmptyTok
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,22 +52,79 @@ pub enum Precedence {
     Seven
 }
 
-impl TryFrom<char> for Precedence {
-    type Err = LexicalError;
-
-    fn try_from(c: char) -> Result<Precedence, LexicalError> {
+impl Precedence {
+    fn of(chars: &str) -> Result<Precedence, LexicalError> {
         use self::Precedence::*;
 
         // TODO: actually think about this instead of blindly copying Scala
+        match chars.chars().next() {
+            Some('|') => Ok(One),
+            Some('^') => Ok(Two),
+            Some('&') => Ok(Three),
+            Some('=') | Some('!') => Ok(Four),
+            Some('<') | Some('>') => Ok(Five),
+            Some('+') | Some('-') => Ok(Six),
+            Some('*') | Some('/') | Some('%') => Ok(Seven),
+            Some(c) => Err(LexicalError::UnprecedentedOp(c)),
+            None => Err(LexicalError::EmptyTok)
+        }
+    }
+}
+
+// impl TryFrom<char> for Precedence {
+//     type Err = LexicalError;
+//
+//     fn try_from(c: char) -> Result<Precedence, LexicalError> {
+//         use self::Precedence::*;
+//
+//         // TODO: actually think about this instead of blindly copying Scala
+//         match c {
+//             '|' => Ok(One),
+//             '^' => Ok(Two),
+//             '&' => Ok(Three),
+//             '=' | '!' => Ok(Four),
+//             '<' | '>' => Ok(Five),
+//             '+' | '-' => Ok(Six),
+//             '*' | '/' | '%' => Ok(Seven),
+//             _ => Err(LexicalError::UnprecedentedOp(c))
+//         }
+//     }
+// }
+
+enum CharCat {
+    Delim(Tok),
+    Sep(Tok),
+    Const(ConstCat),
+    Ws
+}
+
+enum ConstCat {
+    Op,
+    Name,
+    Digit
+}
+
+impl CharCat {
+    fn new(c: char) -> CharCat {
+        use self::CharCat::*;
+        use self::Tok::*;
+
         match c {
-            '|' => Ok(One),
-            '^' => Ok(Two),
-            '&' => Ok(Three),
-            '=' | '!' => Ok(Four),
-            '<' | '>' => Ok(Five),
-            '+' | '-' => Ok(Six),
-            '*' | '/' | '%' => Ok(Seven),
-            _ => Err(LexicalError::UnprecedentedOp(c))
+            '(' => Delim(LParen),
+            ')' => Delim(RParen),
+            '[' => Delim(LBracket),
+            ']' => Delim(RBracket),
+            '{' => Delim(LBrace),
+            '}' => Delim(RBrace),
+
+            ',' => Sep(Comma),
+            ';' => Sep(Semicolon),
+
+            _ if c.is_whitespace() => Ws,
+
+            _ if c.is_digit(10) => Const(ConstCat::Digit),
+            _ if c.is_alphabetic() || c == '@' => Const(ConstCat::Name),
+            _ => Const(ConstCat::Op)
         }
     }
 }
@@ -133,58 +190,6 @@ impl Tok {
     }
 }
 
-/// Like a StringBuilder, but for tokens.
-struct TokBuilder {
-    tok: Tok,
-    start: SrcPos
-}
-
-impl TokBuilder {
-    /// Start building a Tok::Name.
-    fn name(pos: SrcPos) -> TokBuilder {
-        TokBuilder {
-            tok: Tok::Name(String::new()),
-            start: pos
-        }
-    }
-
-    /// Start building a Tok::Op.
-    fn op(pos: SrcPos, prec: Precedence) -> TokBuilder {
-        TokBuilder {
-            tok: Tok::Op(String::new(), prec),
-            start: pos
-        }
-    }
-
-    /// Start building a Tok::Number.
-    fn number(pos: SrcPos) -> TokBuilder {
-        TokBuilder {
-            tok: Tok::Number(String::new()),
-            start: pos
-        }
-    }
-
-    /// Add a character.
-    fn push(mut self, c: char) -> TokBuilder {
-        self.chars_mut().push(c);
-        self
-    }
-
-    /// Build the position-informed token.
-    fn build(self, pos: SrcPos) -> LocTok {
-        (self.start, self.tok, pos)
-    }
-
-    /// Get a mutable reference to the character buffer.
-    fn chars_mut(&mut self) -> &mut String {
-        match self.tok {
-            Tok::Name(ref mut cs) | Tok::Op(ref mut cs, _) | Tok::Symbol(ref mut cs)
-            | Tok::Number(ref mut cs) | Tok::Char(ref mut cs) | Tok::String(ref mut cs) => cs,
-            _ => unreachable!()
-        }
-    }
-}
-
 pub struct Lexer<'input> {
     chars: Peekable<CharIndices<'input>>,
     pos: SrcPos
@@ -220,20 +225,39 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    /// A delimiter or separator was encountered, either build the extended token that was pending
-    /// or emit the delimiter/separator.
-    fn char_token(&mut self, builder: Option<TokBuilder>, tok: Tok)
-        -> Option<Spanned<Tok, SrcPos, LexicalError>> {
+    fn long_token(&mut self) -> Spanned<Tok, SrcPos, LexicalError> {
+        let start = self.pos;
+        let mut acc = String::new();
 
-        match builder {
-            Some(builder) => Some(Ok(builder.build(self.pos))),
-            None => {
-                let start = self.pos;
-                self.advance();
-                let end = self.pos;
-                Some(Ok((start, tok, end)))
+        // Push onto acc until we run into a Delim, Sep or Ws char:
+        loop {
+            match self.chars.peek() {
+                Some(&(_, c)) =>
+                    match CharCat::new(c) {
+                        CharCat::Delim(_) | CharCat::Sep(_) | CharCat::Ws => break,
+                        CharCat::Const(_) => {
+                            acc.push(c);
+                            self.advance();
+                        }
+                    },
+                None => break
             }
         }
+
+        let tok = if let Some(c) = acc.chars().next() {
+            match CharCat::new(c) {
+                CharCat::Const(ConstCat::Op) => {
+                    let prec = try!(Precedence::of(&acc));
+                    Tok::Op(acc, prec)
+                },
+                CharCat::Const(ConstCat::Name) => Tok::Name(acc),
+                CharCat::Const(ConstCat::Digit) => Tok::Number(acc),
+                CharCat::Delim(_) | CharCat::Sep(_) | CharCat::Ws => unreachable!()
+            }
+        } else {
+            return Err(LexicalError::EmptyTok);
+        };
+        Ok((start, tok, self.pos))
     }
 
     /// Add the whitespace-inferred tokens to this token stream.
@@ -252,44 +276,26 @@ impl<'input> Lexer<'input> {
 impl<'input> Iterator for Lexer<'input> {
     type Item = Spanned<Tok, SrcPos, LexicalError>;
 
-    // TODO: operators, numbers, characters, strings
+    // TODO: characters, strings
     fn next(&mut self) -> Option<Self::Item> {
-        let mut acc = None;
-
         loop {
             match self.chars.peek() {
-                Some(&(_, '('))  => return self.char_token(acc, Tok::LParen,),
-                Some(&(_, ')'))  => return self.char_token(acc, Tok::RParen),
-                Some(&(_, '['))  => return self.char_token(acc, Tok::LBracket),
-                Some(&(_, ']'))  => return self.char_token(acc, Tok::RBracket),
-                Some(&(_, '{'))  => return self.char_token(acc, Tok::LBrace,),
-                Some(&(_, '}'))  => return self.char_token(acc, Tok::RBrace),
-
-                Some(&(_, ',')) => return self.char_token(acc, Tok::Comma),
-                Some(&(_, ';')) => return self.char_token(acc, Tok::Semicolon),
-
-                Some(&(_, '=')) => return self.char_token(acc, Tok::Eq),
-
-                Some(&(_, c)) if c.is_whitespace() =>
-                    if let Some(b) = acc {
-                        return Some(Ok(b.build(self.pos)));
-                    },
-
                 Some(&(_, c)) =>
-                    if let Some(b) = acc {
-                        acc = Some(b.push(c));
-                    } else if c.is_alphabetic() || c == '@' {
-                        acc = Some(TokBuilder::name(self.pos).push(c));
-                    } else if c.is_digit(10) {
-                        acc = Some(TokBuilder::number(self.pos).push(c));
-                    } else {
-                        acc = Some(TokBuilder::op(self.pos,
-                                                  Precedence::try_from(c).unwrap()).push(c))
+                    match CharCat::new(c) {
+                        CharCat::Delim(tok) | CharCat::Sep(tok) => {
+                            let start = self.pos;
+                            self.advance();
+                            let end = self.pos;
+                            return Some(Ok((start, tok, end)));
+                        },
+                        CharCat::Const(_) => return Some(self.long_token()),
+                        CharCat::Ws => {
+                            self.advance();
+                            continue;
+                        }
                     },
-
-                None => return acc.map(|b| Ok(b.build(self.pos)))
+                None => return None
             }
-            self.advance();
         }
     }
 }

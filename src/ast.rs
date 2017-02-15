@@ -58,7 +58,7 @@ impl Display for CST {
                     try!(write!(f, "{}", arg));
                 }
                 for arg in it {
-                    try!(write!(f, " {}", arg));
+                    try!(write!(f, "; {}", arg));
                 }
                 write!(f, "}}")
             },
