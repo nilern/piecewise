@@ -132,9 +132,9 @@ impl Sourced for Stmt {
 /// Function clause.
 pub struct Clause {
     pos: SrcPos,
-    params: Vec<AST>,
-    cond: AST,
-    body: AST
+    // params: Vec<AST>,
+    // cond: AST,
+    // body: AST
 }
 
 impl Sourced for Clause {

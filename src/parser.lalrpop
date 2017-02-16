@@ -1,4 +1,7 @@
 use lexer::{Precedence, Tok, LexicalError, SrcPos};
+use lexer::Side::*;
+use lexer::Delimiter::*;
+use lexer::Separator::*;
 use ast::CST;
 
 use std::str::FromStr;
@@ -118,13 +121,13 @@ extern {
         Op6 => Tok::Op(<String>, Precedence::Six),
         Op7 => Tok::Op(<String>, Precedence::Seven),
         Number => Tok::Number(<String>),
-        "(" => Tok::LParen,
-        ")" => Tok::RParen,
-        "[" => Tok::LBracket,
-        "]" => Tok::RBracket,
-        "{" => Tok::LBrace,
-        "}" => Tok::RBrace,
-        "," => Tok::Comma,
-        ";" => Tok::Semicolon,
+        "(" => Tok::Delim(Paren, Left),
+        ")" => Tok::Delim(Paren, Right),
+        "[" => Tok::Delim(Bracket, Left),
+        "]" => Tok::Delim(Bracket, Right),
+        "{" => Tok::Delim(Brace, Left),
+        "}" => Tok::Delim(Brace, Right),
+        "," => Tok::Sep(Comma),
+        ";" => Tok::Sep(Semicolon),
     }
 }

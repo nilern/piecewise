@@ -4,10 +4,11 @@ use std::collections::VecDeque;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
+use std::str::FromStr;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SrcPos {
     index: usize,
     line: usize,
@@ -16,11 +17,7 @@ pub struct SrcPos {
 
 impl Default for SrcPos {
     fn default() -> SrcPos {
-        SrcPos {
-            index: 0,
-            line: 1,
-            col: 1
-        }
+        SrcPos { index: 0, line: 1, col: 1 }
     }
 }
 
@@ -30,31 +27,36 @@ impl Display for SrcPos {
     }
 }
 
-type LocTok = (SrcPos, Tok, SrcPos);
-pub type Spanned<Tok, Loc, Error> = Result<(Loc, Tok, Loc), Error>;
-
 #[derive(Debug)]
 pub enum LexicalError {
     WildDedent,
-    Delimiter(Tok, Option<Tok>),
+    Delim(Delimiter, Option<Delimiter>),
     UnprecedentedOp(char),
-    EmptyTok
+    EmptyTok,
+    MalformedTok
 }
+
+type LexResult<T> = Result<T, LexicalError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Precedence {
-    Zero,
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
-    Seven
-}
+pub enum Delimiter { Paren, Bracket, Brace }
+
+use self::Delimiter::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Separator { Comma, Semicolon }
+
+use self::Separator::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side { Left, Right }
+
+use self::Side::*;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Precedence { Zero, One, Two, Three, Four, Five, Six, Seven }
 
 impl Precedence {
-    fn of(chars: &str) -> Result<Precedence, LexicalError> {
+    fn of(chars: &str) -> LexResult<Precedence> {
         use self::Precedence::*;
 
         if chars == "=" || chars == "=>" { // HACK
@@ -76,18 +78,11 @@ impl Precedence {
     }
 }
 
-enum CharCat {
-    Delim(Tok),
-    Sep(Tok),
-    Const(ConstCat),
-    Ws
-}
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CharCat { CharTok(Tok), Const(ConstCat), Ws }
 
-enum ConstCat {
-    Op,
-    Name,
-    Digit
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConstCat { Op, Name, Digit }
 
 impl CharCat {
     fn new(c: char) -> CharCat {
@@ -95,15 +90,15 @@ impl CharCat {
         use self::Tok::*;
 
         match c {
-            '(' => Delim(LParen),
-            ')' => Delim(RParen),
-            '[' => Delim(LBracket),
-            ']' => Delim(RBracket),
-            '{' => Delim(LBrace),
-            '}' => Delim(RBrace),
+            '(' => CharTok(Delim(Paren, Left)),
+            ')' => CharTok(Delim(Paren, Right)),
+            '[' => CharTok(Delim(Bracket, Left)),
+            ']' => CharTok(Delim(Bracket, Right)),
+            '{' => CharTok(Delim(Brace, Left)),
+            '}' => CharTok(Delim(Brace, Right)),
 
-            ',' => Sep(Comma),
-            ';' => Sep(Semicolon),
+            ',' => CharTok(Sep(Comma)),
+            ';' => CharTok(Sep(Semicolon)),
 
             _ if c.is_whitespace() => Ws,
 
@@ -112,65 +107,65 @@ impl CharCat {
             _ => Const(ConstCat::Op)
         }
     }
+
+    fn is_terminator(c: char) -> bool {
+        if let CharCat::Const(_) = CharCat::new(c) { false } else { true }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Tok {
-    Name(String),   // r"[\p{Alphabetic}_@][^\s'\"\(\)\[\]\{\},;]*"
-    Op(String, Precedence),     // _
-    Symbol(String), // r":[^\s'\"\(\)\[\]\{\},;]+"
-    Number(String), // r"\d[^\s'\"\(\)\[\]\{\},;]*"
-    Char(String),   // r"'[^']+'"
-    String(String), // r"\"[^\"]\""
+    Name(String),
+    Op(String, Precedence),
+    Symbol(String),
+    Number(String),
 
-    LParen,   // r"("
-    RParen,   // r")"
-    LBracket, // r"["
-    RBracket, // r"]"
-    LBrace,   // r"{"
-    RBrace,   // r"}"
+    Char(String), String(String),
 
-    Comma,     // r","
-    Semicolon, // r";"
+    Delim(Delimiter, Side),
 
-    Eq,   // =
-    Arrow // =>
+    Sep(Separator)
 }
+
+type LocTok = (SrcPos, Tok, SrcPos);
 
 impl Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::Tok::*;
+
         match self {
-            &Tok::Name(_) | &Tok::Op(_, _) | &Tok::Symbol(_) | &Tok::Number(_) | &Tok::Char(_)
-            | &Tok::String(_) =>
-                write!(f, "{:?}", *self),
+            &Name(_) | &Op(_, _) | &Symbol(_) | &Number(_)
+            | &Char(_) | &String(_) => write!(f, "{:?}", *self),
 
-            &Tok::LParen => write!(f, "("),
-            &Tok::RParen => write!(f, ")"),
-            &Tok::LBracket => write!(f, "["),
-            &Tok::RBracket => write!(f, "]"),
-            &Tok::LBrace => write!(f, "{{"),
-            &Tok::RBrace => write!(f, "}}"),
+            &Delim(Paren, Left) => write!(f, "("),
+            &Delim(Paren, Right) => write!(f, ")"),
+            &Delim(Bracket, Left) => write!(f, "["),
+            &Delim(Bracket, Right) => write!(f, "]"),
+            &Delim(Brace, Left) => write!(f, "{{"),
+            &Delim(Brace, Right) => write!(f, "}}"),
 
-            &Tok::Comma => write!(f, ","),
-            &Tok::Semicolon => write!(f, ";"),
-
-            &Tok::Eq => write!(f, "="),
-            &Tok::Arrow => write!(f, "=>")
+            &Sep(Comma) => write!(f, ","),
+            &Sep(Semicolon) => write!(f, ";")
         }
     }
 }
 
-impl Tok {
-    /// Get the matching delimiter, if applicable.
-    fn pair(&self) -> Option<Tok> {
-        match *self {
-            Tok::LParen => Some(Tok::RParen),
-            Tok::RParen => Some(Tok::LParen),
-            Tok::LBracket => Some(Tok::RBracket),
-            Tok::RBracket => Some(Tok::LBracket),
-            Tok::LBrace => Some(Tok::RBrace),
-            Tok::RBrace => Some(Tok::LBrace),
-            _ => None
+impl FromStr for Tok {
+    type Err = LexicalError;
+
+    fn from_str(chars: &str) -> LexResult<Tok> {
+        use self::CharCat::*;
+
+        if let Some(c) = chars.chars().next() {
+            match CharCat::new(c) {
+                Const(ConstCat::Op) =>
+                    Precedence::of(&chars).map(|prec| Tok::Op(chars.to_string(), prec)),
+                Const(ConstCat::Name) => Ok(Tok::Name(chars.to_string())),
+                Const(ConstCat::Digit) => Ok(Tok::Number(chars.to_string())),
+                CharTok(_) | Ws => Err(LexicalError::MalformedTok)
+            }
+        } else {
+            Err(LexicalError::EmptyTok)
         }
     }
 }
@@ -185,7 +180,7 @@ impl<'input> Lexer<'input> {
     pub fn new(input: &'input str) -> Self {
         Lexer {
             chars: input.char_indices().peekable(),
-            pos: SrcPos { index: 0, line: 1, col: 1}
+            pos: SrcPos::default()
         }
     }
 
@@ -210,39 +205,25 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    fn long_token(&mut self) -> Spanned<Tok, SrcPos, LexicalError> {
+    fn char_token(&mut self, tok: Tok) -> LocTok {
+        let start = self.pos;
+        self.advance();
+        (start, tok, self.pos)
+    }
+
+    fn long_token(&mut self) -> <Self as Iterator>::Item {
         let start = self.pos;
         let mut acc = String::new();
 
-        // Push onto acc until we run into a Delim, Sep or Ws char:
-        loop {
-            match self.chars.peek() {
-                Some(&(_, c)) =>
-                    match CharCat::new(c) {
-                        CharCat::Delim(_) | CharCat::Sep(_) | CharCat::Ws => break,
-                        CharCat::Const(_) => {
-                            acc.push(c);
-                            self.advance();
-                        }
-                    },
-                None => break
+        while let Some(&(_, c)) = self.chars.peek() {
+            if CharCat::is_terminator(c) {
+                break;
             }
+            acc.push(c);
+            self.advance();
         }
 
-        let tok = if let Some(c) = acc.chars().next() {
-            match CharCat::new(c) {
-                CharCat::Const(ConstCat::Op) => {
-                    let prec = try!(Precedence::of(&acc));
-                    Tok::Op(acc, prec)
-                },
-                CharCat::Const(ConstCat::Name) => Tok::Name(acc),
-                CharCat::Const(ConstCat::Digit) => Tok::Number(acc),
-                CharCat::Delim(_) | CharCat::Sep(_) | CharCat::Ws => unreachable!()
-            }
-        } else {
-            return Err(LexicalError::EmptyTok);
-        };
-        Ok((start, tok, self.pos))
+        Tok::from_str(&acc).map(|tok| (start, tok, self.pos))
     }
 
     /// Add the whitespace-inferred tokens to this token stream.
@@ -259,29 +240,17 @@ impl<'input> Lexer<'input> {
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<Tok, SrcPos, LexicalError>;
+    type Item = LexResult<LocTok>;
 
-    // TODO: characters, strings
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.chars.peek() {
-                Some(&(_, c)) =>
-                    match CharCat::new(c) {
-                        CharCat::Delim(tok) | CharCat::Sep(tok) => {
-                            let start = self.pos;
-                            self.advance();
-                            let end = self.pos;
-                            return Some(Ok((start, tok, end)));
-                        },
-                        CharCat::Const(_) => return Some(self.long_token()),
-                        CharCat::Ws => {
-                            self.advance();
-                            continue;
-                        }
-                    },
-                None => return None
+        while let Some(&(_, c)) = self.chars.peek() {
+            match CharCat::new(c) {
+                CharCat::CharTok(tok) => return Some(Ok(self.char_token(tok))),
+                CharCat::Const(_) => return Some(self.long_token()),
+                CharCat::Ws => self.advance()
             }
         }
+        None
     }
 }
 
@@ -290,7 +259,7 @@ pub struct WSLexer<'input> {
     prev_end: Option<SrcPos>,
     pending: VecDeque<LocTok>,
     indents: Vec<usize>,
-    delimiters: Vec<Tok>,
+    delimiters: Vec<Delimiter>,
     done: bool
 }
 
@@ -321,25 +290,33 @@ impl<'input> WSLexer<'input> {
 
     /// Enqueue a separator corresponding to a newline in the source.
     fn newline(&mut self, start: SrcPos, end: SrcPos) {
-        self.pending.push_back((start, Tok::Semicolon, end))
+        self.pending.push_back((start, Tok::Sep(Semicolon), end))
     }
 
     /// Enqueue a delimiter corresponding to an indent in the source.
     fn indent(&mut self, start: SrcPos, end: SrcPos) {
         self.indents.push(end.col);
-        self.pending.push_back((start, Tok::LBrace, end))
+        self.pending.push_back((start, Tok::Delim(Brace, Left), end))
     }
 
     /// Enqueue a delimiter corresponding to an dedent in the source.
     fn dedent(&mut self, start: SrcPos, end: SrcPos) {
         self.indents.pop();
-        self.pending.push_back((start, Tok::RBrace, end))
+        self.pending.push_back((start, Tok::Delim(Brace, Right), end))
     }
 
     /// Enqueue enough dedents to get down to `dest_col`.
-    fn dedent_downto(&mut self, dest_col: usize, start: SrcPos, end: SrcPos) {
+    fn dedent_downto(&mut self, dest_col: usize, start: SrcPos, end: SrcPos)
+        -> Result<(), LexicalError> {
+
         while self.curr_indent() > dest_col {
             self.dedent(start, end);
+        }
+
+        if dest_col > self.curr_indent() {
+            Err(LexicalError::WildDedent)
+        } else {
+            Ok(())
         }
     }
 
@@ -350,18 +327,11 @@ impl<'input> WSLexer<'input> {
 
             if start.line > prev_end.line {
                 match start.col.cmp(&self.curr_indent()) {
-                    Ordering::Equal =>
-                        self.newline(prev_end, start),
-                    Ordering::Greater =>
-                        self.indent(prev_end, start),
+                    Ordering::Equal => self.newline(prev_end, start),
+                    Ordering::Greater => self.indent(prev_end, start),
                     Ordering::Less => {
-                        self.dedent_downto(start.col, prev_end, start);
-
-                        if start.col > self.curr_indent() {
-                            return Err(LexicalError::WildDedent);
-                        } else {
-                            self.newline(prev_end, start);
-                        }
+                        self.dedent_downto(start.col, prev_end, start)?;
+                        self.newline(prev_end, start);
                     }
                 }
             }
@@ -372,38 +342,33 @@ impl<'input> WSLexer<'input> {
     /// Push a delimiter to or pop its pair from the delimiter stack.
     fn delimiter(&mut self, tok: &Tok) -> Result<(), LexicalError> {
         match tok {
-            &Tok::LParen | &Tok::LBracket | &Tok::LBrace =>
-                self.delimiters.push(tok.clone()),
-            &Tok::RParen | &Tok::RBracket | &Tok::RBrace =>
-                if !self.delimiters.is_empty() {
-                    let expected = self.delimiters.last().unwrap().pair().unwrap();
-                    if *tok == expected {
-                        self.delimiters.pop();
-                    } else {
-                        return Err(LexicalError::Delimiter(tok.clone(), Some(expected)));
-                    }
+            &Tok::Delim(delim, Side::Left) => Ok(self.delimiters.push(delim)),
+            &Tok::Delim(ref rd, Side::Right) if !self.delimiters.is_empty() =>
+                if rd == self.delimiters.last().unwrap() {
+                    self.delimiters.pop();
+                    Ok(())
                 } else {
-                    return Err(LexicalError::Delimiter(tok.clone(), None));
+                    Err(LexicalError::Delim(*rd, Some(self.delimiters.last().unwrap().clone())))
                 },
-            _ => {}
+            &Tok::Delim(delim, Side::Right) => Err(LexicalError::Delim(delim, None)),
+            _ => Ok(())
         }
-        Ok(())
     }
 
     /// Enqueue the next token from `self.tokens`, possibly preceded by whitespace-inferred tokens.
     /// Returns `Ok(true)` if some tokens were shifted and `Ok(false)` if at EOF.
-    fn shift(&mut self) -> Result<bool, LexicalError> {
+    fn shift(&mut self) -> LexResult<bool> {
         match self.tokens.next() {
             Some(Ok(tok)) => {
-                try!(self.enqueue_ws_tokens(tok.0));
-                try!(self.delimiter(&tok.1));
+                self.enqueue_ws_tokens(tok.0)?;
+                self.delimiter(&tok.1)?;
                 self.pending.push_back(tok);
                 Ok(true)
             },
             Some(Err(err)) => Err(err),
             None if !self.done => {
                 let prev_end = self.prev_end(SrcPos { index: 0, line: 0, col: 0 });
-                self.dedent_downto(1, prev_end, prev_end);
+                self.dedent_downto(1, prev_end, prev_end)?;
                 self.done = true;
                 Ok(true)
             },
@@ -413,7 +378,7 @@ impl<'input> WSLexer<'input> {
 }
 
 impl<'input> Iterator for WSLexer<'input> {
-    type Item = Spanned<Tok, SrcPos, LexicalError>;
+    type Item = LexResult<LocTok>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.pop()
