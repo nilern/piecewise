@@ -43,6 +43,7 @@ pub enum LexicalError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precedence {
+    Zero,
     One,
     Two,
     Three,
@@ -55,6 +56,10 @@ pub enum Precedence {
 impl Precedence {
     fn of(chars: &str) -> Result<Precedence, LexicalError> {
         use self::Precedence::*;
+
+        if chars == "=" || chars == "=>" { // HACK
+            return Ok(Zero);
+        }
 
         // TODO: actually think about this instead of blindly copying Scala
         match chars.chars().next() {
@@ -70,26 +75,6 @@ impl Precedence {
         }
     }
 }
-
-// impl TryFrom<char> for Precedence {
-//     type Err = LexicalError;
-//
-//     fn try_from(c: char) -> Result<Precedence, LexicalError> {
-//         use self::Precedence::*;
-//
-//         // TODO: actually think about this instead of blindly copying Scala
-//         match c {
-//             '|' => Ok(One),
-//             '^' => Ok(Two),
-//             '&' => Ok(Three),
-//             '=' | '!' => Ok(Four),
-//             '<' | '>' => Ok(Five),
-//             '+' | '-' => Ok(Six),
-//             '*' | '/' | '%' => Ok(Seven),
-//             _ => Err(LexicalError::UnprecedentedOp(c))
-//         }
-//     }
-// }
 
 enum CharCat {
     Delim(Tok),

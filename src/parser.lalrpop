@@ -54,8 +54,11 @@ pub Expr: CST = {
 };
 
 Stmt: CST = {
-    <lhs: Infix1> "=>" <rhs: Infix1> => CST::Params(Box::new(lhs), Box::new(rhs)),
-    <lhs: Infix1> "=" <rhs: Infix1> => CST::Def(Box::new(lhs), Box::new(rhs)),
+    <lhs: Infix1> <op: Op0> <rhs: Infix1> => match &op as &str {
+            "=" => CST::Def(Box::new(lhs), Box::new(rhs)),
+            "=>" => CST::Params(Box::new(lhs), Box::new(rhs)),
+            _ => unreachable!()
+        },
     <Infix1>
 };
 
@@ -106,6 +109,7 @@ extern {
     type Error = LexicalError;
     enum Tok {
         Name => Tok::Name(<String>),
+        Op0 => Tok::Op(<String>, Precedence::Zero),
         Op1 => Tok::Op(<String>, Precedence::One),
         Op2 => Tok::Op(<String>, Precedence::Two),
         Op3 => Tok::Op(<String>, Precedence::Three),
@@ -122,7 +126,5 @@ extern {
         "}" => Tok::RBrace,
         "," => Tok::Comma,
         ";" => Tok::Semicolon,
-        "=" => Tok::Eq,
-        "=>" => Tok::Arrow
     }
 }
