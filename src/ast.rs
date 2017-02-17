@@ -13,6 +13,7 @@ trait Sourced {
 pub type Name = String;
 
 /// Source constants.
+#[derive(Debug)]
 pub enum Const {
     Int(isize),
     Float(f64),
@@ -34,7 +35,7 @@ pub enum CST {
     // Map(Vec<(CST, CST)>),      // {:,}
 
     Symbol(String),            // foo
-    Int(isize)                 // 123
+    Const(Const)                 // 123
 }
 
 impl Display for CST {
@@ -87,7 +88,7 @@ impl Display for CST {
                 write!(f, "]")
             },
             &CST::Symbol(ref chars) => write!(f, "{}", chars),
-            &CST::Int(i) => write!(f, "{}", i)
+            &CST::Const(ref c) => write!(f, "{:?}", c)
         }
     }
 }

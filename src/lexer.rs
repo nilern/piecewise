@@ -44,6 +44,11 @@ pub enum Delimiter { Paren, Bracket, Brace }
 use self::Delimiter::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenDelimiter { SingleQuote, DoubleQuote }
+
+use self::TokenDelimiter::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Separator { Comma, Semicolon }
 
 use self::Separator::*;
@@ -79,7 +84,7 @@ impl Precedence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum CharCat { CharTok(Tok), Const(ConstCat), Ws }
+enum CharCat { CharTok(Tok), TokDelim(TokenDelimiter), Const(ConstCat), Ws }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConstCat { Op, Name, Digit }
@@ -100,6 +105,9 @@ impl CharCat {
             ',' => CharTok(Sep(Comma)),
             ';' => CharTok(Sep(Semicolon)),
 
+            '\'' => TokDelim(SingleQuote),
+            '"' => TokDelim(DoubleQuote),
+
             _ if c.is_whitespace() => Ws,
 
             _ if c.is_digit(10) => Const(ConstCat::Digit),
@@ -113,6 +121,7 @@ impl CharCat {
     }
 }
 
+// TODO: &str instead of String
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Tok {
     Name(String),
@@ -156,12 +165,28 @@ impl FromStr for Tok {
     fn from_str(chars: &str) -> LexResult<Tok> {
         use self::CharCat::*;
 
-        if let Some(c) = chars.chars().next() {
+        let mut it = chars.chars();
+        if let Some(c) = it.next() {
             match CharCat::new(c) {
                 Const(ConstCat::Op) =>
                     Precedence::of(&chars).map(|prec| Tok::Op(chars.to_string(), prec)),
                 Const(ConstCat::Name) => Ok(Tok::Name(chars.to_string())),
                 Const(ConstCat::Digit) => Ok(Tok::Number(chars.to_string())),
+                TokDelim(delim) =>
+                    if let Some(_) = it.last() {
+                        match delim {
+                            SingleQuote => Ok(Tok::Char(chars.chars()
+                                                             .skip(1)
+                                                             .take(chars.len() - 2)
+                                                             .collect())),
+                            DoubleQuote => Ok(Tok::String(chars.chars()
+                                                               .skip(1)
+                                                               .take(chars.len() - 2)
+                                                               .collect()))
+                        }
+                    } else {
+                        Err(LexicalError::MalformedTok)
+                    },
                 CharTok(_) | Ws => Err(LexicalError::MalformedTok)
             }
         } else {
@@ -211,7 +236,7 @@ impl<'input> Lexer<'input> {
         (start, tok, self.pos)
     }
 
-    fn long_token(&mut self) -> <Self as Iterator>::Item {
+    fn long_token(&mut self) -> LexResult<LocTok> {
         let start = self.pos;
         let mut acc = String::new();
 
@@ -224,6 +249,29 @@ impl<'input> Lexer<'input> {
         }
 
         Tok::from_str(&acc).map(|tok| (start, tok, self.pos))
+    }
+
+    fn delim_token(&mut self) -> Option<LexResult<LocTok>> {
+        let start = self.pos;
+        let mut acc = String::new();
+
+        let delim = if let Some(&(_, c)) = self.chars.peek() {
+            acc.push(c);
+            self.advance();
+            c
+        } else {
+            return None;
+        };
+
+        while let Some(&(_, c)) = self.chars.peek() {
+            acc.push(c);
+            self.advance();
+            if c == delim {
+                break;
+            }
+        }
+
+        Some(Tok::from_str(&acc).map(|tok| (start, tok, self.pos)))
     }
 
     /// Add the whitespace-inferred tokens to this token stream.
@@ -247,6 +295,7 @@ impl<'input> Iterator for Lexer<'input> {
             match CharCat::new(c) {
                 CharCat::CharTok(tok) => return Some(Ok(self.char_token(tok))),
                 CharCat::Const(_) => return Some(self.long_token()),
+                CharCat::TokDelim(_) => return self.delim_token(),
                 CharCat::Ws => self.advance()
             }
         }

@@ -2,7 +2,7 @@ use lexer::{Precedence, Tok, LexicalError, SrcPos};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
-use ast::CST;
+use ast::{CST, Const};
 
 use std::str::FromStr;
 
@@ -100,7 +100,9 @@ Coll: CST = {
 
 Atom: CST = {
     Name => CST::Symbol(<>),
-    Number => CST::Int(isize::from_str(&<>).unwrap())
+    Number => CST::Const(Const::Int(isize::from_str(&<>).unwrap())),
+    String => CST::Const(Const::String(<>)),
+    Char => CST::Const(Const::Char(<>.chars().next().unwrap()))
 };
 
 //MapPair: (CST, CST) = {
@@ -112,6 +114,9 @@ extern {
     type Error = LexicalError;
     enum Tok {
         Name => Tok::Name(<String>),
+        Number => Tok::Number(<String>),
+        String => Tok::String(<String>),
+        Char => Tok::Char(<String>),
         Op0 => Tok::Op(<String>, Precedence::Zero),
         Op1 => Tok::Op(<String>, Precedence::One),
         Op2 => Tok::Op(<String>, Precedence::Two),
@@ -120,7 +125,6 @@ extern {
         Op5 => Tok::Op(<String>, Precedence::Five),
         Op6 => Tok::Op(<String>, Precedence::Six),
         Op7 => Tok::Op(<String>, Precedence::Seven),
-        Number => Tok::Number(<String>),
         "(" => Tok::Delim(Paren, Left),
         ")" => Tok::Delim(Paren, Right),
         "[" => Tok::Delim(Bracket, Left),

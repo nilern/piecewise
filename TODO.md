@@ -1,2 +1,2 @@
-* [ ] Tok::{Symbol, Char, String}
+* [ ] Tok::Symbol
 * [ ] Fixity
