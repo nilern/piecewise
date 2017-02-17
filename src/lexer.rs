@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
-use std::str::FromStr;
 
 // TODO: remember whether braces and semicolons resulted from whitespace
 
@@ -44,11 +43,6 @@ pub enum Delimiter { Paren, Bracket, Brace }
 use self::Delimiter::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TokenDelimiter { SingleQuote, DoubleQuote }
-
-use self::TokenDelimiter::*;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Separator { Comma, Semicolon }
 
 use self::Separator::*;
@@ -83,45 +77,6 @@ impl Precedence {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum CharCat { CharTok(Tok), TokDelim(TokenDelimiter), Const(ConstCat), Ws }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstCat { Op, Name, Digit }
-
-impl CharCat {
-    fn new(c: char) -> CharCat {
-        use self::CharCat::*;
-        use self::Tok::*;
-
-        match c {
-            '(' => CharTok(Delim(Paren, Left)),
-            ')' => CharTok(Delim(Paren, Right)),
-            '[' => CharTok(Delim(Bracket, Left)),
-            ']' => CharTok(Delim(Bracket, Right)),
-            '{' => CharTok(Delim(Brace, Left)),
-            '}' => CharTok(Delim(Brace, Right)),
-
-            ',' => CharTok(Sep(Comma)),
-            ';' => CharTok(Sep(Semicolon)),
-
-            '\'' => TokDelim(SingleQuote),
-            '"' => TokDelim(DoubleQuote),
-
-            _ if c.is_whitespace() => Ws,
-
-            _ if c.is_digit(10) => Const(ConstCat::Digit),
-            _ if c.is_alphabetic() || c == '@' => Const(ConstCat::Name),
-            _ => Const(ConstCat::Op)
-        }
-    }
-
-    fn is_terminator(c: char) -> bool {
-        if let CharCat::Const(_) = CharCat::new(c) { false } else { true }
-    }
-}
-
-// TODO: &str instead of String
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Tok {
     Name(String),
@@ -129,7 +84,8 @@ pub enum Tok {
     Symbol(String),
     Number(String),
 
-    Char(String), String(String),
+    Char(String),
+    String(String),
 
     Delim(Delimiter, Side),
 
@@ -137,6 +93,34 @@ pub enum Tok {
 }
 
 type LocTok = (SrcPos, Tok, SrcPos);
+
+const CHAR_TOKENS: &'static str = "()[]{}.;";
+
+const TOKEN_DELIMS: &'static str = "'\"";
+
+fn is_terminator(c: char) -> bool {
+    c.is_whitespace() || CHAR_TOKENS.contains(c) || TOKEN_DELIMS.contains(c)
+}
+
+impl Tok {
+    fn from_char(c: char) -> LexResult<Tok> {
+        use self::Tok::*;
+
+        match c {
+            '(' => Ok(Delim(Paren, Left)),
+            ')' => Ok(Delim(Paren, Right)),
+            '[' => Ok(Delim(Bracket, Left)),
+            ']' => Ok(Delim(Bracket, Right)),
+            '{' => Ok(Delim(Brace, Left)),
+            '}' => Ok(Delim(Brace, Right)),
+
+            ',' => Ok(Sep(Comma)),
+            ';' => Ok(Sep(Semicolon)),
+
+            _ => Err(LexicalError::MalformedTok)
+        }
+    }
+}
 
 impl Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
@@ -155,42 +139,6 @@ impl Display for Tok {
 
             &Sep(Comma) => write!(f, ","),
             &Sep(Semicolon) => write!(f, ";")
-        }
-    }
-}
-
-impl FromStr for Tok {
-    type Err = LexicalError;
-
-    fn from_str(chars: &str) -> LexResult<Tok> {
-        use self::CharCat::*;
-
-        let mut it = chars.chars();
-        if let Some(c) = it.next() {
-            match CharCat::new(c) {
-                Const(ConstCat::Op) =>
-                    Precedence::of(&chars).map(|prec| Tok::Op(chars.to_string(), prec)),
-                Const(ConstCat::Name) => Ok(Tok::Name(chars.to_string())),
-                Const(ConstCat::Digit) => Ok(Tok::Number(chars.to_string())),
-                TokDelim(delim) =>
-                    if let Some(_) = it.last() {
-                        match delim {
-                            SingleQuote => Ok(Tok::Char(chars.chars()
-                                                             .skip(1)
-                                                             .take(chars.len() - 2)
-                                                             .collect())),
-                            DoubleQuote => Ok(Tok::String(chars.chars()
-                                                               .skip(1)
-                                                               .take(chars.len() - 2)
-                                                               .collect()))
-                        }
-                    } else {
-                        Err(LexicalError::MalformedTok)
-                    },
-                CharTok(_) | Ws => Err(LexicalError::MalformedTok)
-            }
-        } else {
-            Err(LexicalError::EmptyTok)
         }
     }
 }
@@ -230,48 +178,20 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    fn char_token(&mut self, tok: Tok) -> LocTok {
-        let start = self.pos;
-        self.advance();
-        (start, tok, self.pos)
-    }
-
-    fn long_token(&mut self) -> LexResult<LocTok> {
-        let start = self.pos;
+    /// Read a string upto and not including  a character matching `pred`. Return None if EOF is
+    /// encountered before a matching character.
+    fn until<F>(&mut self, pred: F) -> Option<String> where F: Fn(char) -> bool {
         let mut acc = String::new();
 
         while let Some(&(_, c)) = self.chars.peek() {
-            if CharCat::is_terminator(c) {
-                break;
+            if pred(c) {
+                return Some(acc);
             }
-            acc.push(c);
             self.advance();
+            acc.push(c);
         }
 
-        Tok::from_str(&acc).map(|tok| (start, tok, self.pos))
-    }
-
-    fn delim_token(&mut self) -> Option<LexResult<LocTok>> {
-        let start = self.pos;
-        let mut acc = String::new();
-
-        let delim = if let Some(&(_, c)) = self.chars.peek() {
-            acc.push(c);
-            self.advance();
-            c
-        } else {
-            return None;
-        };
-
-        while let Some(&(_, c)) = self.chars.peek() {
-            acc.push(c);
-            self.advance();
-            if c == delim {
-                break;
-            }
-        }
-
-        Some(Tok::from_str(&acc).map(|tok| (start, tok, self.pos)))
+        None
     }
 
     /// Add the whitespace-inferred tokens to this token stream.
@@ -291,15 +211,38 @@ impl<'input> Iterator for Lexer<'input> {
     type Item = LexResult<LocTok>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(&(_, c)) = self.chars.peek() {
-            match CharCat::new(c) {
-                CharCat::CharTok(tok) => return Some(Ok(self.char_token(tok))),
-                CharCat::Const(_) => return Some(self.long_token()),
-                CharCat::TokDelim(_) => return self.delim_token(),
-                CharCat::Ws => self.advance()
+        self.until(|c| !c.is_whitespace());
+
+        let nc = self.chars.peek().map(|&(_, c)| c);
+        nc.map(|c| {
+            let start = self.pos;
+
+            match c {
+                _ if CHAR_TOKENS.contains(c) => {
+                    self.advance();
+                    Tok::from_char(c).map(|tok| (start, tok, self.pos))
+                },
+                '\'' | '"' => {
+                    self.advance(); // skip left delimiter
+                    let chars = self.until(|d| d == c).ok_or(LexicalError::MalformedTok)?;
+                    self.advance(); // skip right delimiter
+                    Ok((start,
+                        if c == '"' { Tok::String(chars) } else { Tok::Char(chars) },
+                        self.pos))
+                },
+                _ => {
+                    let chars = self.until(is_terminator).unwrap_or(String::new());
+                    if c.is_digit(10) {
+                        Ok((start, Tok::Number(chars), self.pos))
+                    } else if c.is_alphabetic() || c == '@' {
+                        Ok((start, Tok::Name(chars), self.pos))
+                    } else {
+                        Precedence::of(&chars)
+                                  .map(|prec| (start, Tok::Op(chars.to_string(), prec), self.pos))
+                    }
+                },
             }
-        }
-        None
+        })
     }
 }
 
