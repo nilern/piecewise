@@ -2,7 +2,7 @@ use lexer::{Precedence, Tok, LexicalError, SrcPos};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
-use ast::{AST, Const, Stmt, Clause, BlockItem, parse_block};
+use ast::{AST, Const, Stmt, Block, Clause, BlockItem, parse_block};
 
 use std::str::FromStr;
 
@@ -52,11 +52,10 @@ Infix<Self, Op, Next>: AST = {
 // ---
 
 pub Exprs: AST = {
-    <pos: @L> <stmts: SemiColon<Stmt>> => AST::Block {
+    <pos: @L> <stmts: SemiColon<Stmt>> => AST::Block(Block {
         pos: pos,
-        decls: Vec::new(),
         stmts: stmts
-    }
+    })
 };
 
 pub Expr: AST = {
@@ -69,9 +68,11 @@ Block: AST = {
 
 BlockItem: BlockItem = {
     <pos: @L> <params: App> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
-        pos: pos,
         params: params,
-        body: vec![stmt]
+        body: Block {
+            pos: pos,
+            stmts: vec![stmt]
+        }
     }),
     <stmt: Stmt> => BlockItem::Stmt(stmt)
 };

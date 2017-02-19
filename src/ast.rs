@@ -12,32 +12,10 @@ trait Sourced {
 /// A type for variable names.
 pub type Name = String;
 
-/// Source constants.
-#[derive(Debug)]
-pub enum Const {
-    Int(isize),
-    Float(f64),
-    Char(char),
-    String(String)
-}
-
-impl Display for Const {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::Const::*;
-
-        match self {
-            &Int(i) => write!(f, "{}", i),
-            &Float(n) => write!(f, "{}", n),
-            &Char(c) => write!(f, "{:?}", c),
-            &String(ref cs) => write!(f, "\"{}\"", cs)
-        }
-    }
-}
-
 /// Abstract Syntax Tree
 #[derive(Debug)]
 pub enum AST {
-    Block { pos: SrcPos, decls: Vec<String>, stmts: Vec<Stmt> },
+    Block(Block),
     Fn { pos: SrcPos, clauses: Vec<Clause> },
     App { pos: SrcPos, op: Box<AST>, args: Vec<AST> },
 
@@ -48,7 +26,7 @@ pub enum AST {
 impl Sourced for AST {
     fn pos(&self) -> SrcPos {
         match self {
-            &AST::Block { pos, .. } => pos,
+            &AST::Block(ref block) => block.pos(),
             &AST::Fn { pos, .. } => pos,
             &AST::App { pos, .. } => pos,
             &AST::Var { pos, .. } => pos,
@@ -60,17 +38,7 @@ impl Sourced for AST {
 impl Display for AST {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &AST::Block { ref stmts, .. } => {
-                try!(write!(f, "{{"));
-                let mut it = stmts.iter();
-                if let Some(arg) = it.next() {
-                    try!(write!(f, "{}", arg));
-                }
-                for arg in it {
-                    try!(write!(f, "; {}", arg));
-                }
-                write!(f, "}}")
-            },
+            &AST::Block(ref block) => block.fmt(f),
             &AST::Fn { ref clauses, .. } => {
                 try!(write!(f, "{{"));
                 let mut it = clauses.iter();
@@ -96,6 +64,34 @@ impl Display for AST {
             &AST::Var { ref name, .. } => write!(f, "{}", name),
             &AST::Const { ref val, .. } => write!(f, "{}", val)
         }
+    }
+}
+
+/// A block.
+#[derive(Debug)]
+pub struct Block {
+    pub pos: SrcPos,
+    //decls: Vec<Name>
+    pub stmts: Vec<Stmt>
+}
+
+impl Sourced for Block {
+    fn pos(&self) -> SrcPos {
+        self.pos
+    }
+}
+
+impl Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        try!(write!(f, "{{"));
+        let mut it = self.stmts.iter();
+        if let Some(arg) = it.next() {
+            try!(write!(f, "{}", arg));
+        }
+        for arg in it {
+            try!(write!(f, "; {}", arg));
+        }
+        write!(f, "}}")
     }
 }
 
@@ -127,29 +123,25 @@ impl Display for Stmt {
 /// Function clause.
 #[derive(Debug)]
 pub struct Clause {
-    pub pos: SrcPos,
     pub params: AST, // TODO: Vec<AST>
     //pub cond: AST,
-    pub body: Vec<Stmt>
+    pub body: Block
 }
 
 impl Clause {
     fn push(&mut self, stmt: Stmt) {
-        self.body.push(stmt);
+        self.body.stmts.push(stmt);
     }
 }
 
 impl Sourced for Clause {
-    fn pos(&self) -> SrcPos { self.pos }
+    fn pos(&self) -> SrcPos { self.body.pos() }
 }
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        // for param in self.params.iter() {
-        //     try!(write!(f, "{} ", param));
-        // }
         try!(write!(f, "{} => ", self.params));
-        let mut it = self.body.iter();
+        let mut it = self.body.stmts.iter();
         if let Some(stmt) = it.next() {
             try!(write!(f, "{}", stmt));
         }
@@ -157,6 +149,28 @@ impl Display for Clause {
             try!(write!(f, "; {}", stmt));
         }
         Ok(())
+    }
+}
+
+/// Source constants.
+#[derive(Debug)]
+pub enum Const {
+    Int(isize),
+    Float(f64),
+    Char(char),
+    String(String)
+}
+
+impl Display for Const {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::Const::*;
+
+        match self {
+            &Int(i) => write!(f, "{}", i),
+            &Float(n) => write!(f, "{}", n),
+            &Char(c) => write!(f, "{:?}", c),
+            &String(ref cs) => write!(f, "\"{}\"", cs)
+        }
     }
 }
 
@@ -189,11 +203,10 @@ pub fn parse_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
             }
         }
 
-        Some(AST::Block {
+        Some(AST::Block(Block {
             pos: pos,
-            decls: vec![],
             stmts: stmts
-        })
+        }))
     }
 
     fn parse_fn_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
@@ -217,6 +230,6 @@ pub fn parse_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
     match items.first() {
         Some(&BlockItem::Clause(_)) => parse_fn_block(pos, items),
         Some(&BlockItem::Stmt(_)) => parse_stmt_block(pos, items),
-        None => Some(AST::Block { pos: pos, decls: vec![], stmts: vec![] })
+        None => Some(AST::Block(Block { pos: pos, stmts: vec![] }))
     }
 }
