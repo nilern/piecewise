@@ -89,6 +89,8 @@ pub enum Tok {
 
     Delim(Delimiter, Side),
 
+    Arrow,
+    Eq,
     Sep(Separator)
 }
 
@@ -120,6 +122,18 @@ impl Tok {
             _ => Err(LexicalError::MalformedTok)
         }
     }
+
+    fn try_eq_or_arrow(&self) -> Option<Tok> { // HACK
+        if let &Tok::Op(ref chars, Precedence::Zero) = self {
+            match chars as &str {
+                "=" => Some(Tok::Eq),
+                "=>" => Some(Tok::Arrow),
+                _ => unreachable!()
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for Tok {
@@ -138,7 +152,9 @@ impl Display for Tok {
             &Delim(Brace, Right) => write!(f, "}}"),
 
             &Sep(Comma) => write!(f, ","),
-            &Sep(Semicolon) => write!(f, ";")
+            &Sep(Semicolon) => write!(f, ";"),
+            &Eq => write!(f, "="),
+            &Arrow => write!(f, "=>")
         }
     }
 }
@@ -238,7 +254,11 @@ impl<'input> Iterator for Lexer<'input> {
                         Ok((start, Tok::Name(chars), self.pos))
                     } else {
                         Precedence::of(&chars)
-                                  .map(|prec| (start, Tok::Op(chars.to_string(), prec), self.pos))
+                                  .map(|prec| {
+                                      let mut tok = Tok::Op(chars.to_string(), prec);
+                                      tok = tok.try_eq_or_arrow().unwrap_or(tok);
+                                      (start, tok, self.pos)
+                                  })
                     }
                 },
             }

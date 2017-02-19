@@ -1,2 +1,4 @@
+# Lexer
+
 * [ ] Tok::Symbol
 * [ ] Fixity

@@ -2,107 +2,143 @@ use lexer::{Precedence, Tok, LexicalError, SrcPos};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
-use ast::{CST, Const};
+use ast::{AST, Const, Stmt, Clause, BlockItem, parse_block};
 
 use std::str::FromStr;
 
 #[LALR] grammar;
 
-Comma<T>: Vec<T> = {
-    <v: (<T> ",")*> <e: T?> => match e {
-        None => v,
-        Some(e) => {
-            let mut v = v;
-            v.push(e);
-            v
-        }
-    }
-};
+// Comma<T>: Vec<T> = {
+//     <v: (<T> ",")*> <e: T?> => match e {
+//         None => v,
+//         Some(e) => {
+//             let mut v = v;
+//             v.push(e);
+//             v
+//         }
+//     }
+// };
+//
+// CommaT<T>: Vec<T> = {
+//     <v: (<T> ",")+> => v,
+//     "," => vec![]
+// };
+//
+// CommaPlus<T>: Vec<T> = {
+//     <v: (<T> ",")*> <e: T> => {
+//         let mut v = v;
+//         v.push(e);
+//         v
+//     }
+// };
 
-CommaT<T>: Vec<T> = {
-    <v: (<T> ",")+> => v,
-    "," => vec![]
-};
-
-CommaPlus<T>: Vec<T> = {
-    <v: (<T> ",")*> <e: T> => {
+SemiColon<T>: Vec<T> = {
+    <v: (<T> ";")*> <e: T> => {
         let mut v = v;
         v.push(e);
         v
     }
 };
 
-SemiColon<T>: Vec<T> = {
-    <v: (<T> ";")*> <e: T?> => match e {
-        None => v,
-        Some(e) => {
-            let mut v = v;
-            v.push(e);
-            v
-        }
-    }
-};
-
-Infix<Self, Op, Next>: CST = {
-    <l: Self> <op: Op> <r: Next> => CST::App(Box::new(CST::Symbol(op)), vec![l, r]),
+Infix<Self, Op, Next>: AST = {
+    <pos: @L> <l: Self> <opos: @L> <op: Op> <r: Next> => AST::App {
+        pos: pos,
+        op: Box::new(AST::Var { pos: opos, name: op }),
+        args: vec![l, r]
+    },
     <Next>
 };
 
-pub Exprs: CST = {
-    <stmts: SemiColon<Stmt>> => CST::Block(stmts)
+// ---
+
+pub Exprs: AST = {
+    <pos: @L> <stmts: SemiColon<Stmt>> => AST::Block {
+        pos: pos,
+        decls: Vec::new(),
+        stmts: stmts
+    }
 };
 
-pub Expr: CST = {
-    <Stmt>
-};
-
-Stmt: CST = {
-    <lhs: Infix1> <op: Op0> <rhs: Infix1> => match &op as &str {
-            "=" => CST::Def(Box::new(lhs), Box::new(rhs)),
-            "=>" => CST::Params(Box::new(lhs), Box::new(rhs)),
-            _ => unreachable!()
-        },
+pub Expr: AST = {
     <Infix1>
 };
 
-Infix1: CST = <Infix<Infix1, Op1, Infix2>>;
+Block: AST = {
+    <pos: @L> "{" <items: SemiColon<BlockItem>> "}" => parse_block(pos, items).unwrap() // FIXME
+};
 
-Infix2: CST = <Infix<Infix2, Op2, Infix3>>;
+BlockItem: BlockItem = {
+    <pos: @L> <params: App> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
+        pos: pos,
+        params: params,
+        body: vec![stmt]
+    }),
+    <stmt: Stmt> => BlockItem::Stmt(stmt)
+};
 
-Infix3: CST = <Infix<Infix3, Op3, Infix4>>;
+Stmt: Stmt = {
+    <pos: @L> <name: Name> "=" <val: Infix1> => Stmt::Def {
+        pos: pos,
+        name: name,
+        val: val
+    },
+    <pos: @L> <expr: Infix1> => Stmt::Expr {
+        pos: pos,
+        expr: expr
+    }
+};
 
-Infix4: CST = <Infix<Infix4, Op4, Infix5>>;
+Infix1: AST = <Infix<Infix1, Op1, Infix2>>;
 
-Infix5: CST = <Infix<Infix5, Op5, Infix6>>;
+Infix2: AST = <Infix<Infix2, Op2, Infix3>>;
 
-Infix6: CST = <Infix<Infix6, Op6, Infix7>>;
+Infix3: AST = <Infix<Infix3, Op3, Infix4>>;
 
-Infix7: CST = <Infix<Infix7, Op7, App>>;
+Infix4: AST = <Infix<Infix4, Op4, Infix5>>;
 
-App: CST = {
-    <f: Simple> <args: Simple+> => CST::App(Box::new(f), args),
+Infix5: AST = <Infix<Infix5, Op5, Infix6>>;
+
+Infix6: AST = <Infix<Infix6, Op6, Infix7>>;
+
+Infix7: AST = <Infix<Infix7, Op7, App>>;
+
+App: AST = {
+    <pos: @L> <f: Simple> <args: Simple+> => AST::App {
+        pos: pos,
+        op: Box::new(f),
+        args: args
+    },
     <Simple>
 };
 
-Simple: CST = {
-    "{" <Exprs> "}",
+Simple: AST = {
+    <Block>,
     "(" <Expr> ")",
-    <Coll>,
+    //<Coll>,
     <Atom>
 };
 
-Coll: CST = {
-    "(" <elems: CommaT<Expr>> ")"     => CST::Tuple(elems),
-    "[" <elems: Comma<Expr>> "]"     => CST::Array(elems)//,
-    //"{" <elems: CommaPlus<Expr>> "}" => CST::Set(elems),
-    //"{" <kvs: Comma<MapPair>> "}"    => CST::Map(kvs)
-};
+// Coll: AST = {
+//     "(" <elems: CommaT<Expr>> ")"     => AST::Tuple(elems),
+//     "[" <elems: Comma<Expr>> "]"     => AST::Array(elems)//,
+//     //"{" <elems: CommaPlus<Expr>> "}" => CST::Set(elems),
+//     //"{" <kvs: Comma<MapPair>> "}"    => CST::Map(kvs)
+// };
 
-Atom: CST = {
-    Name => CST::Symbol(<>),
-    Number => CST::Const(Const::Int(isize::from_str(&<>).unwrap())),
-    String => CST::Const(Const::String(<>)),
-    Char => CST::Const(Const::Char(<>.chars().next().unwrap()))
+Atom: AST = {
+    <pos: @L> <name: Name> => AST::Var { pos: pos, name: name},
+    <pos: @L> <n: Number> => AST::Const {
+        pos: pos,
+        val: Const::Int(isize::from_str(&n).unwrap())
+    },
+    <pos: @L> <str: String> => AST::Const {
+        pos: pos,
+        val: Const::String(str)
+    },
+    <pos: @L> <c: Char> => AST::Const {
+        pos: pos,
+        val: Const::Char(c.chars().next().unwrap())
+    }
 };
 
 //MapPair: (CST, CST) = {
@@ -133,5 +169,7 @@ extern {
         "}" => Tok::Delim(Brace, Right),
         "," => Tok::Sep(Comma),
         ";" => Tok::Sep(Semicolon),
+        "=>" => Tok::Arrow,
+        "=" => Tok::Eq
     }
 }
