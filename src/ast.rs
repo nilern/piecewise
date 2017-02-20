@@ -23,6 +23,38 @@ pub enum AST {
     Const { pos: SrcPos, val: Const }
 }
 
+impl AST {
+    pub fn new_if(pos: SrcPos, cond: AST, then: AST, els: AST) -> AST {
+        use self::AST::*;
+
+        App {
+            pos: pos,
+            op: Box::new(Fn {
+                pos: pos,
+                clauses: vec![
+                    Clause {
+                        params: String::from("_"), // HACK
+                        cond: Var { pos: pos, name: String::from("_") }, // HACK
+                        body: self::Block {
+                            pos: then.pos(),
+                            stmts: vec![Stmt::Expr(then)]
+                        }
+                    },
+                    Clause {
+                        params: String::from("_"), // HACK
+                        cond: Const { pos: pos, val: self::Const::Bool(true) },
+                        body: self::Block {
+                            pos: els.pos(),
+                            stmts: vec![Stmt::Expr(els)]
+                        }
+                    }
+                ]
+            }),
+            args: vec![cond]
+        }
+    }
+}
+
 impl Sourced for AST {
     fn pos(&self) -> SrcPos {
         match self {
@@ -98,15 +130,15 @@ impl Display for Block {
 /// Statement (for `Block`s).
 #[derive(Debug)]
 pub enum Stmt {
-    Def { pos: SrcPos, name: String, val: AST },
-    Expr { pos: SrcPos, expr: AST }
+    Def { name: String, val: AST },
+    Expr(AST)
 }
 
 impl Sourced for Stmt {
     fn pos(&self) -> SrcPos {
         match self {
-            &Stmt::Def { pos, .. } => pos,
-            &Stmt::Expr { pos, .. } => pos
+            &Stmt::Def { ref val, .. } => val.pos(),
+            &Stmt::Expr(ref expr) => expr.pos()
         }
     }
 }
@@ -115,7 +147,7 @@ impl Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &Stmt::Def { ref name, ref val, ..} => write!(f, "{} = {}", name, val),
-            &Stmt::Expr { ref expr, .. } => write!(f, "{}", expr)
+            &Stmt::Expr(ref expr) => write!(f, "{}", expr)
         }
     }
 }
@@ -123,8 +155,8 @@ impl Display for Stmt {
 /// Function clause.
 #[derive(Debug)]
 pub struct Clause {
-    pub params: AST, // TODO: Vec<AST>
-    //pub cond: AST,
+    pub params: Name, // TODO: Vec<AST>
+    pub cond: AST,
     pub body: Block
 }
 
@@ -140,7 +172,7 @@ impl Sourced for Clause {
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        try!(write!(f, "{} => ", self.params));
+        try!(write!(f, "{} | {} => ", self.params, self.cond));
         let mut it = self.body.stmts.iter();
         if let Some(stmt) = it.next() {
             try!(write!(f, "{}", stmt));
@@ -158,7 +190,8 @@ pub enum Const {
     Int(isize),
     Float(f64),
     Char(char),
-    String(String)
+    String(String),
+    Bool(bool)
 }
 
 impl Display for Const {
@@ -169,7 +202,9 @@ impl Display for Const {
             &Int(i) => write!(f, "{}", i),
             &Float(n) => write!(f, "{}", n),
             &Char(c) => write!(f, "{:?}", c),
-            &String(ref cs) => write!(f, "\"{}\"", cs)
+            &String(ref cs) => write!(f, "\"{}\"", cs),
+            &Bool(true) => write!(f, "True"),
+            &Bool(false) => write!(f, "False")
         }
     }
 }

@@ -67,8 +67,9 @@ Block: AST = {
 };
 
 BlockItem: BlockItem = {
-    <pos: @L> <params: App> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
+    <pos: @L> <params: Name> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
         params: params,
+        cond: AST::Const { pos: pos, val: Const::Bool(true) },
         body: Block {
             pos: pos,
             stmts: vec![stmt]
@@ -78,15 +79,11 @@ BlockItem: BlockItem = {
 };
 
 Stmt: Stmt = {
-    <pos: @L> <name: Name> "=" <val: Infix1> => Stmt::Def {
-        pos: pos,
+    <name: Name> "=" <val: Infix1> => Stmt::Def {
         name: name,
         val: val
     },
-    <pos: @L> <expr: Infix1> => Stmt::Expr {
-        pos: pos,
-        expr: expr
-    }
+    <expr: Infix1> => Stmt::Expr(expr)
 };
 
 Infix1: AST = <Infix<Infix1, Op1, Infix2>>;
