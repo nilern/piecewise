@@ -16,7 +16,6 @@ pub mod parser;
 pub mod expand;
 
 use lexer::Lexer;
-use expand::Expand;
 
 fn main() {
     let mut args = std::env::args();

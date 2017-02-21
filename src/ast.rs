@@ -9,6 +9,21 @@ trait Sourced {
     fn pos(&self) -> SrcPos;
 }
 
+pub trait NodeMapping {
+    fn map_block(&mut self, node: Block) -> AST { AST::Block(node) }
+    fn map_fn(&mut self, node: Fn) -> AST { AST::Fn(node) }
+    fn map_app(&mut self, node: App) -> AST { AST::App(node) }
+    fn map_var(&mut self, node: Var) -> AST { AST::Var(node) }
+    fn map_const(&mut self, node: Const) -> AST { AST::Const(node) }
+
+    fn map_stmt(&mut self, node: Stmt) -> Stmt { node }
+    fn map_clause(&mut self, node: Clause) -> Clause { node }
+}
+
+pub trait FunctorNode {
+    fn map<F>(self, f: &mut F) -> Self where F: NodeMapping;
+}
+
 /// A type for variable names.
 pub type Name = String;
 
@@ -48,6 +63,36 @@ impl AST {
             })),
             args: vec![cond]
         })
+    }
+
+    pub fn accept<F>(self, f: &mut F) -> AST where F: NodeMapping {
+        use self::AST::*;
+
+        match self {
+            Block(block) => f.map_block(block),
+            Fn(fun) => f.map_fn(fun),
+            App(app) => f.map_app(app),
+            Var(v) => f.map_var(v),
+            Const(c) => f.map_const(c)
+        }
+    }
+
+    pub fn prewalk<F>(self, f: F) -> AST where F: NodeMapping {
+        self.accept(&mut PreWalker(f))
+    }
+}
+
+impl FunctorNode for AST {
+    fn map<F>(self, f: &mut F) -> AST where F: NodeMapping {
+        use self::AST::*;
+
+        match self {
+            Block(block) => Block(block.map(f)),
+            Fn(fun) => Fn(fun.map(f)),
+            App(app) => App(app.map(f)),
+            v @ Var(_) => v,
+            c @ Const(_) => c
+        }
     }
 }
 
@@ -103,6 +148,15 @@ impl Display for Block {
     }
 }
 
+impl FunctorNode for Block {
+    fn map<F>(self, f: &mut F) -> Block where F: NodeMapping {
+        Block {
+            pos: self.pos,
+            stmts: self.stmts.into_iter().map(|stmt| f.map_stmt(stmt)).collect()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Fn {
     pub pos: SrcPos,
@@ -124,6 +178,15 @@ impl Display for Fn {
             try!(write!(f, "; {}", arg));
         }
         write!(f, "}}")
+    }
+}
+
+impl FunctorNode for Fn {
+    fn map<F>(self, f: &mut F) -> Fn where F: NodeMapping {
+        Fn {
+            pos: self.pos,
+            clauses: self.clauses.into_iter().map(|clause| f.map_clause(clause)).collect()
+        }
     }
 }
 
@@ -149,6 +212,16 @@ impl Display for App {
             try!(write!(f, " {}", arg));
         }
         write!(f, ")")
+    }
+}
+
+impl FunctorNode for App {
+    fn map<F>(self, f: &mut F) -> App where F: NodeMapping {
+        App {
+            pos: self.pos,
+            op: Box::new(self.op.accept(f)),
+            args: self.args.into_iter().map(|arg| arg.accept(f)).collect()
+        }
     }
 }
 
@@ -191,6 +264,15 @@ impl Display for Stmt {
     }
 }
 
+impl FunctorNode for Stmt {
+    fn map<F>(self, f: &mut F) -> Stmt where F: NodeMapping {
+        match self {
+            Stmt::Def { name, val } => Stmt::Def { name: name, val: val.accept(f) },
+            Stmt::Expr(e) => Stmt::Expr(e.accept(f))
+        }
+    }
+}
+
 /// Function clause.
 #[derive(Debug)]
 pub struct Clause {
@@ -221,6 +303,17 @@ impl Display for Clause {
             try!(write!(f, "; {}", stmt));
         }
         Ok(())
+    }
+}
+
+impl FunctorNode for Clause {
+    fn map<F>(self, f: &mut F) -> Clause where F: NodeMapping {
+        Clause {
+            pos: self.pos,
+            params: self.params,
+            cond: self.cond.accept(f),
+            body: self.body.into_iter().map(|stmt| f.map_stmt(stmt)).collect()
+        }
     }
 }
 
@@ -316,5 +409,37 @@ pub fn parse_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
         Some(&BlockItem::Clause(_)) => parse_fn_block(pos, items),
         Some(&BlockItem::Stmt(_)) => parse_stmt_block(pos, items),
         None => Some(AST::Block(Block { pos: pos, stmts: vec![] }))
+    }
+}
+
+struct PreWalker<F>(F) where F: NodeMapping;
+
+impl<F> NodeMapping for PreWalker<F> where F: NodeMapping {
+    fn map_block(&mut self, node: Block) -> AST {
+        self.0.map_block(node).map(self)
+    }
+
+    fn map_fn(&mut self, node: Fn) -> AST {
+        self.0.map_fn(node).map(self)
+    }
+
+    fn map_app(&mut self, node: App) -> AST {
+        self.0.map_app(node).map(self)
+    }
+
+    fn map_var(&mut self, node: Var) -> AST {
+        self.0.map_var(node).map(self)
+    }
+
+    fn map_const(&mut self, node: Const) -> AST {
+        self.0.map_const(node).map(self)
+    }
+
+    fn map_stmt(&mut self, node: Stmt) -> Stmt {
+        self.0.map_stmt(node).map(self)
+    }
+
+    fn map_clause(&mut self, node: Clause) -> Clause {
+        self.0.map_clause(node).map(self)
     }
 }
