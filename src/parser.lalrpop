@@ -2,7 +2,7 @@ use lexer::{Precedence, Tok, LexicalError, SrcPos};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
-use ast::{AST, Const, Stmt, Block, Clause, BlockItem, parse_block};
+use ast::{AST, Const, ConstVal, Stmt, Block, App, Clause, BlockItem, Var, parse_block};
 
 use std::str::FromStr;
 
@@ -41,11 +41,11 @@ SemiColon<T>: Vec<T> = {
 };
 
 Infix<Self, Op, Next>: AST = {
-    <pos: @L> <l: Self> <opos: @L> <op: Op> <r: Next> => AST::App {
+    <pos: @L> <l: Self> <opos: @L> <op: Op> <r: Next> => AST::App(App {
         pos: pos,
-        op: Box::new(AST::Var { pos: opos, name: op }),
+        op: Box::new(AST::Var(Var { pos: opos, name: op })),
         args: vec![l, r]
-    },
+    }),
     <Next>
 };
 
@@ -68,12 +68,10 @@ Block: AST = {
 
 BlockItem: BlockItem = {
     <pos: @L> <params: Name> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
+        pos: pos,
         params: params,
-        cond: AST::Const { pos: pos, val: Const::Bool(true) },
-        body: Block {
-            pos: pos,
-            stmts: vec![stmt]
-        }
+        cond: AST::Const(Const { pos: pos, val: ConstVal::Bool(true) }),
+        body: vec![stmt]
     }),
     <stmt: Stmt> => BlockItem::Stmt(stmt)
 };
@@ -101,11 +99,11 @@ Infix6: AST = <Infix<Infix6, Op6, Infix7>>;
 Infix7: AST = <Infix<Infix7, Op7, App>>;
 
 App: AST = {
-    <pos: @L> <f: Simple> <args: Simple+> => AST::App {
+    <pos: @L> <f: Simple> <args: Simple+> => AST::App(App {
         pos: pos,
         op: Box::new(f),
         args: args
-    },
+    }),
     <Simple>
 };
 
@@ -124,19 +122,19 @@ Simple: AST = {
 // };
 
 Atom: AST = {
-    <pos: @L> <name: Name> => AST::Var { pos: pos, name: name},
-    <pos: @L> <n: Number> => AST::Const {
+    <pos: @L> <name: Name> => AST::Var(Var { pos: pos, name: name}),
+    <pos: @L> <n: Number> => AST::Const(Const {
         pos: pos,
-        val: Const::Int(isize::from_str(&n).unwrap())
-    },
-    <pos: @L> <str: String> => AST::Const {
+        val: ConstVal::Int(isize::from_str(&n).unwrap())
+    }),
+    <pos: @L> <str: String> => AST::Const(Const {
         pos: pos,
-        val: Const::String(str)
-    },
-    <pos: @L> <c: Char> => AST::Const {
+        val: ConstVal::String(str)
+    }),
+    <pos: @L> <c: Char> => AST::Const(Const {
         pos: pos,
-        val: Const::Char(c.chars().next().unwrap())
-    }
+        val: ConstVal::Char(c.chars().next().unwrap())
+    })
 };
 
 //MapPair: (CST, CST) = {

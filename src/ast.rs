@@ -16,42 +16,38 @@ pub type Name = String;
 #[derive(Debug)]
 pub enum AST {
     Block(Block),
-    Fn { pos: SrcPos, clauses: Vec<Clause> },
-    App { pos: SrcPos, op: Box<AST>, args: Vec<AST> },
+    Fn(Fn),
+    App(App),
 
-    Var { pos: SrcPos, name: String },
-    Const { pos: SrcPos, val: Const }
+    Var(Var),
+    Const(Const)
 }
 
 impl AST {
     pub fn new_if(pos: SrcPos, cond: AST, then: AST, els: AST) -> AST {
         use self::AST::*;
 
-        App {
+        App(self::App {
             pos: pos,
-            op: Box::new(Fn {
+            op: Box::new(Fn(self::Fn {
                 pos: pos,
                 clauses: vec![
                     Clause {
+                        pos: then.pos(),
                         params: String::from("_"), // HACK
-                        cond: Var { pos: pos, name: String::from("_") }, // HACK
-                        body: self::Block {
-                            pos: then.pos(),
-                            stmts: vec![Stmt::Expr(then)]
-                        }
+                        cond: Var(self::Var { pos: pos, name: String::from("_") }), // HACK
+                        body: vec![Stmt::Expr(then)]
                     },
                     Clause {
+                        pos: els.pos(),
                         params: String::from("_"), // HACK
-                        cond: Const { pos: pos, val: self::Const::Bool(true) },
-                        body: self::Block {
-                            pos: els.pos(),
-                            stmts: vec![Stmt::Expr(els)]
-                        }
+                        cond: Const(self::Const { pos: pos, val: ConstVal::Bool(true) }),
+                        body: vec![Stmt::Expr(els)]
                     }
                 ]
-            }),
+            })),
             args: vec![cond]
-        }
+        })
     }
 }
 
@@ -59,10 +55,10 @@ impl Sourced for AST {
     fn pos(&self) -> SrcPos {
         match self {
             &AST::Block(ref block) => block.pos(),
-            &AST::Fn { pos, .. } => pos,
-            &AST::App { pos, .. } => pos,
-            &AST::Var { pos, .. } => pos,
-            &AST::Const { pos, .. } => pos
+            &AST::Fn(ref f) => f.pos(),
+            &AST::App(ref app) => app.pos(),
+            &AST::Var(ref v) => v.pos(),
+            &AST::Const(ref c) => c.pos()
         }
     }
 }
@@ -71,30 +67,10 @@ impl Display for AST {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &AST::Block(ref block) => block.fmt(f),
-            &AST::Fn { ref clauses, .. } => {
-                try!(write!(f, "{{"));
-                let mut it = clauses.iter();
-                if let Some(arg) = it.next() {
-                    try!(write!(f, "{}", arg));
-                }
-                for arg in it {
-                    try!(write!(f, "; {}", arg));
-                }
-                write!(f, "}}")
-            },
-            &AST::App { ref op, ref args, .. } => {
-                try!(write!(f, "({} ", op));
-                let mut it = args.iter();
-                if let Some(arg) = it.next() {
-                    try!(write!(f, "{}", arg));
-                }
-                for arg in it {
-                    try!(write!(f, " {}", arg));
-                }
-                write!(f, ")")
-            },
-            &AST::Var { ref name, .. } => write!(f, "{}", name),
-            &AST::Const { ref val, .. } => write!(f, "{}", val)
+            &AST::Fn(ref fun) => fun.fmt(f),
+            &AST::App(ref app) => app.fmt(f),
+            &AST::Var(ref v) => v.fmt(f),
+            &AST::Const(ref c) => c.fmt(f)
         }
     }
 }
@@ -127,6 +103,69 @@ impl Display for Block {
     }
 }
 
+#[derive(Debug)]
+pub struct Fn {
+    pub pos: SrcPos,
+    pub clauses: Vec<Clause>
+}
+
+impl Sourced for Fn {
+    fn pos(&self) -> SrcPos { self.pos }
+}
+
+impl Display for Fn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        try!(write!(f, "{{"));
+        let mut it = self.clauses.iter();
+        if let Some(arg) = it.next() {
+            try!(write!(f, "{}", arg));
+        }
+        for arg in it {
+            try!(write!(f, "; {}", arg));
+        }
+        write!(f, "}}")
+    }
+}
+
+#[derive(Debug)]
+pub struct App {
+    pub pos: SrcPos,
+    pub op: Box<AST>,
+    pub args: Vec<AST>
+}
+
+impl Sourced for App {
+    fn pos(&self) -> SrcPos { self.pos }
+}
+
+impl Display for App {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        try!(write!(f, "({} ", self.op));
+        let mut it = self.args.iter();
+        if let Some(arg) = it.next() {
+            try!(write!(f, "{}", arg));
+        }
+        for arg in it {
+            try!(write!(f, " {}", arg));
+        }
+        write!(f, ")")
+    }
+}
+
+#[derive(Debug)]
+pub struct Var {
+    pub pos: SrcPos,
+    pub name: Name
+}
+
+impl Sourced for Var {
+    fn pos(&self) -> SrcPos { self.pos }
+}
+
+impl Display for Var {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> { self.name.fmt(f) }
+}
+
 /// Statement (for `Block`s).
 #[derive(Debug)]
 pub enum Stmt {
@@ -155,25 +194,26 @@ impl Display for Stmt {
 /// Function clause.
 #[derive(Debug)]
 pub struct Clause {
+    pub pos: SrcPos,
     pub params: Name, // TODO: Vec<AST>
     pub cond: AST,
-    pub body: Block
+    pub body: Vec<Stmt>
 }
 
 impl Clause {
     fn push(&mut self, stmt: Stmt) {
-        self.body.stmts.push(stmt);
+        self.body.push(stmt);
     }
 }
 
 impl Sourced for Clause {
-    fn pos(&self) -> SrcPos { self.body.pos() }
+    fn pos(&self) -> SrcPos { self.pos }
 }
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         try!(write!(f, "{} | {} => ", self.params, self.cond));
-        let mut it = self.body.stmts.iter();
+        let mut it = self.body.iter();
         if let Some(stmt) = it.next() {
             try!(write!(f, "{}", stmt));
         }
@@ -186,19 +226,20 @@ impl Display for Clause {
 
 /// Source constants.
 #[derive(Debug)]
-pub enum Const {
-    Int(isize),
-    Float(f64),
-    Char(char),
-    String(String),
-    Bool(bool)
+pub struct Const {
+    pub pos: SrcPos,
+    pub val: ConstVal
+}
+
+impl Sourced for Const {
+    fn pos(&self) -> SrcPos { self.pos }
 }
 
 impl Display for Const {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::Const::*;
+        use self::ConstVal::*;
 
-        match self {
+        match &self.val {
             &Int(i) => write!(f, "{}", i),
             &Float(n) => write!(f, "{}", n),
             &Char(c) => write!(f, "{:?}", c),
@@ -207,6 +248,15 @@ impl Display for Const {
             &Bool(false) => write!(f, "False")
         }
     }
+}
+
+#[derive(Debug)]
+pub enum ConstVal {
+    Int(isize),
+    Float(f64),
+    Char(char),
+    String(String),
+    Bool(bool)
 }
 
 /// A block item. This only exists for `parse_block`.
@@ -257,7 +307,7 @@ pub fn parse_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
                     clauses.push(clause);
                 },
                 Some(BlockItem::Stmt(_)) => return None,
-                None => return Some(AST::Fn { pos: pos, clauses: clauses})
+                None => return Some(AST::Fn(Fn { pos: pos, clauses: clauses}))
             }
         }
     }

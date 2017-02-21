@@ -1,26 +1,61 @@
 use ast;
-use ast::{AST, Block, Clause, Stmt};
+use ast::{AST, Block, App, Clause, Stmt, Var, Const};
 
 pub trait Expand {
-    fn expand(self) -> Self;
+    type Ret;
+
+    fn expand(self) -> Self::Ret;
 }
 
 impl Expand for AST {
+    type Ret = AST;
+
     fn expand(self) -> AST {
         use ast::AST::*;
 
         match self {
-            Block(block) => Block(block.expand()),
-            Fn { pos, clauses } => Fn {
-                pos: pos,
-                clauses: clauses.into_iter().map(Clause::expand).collect()
-            },
-            App { pos, op: box Var { pos: oppos, name: opname}, args } =>
+            Block(block) => block.expand(),
+            Fn(f) => f.expand(),
+            App(app) => app.expand(),
+            Var(v) => v.expand(),
+            Const(c) => c.expand()
+        }
+    }
+}
+
+impl Expand for Block {
+    type Ret = AST;
+
+    fn expand(self) -> AST {
+        AST::Block(Block {
+            pos: self.pos,
+            stmts: self.stmts.into_iter().map(Stmt::expand).collect()
+        })
+    }
+}
+
+impl Expand for ast::Fn {
+    type Ret = AST;
+
+    fn expand(self) -> AST {
+        AST::Fn(ast::Fn {
+            pos: self.pos,
+            clauses: self.clauses.into_iter().map(Clause::expand).collect()
+        })
+    }
+}
+
+impl Expand for App {
+    type Ret = AST;
+
+    fn expand(self) -> AST {
+        match self {
+            App { pos, op: box AST::Var(Var { pos: oppos, name: opname}), args } =>
                 if opname.chars().next().unwrap() == '@' {
                     let mut it = args.into_iter();
                     let cond = it.next().unwrap(); // HACK
                     match &opname as &str {
-                        "@if" => if let Some(Block(ast::Block { stmts, .. })) = it.next() {
+                        "@if" => if let Some(AST::Block(ast::Block { stmts, .. })) = it.next() {
                             let mut stit = stmts.into_iter();
                             if let Some(Stmt::Expr(then)) = stit.next() {
                                 if let Some(Stmt::Expr(els)) = stit.next() {
@@ -35,43 +70,53 @@ impl Expand for AST {
                         _ => unimplemented!()
                     }
                 } else {
-                    App {
+                    AST::App(App {
                         pos: pos,
-                        op: Box::new(Var { pos: oppos, name: opname}),
+                        op: Box::new(AST::Var(Var { pos: oppos, name: opname})),
                         args: args.into_iter().map(AST::expand).collect()
-                    }
+                    })
                 },
-            App { pos, op, args} => App {
+            App { pos, op, args} => AST::App(App {
                 pos: pos,
                 op: Box::new(op.expand()),
                 args: args.into_iter().map(AST::expand).collect()
-            },
-            v @ Var { .. } => v,
-            c @ Const { .. } => c
+            }),
         }
     }
 }
 
-impl Expand for Block {
-    fn expand(self) -> Block {
-        Block {
-            pos: self.pos,
-            stmts: self.stmts.into_iter().map(Stmt::expand).collect()
-        }
+impl Expand for Var {
+    type Ret = AST;
+
+    fn expand(self) -> AST {
+        AST::Var(self)
+    }
+}
+
+impl Expand for Const {
+    type Ret = AST;
+
+    fn expand(self) -> AST {
+        AST::Const(self)
     }
 }
 
 impl Expand for Clause {
+    type Ret = Clause;
+
     fn expand(self) -> Clause {
         Clause {
+            pos: self.pos,
             params: self.params,
             cond: self.cond.expand(),
-            body: self.body.expand()
+            body: self.body.into_iter().map(Stmt::expand).collect()
         }
     }
 }
 
 impl Expand for Stmt {
+    type Ret = Stmt;
+
     fn expand(self) -> Stmt {
         use ast::Stmt::*;
 
