@@ -9,6 +9,8 @@ trait Sourced {
     fn pos(&self) -> SrcPos;
 }
 
+/// A `NodeMapping` is essentially a piecewise function that consumes a node
+/// and produces a new one.
 pub trait NodeMapping {
     fn map_block(&mut self, node: Block) -> AST { AST::Block(node) }
     fn map_fn(&mut self, node: Fn) -> AST { AST::Fn(node) }
@@ -20,7 +22,9 @@ pub trait NodeMapping {
     fn map_clause(&mut self, node: Clause) -> Clause { node }
 }
 
+/// A `FunctorNode` knows how to apply a NodeMapping to each of its children.
 pub trait FunctorNode {
+    /// Apply the `NodeMapping` `f` to the children of this node.
     fn map<F>(self, f: &mut F) -> Self where F: NodeMapping;
 }
 
@@ -39,6 +43,7 @@ pub enum AST {
 }
 
 impl AST {
+    /// Create a new AST that is equivalent to an `@if` expression.
     pub fn new_if(pos: SrcPos, cond: AST, then: AST, els: AST) -> AST {
         use self::AST::*;
 
@@ -65,6 +70,7 @@ impl AST {
         })
     }
 
+    /// Apply `f` to this node and produce a new one.
     pub fn accept<F>(self, f: &mut F) -> AST where F: NodeMapping {
         use self::AST::*;
 
@@ -77,6 +83,7 @@ impl AST {
         }
     }
 
+    /// Traverse the tree in pre-order with `f`.
     pub fn prewalk<F>(self, f: F) -> AST where F: NodeMapping {
         self.accept(&mut PreWalker(f))
     }
@@ -157,6 +164,7 @@ impl FunctorNode for Block {
     }
 }
 
+/// A function expression.
 #[derive(Debug)]
 pub struct Fn {
     pub pos: SrcPos,
@@ -190,6 +198,7 @@ impl FunctorNode for Fn {
     }
 }
 
+/// A function application.
 #[derive(Debug)]
 pub struct App {
     pub pos: SrcPos,
@@ -225,6 +234,7 @@ impl FunctorNode for App {
     }
 }
 
+/// A variable reference.
 #[derive(Debug)]
 pub struct Var {
     pub pos: SrcPos,
@@ -259,7 +269,7 @@ impl Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &Stmt::Def { ref name, ref val, ..} => write!(f, "{} = {}", name, val),
-            &Stmt::Expr(ref expr) => write!(f, "{}", expr)
+            &Stmt::Expr(ref expr) => expr.fmt(f)
         }
     }
 }
@@ -330,19 +340,11 @@ impl Sourced for Const {
 
 impl Display for Const {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::ConstVal::*;
-
-        match &self.val {
-            &Int(i) => write!(f, "{}", i),
-            &Float(n) => write!(f, "{}", n),
-            &Char(c) => write!(f, "{:?}", c),
-            &String(ref cs) => write!(f, "\"{}\"", cs),
-            &Bool(true) => write!(f, "True"),
-            &Bool(false) => write!(f, "False")
-        }
+        self.val.fmt(f)
     }
 }
 
+/// Actual constant values.
 #[derive(Debug)]
 pub enum ConstVal {
     Int(isize),
@@ -350,6 +352,21 @@ pub enum ConstVal {
     Char(char),
     String(String),
     Bool(bool)
+}
+
+impl Display for ConstVal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::ConstVal::*;
+
+        match self {
+            &Int(i) => i.fmt(f),
+            &Float(n) => n.fmt(f),
+            &Char(c) => fmt::Debug::fmt(&c, f),
+            &String(ref cs) => write!(f, "\"{}\"", cs),
+            &Bool(true) => write!(f, "True"),
+            &Bool(false) => write!(f, "False")
+        }
+    }
 }
 
 /// A block item. This only exists for `parse_block`.
@@ -412,6 +429,7 @@ pub fn parse_block(pos: SrcPos, items: Vec<BlockItem>) -> Option<AST> {
     }
 }
 
+/// A `NodeMapping` that wraps another mapping and uses it to perform a pre-order traversal.
 struct PreWalker<F>(F) where F: NodeMapping;
 
 impl<F> NodeMapping for PreWalker<F> where F: NodeMapping {

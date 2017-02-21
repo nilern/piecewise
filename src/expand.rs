@@ -42,6 +42,7 @@ impl NodeMapping for ExpandStep {
 }
 
 impl AST {
+    /// Recursively expand macros.
     pub fn expand(self) -> AST {
         self.prewalk(ExpandStep)
     }
