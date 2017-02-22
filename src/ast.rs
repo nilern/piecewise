@@ -1,13 +1,7 @@
-use lexer::SrcPos;
+use util::{Sourced, SrcPos};
 
 use std::fmt;
 use std::fmt::Display;
-
-/// Values that originated in source code, IR trees and suchlike.
-trait Sourced {
-    /// Return the source position.
-    fn pos(&self) -> SrcPos;
-}
 
 /// A `NodeMapping` is essentially a piecewise function that consumes a node
 /// and produces a new one (or an error).

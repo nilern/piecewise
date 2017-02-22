@@ -1,7 +1,37 @@
-use lexer::{SrcPos, Tok, LexicalError};
+use std::fmt;
+use std::fmt::Display;
+
+use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
 use expand::ExpansionError;
 
+/// Values that originated in source code, IR trees and suchlike.
+pub trait Sourced {
+    /// Return the source position.
+    fn pos(&self) -> SrcPos;
+}
+
+/// File position
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SrcPos {
+    pub index: usize,
+    pub line: usize,
+    pub col: usize
+}
+
+impl Default for SrcPos {
+    fn default() -> SrcPos {
+        SrcPos { index: 0, line: 1, col: 1 }
+    }
+}
+
+impl Display for SrcPos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{},{}:{}", self.index, self.line, self.col)
+    }
+}
+
+/// Union of most errors in the program.
 #[derive(Debug)]
 pub enum ProffError {
     Parse(ParseError<SrcPos, Tok, LexicalError>),

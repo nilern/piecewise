@@ -5,26 +5,9 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
 
+use util::SrcPos;
+
 // TODO: remember whether braces and semicolons resulted from whitespace
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SrcPos {
-    index: usize,
-    line: usize,
-    col: usize
-}
-
-impl Default for SrcPos {
-    fn default() -> SrcPos {
-        SrcPos { index: 0, line: 1, col: 1 }
-    }
-}
-
-impl Display for SrcPos {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{},{}:{}", self.index, self.line, self.col)
-    }
-}
 
 #[derive(Debug)]
 pub enum LexicalError {

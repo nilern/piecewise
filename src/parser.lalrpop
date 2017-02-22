@@ -1,4 +1,5 @@
-use lexer::{Precedence, Tok, LexicalError, SrcPos};
+use util::SrcPos;
+use lexer::{Precedence, Tok, LexicalError};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
