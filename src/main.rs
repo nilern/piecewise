@@ -1,6 +1,7 @@
 #![feature(box_patterns)]
 
 extern crate rustyline;
+extern crate lalrpop_util as __lalrpop_util;
 
 use std::fs::File;
 use std::io::Read;
@@ -8,6 +9,7 @@ use std::io::Read;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
+pub mod util;
 pub mod gc;
 pub mod value;
 pub mod ast;
@@ -15,6 +17,7 @@ pub mod lexer;
 pub mod parser;
 pub mod expand;
 
+use util::ProffError;
 use lexer::Lexer;
 
 fn main() {
@@ -34,9 +37,12 @@ fn main() {
                             }
                         }
                         println!("");
-                        match parser::parse_Expr(Lexer::new(&line).with_ws_stx()) {
-                            Ok(ast) => println!("{}", ast.expand()),
-                            Err(err) => println!("{:?}", err)
+                        let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
+                            .map_err(ProffError::from)
+                            .and_then(|ast| ast.expand().map_err(ProffError::from));
+                        match ast {
+                            Ok(ast) => println!("{}", ast),
+                            Err(err) => println!("Error: {:?}", err)
                         }
                     },
                     Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
@@ -59,8 +65,9 @@ fn main() {
                 }
             }
             println!("");
-            match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()) {
-                Ok(ast) => println!("{}", ast.expand()),
+            match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
+                        .and_then(|ast| ast.expand().map_err(ProffError::from)) {
+                Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)
             }
         },
