@@ -5,7 +5,7 @@ extern crate lalrpop_util as __lalrpop_util;
 
 use std::fs::File;
 use std::io::Read;
-
+use std::mem::size_of;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -16,11 +16,28 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod expand;
+pub mod vm;
 
 use util::ProffError;
 use lexer::Lexer;
+use value::RawRef;
+use vm::{VM, Closure, Instr};
+use vm::Operand::*;
+use vm::Instr::*;
 
 fn main() {
+    let mut vm = VM::new(Closure {
+        code: vec![
+            Regs(2),
+            IAdd(0, From::from(Const(0)), From::from(Const(1))),
+            IMul(1, From::from(Local(0)), From::from(Const(0))),
+            Halt],
+        consts: vec![RawRef(3), RawRef(5)]
+    });
+    vm.run();
+
+    println!("\n{:?}\n", vm);
+
     let mut args = std::env::args();
     match args.len() {
         1 => {
@@ -30,13 +47,13 @@ fn main() {
                 match readline {
                     Ok(line) => {
                         rl.add_history_entry(&line);
-                        for tok in Lexer::new(&line).with_ws_stx() {
-                            match tok {
-                                Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
-                                Err(err) => println!("Error: {:?}", err)
-                            }
-                        }
-                        println!("");
+                        // for tok in Lexer::new(&line).with_ws_stx() {
+                        //     match tok {
+                        //         Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
+                        //         Err(err) => println!("Error: {:?}", err)
+                        //     }
+                        // }
+                        // println!("");
                         let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
                             .map_err(ProffError::from)
                             .and_then(|ast| ast.expand().map_err(ProffError::from));
@@ -58,13 +75,13 @@ fn main() {
             let mut f = File::open(args.next().unwrap()).expect("unable to open file");
             let mut code = String::new();
             f.read_to_string(&mut code).expect("error reading from file");
-            for tok in Lexer::new(&code).with_ws_stx() {
-                match tok {
-                    Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
-                    Err(err) => println!("Error: {:?}", err)
-                }
-            }
-            println!("");
+            // for tok in Lexer::new(&code).with_ws_stx() {
+            //     match tok {
+            //         Ok((s, tok, e)) => println!("#<{} @ {}-{}>", tok, s, e),
+            //         Err(err) => println!("Error: {:?}", err)
+            //     }
+            // }
+            // println!("");
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
                         .and_then(|ast| ast.expand().map_err(ProffError::from)) {
                 Ok(ast) => println!("{}", ast),

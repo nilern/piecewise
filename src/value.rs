@@ -24,8 +24,8 @@ impl gc::Header for Header {
 }
 
 /// A raw object reference, tagged pointer.
-#[derive(Clone, Copy)]
-pub struct RawRef(usize);
+#[derive(Debug, Clone, Copy)]
+pub struct RawRef(pub usize);
 
 impl gc::Reference for RawRef {
     type Header = Header;
