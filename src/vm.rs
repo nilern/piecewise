@@ -4,6 +4,8 @@ use std::mem;
 
 use value::RawRef;
 
+// FIXME: Box<Closure> transmutes probably leak memory
+
 const OPERAND_SHIFT: u8 = 2;
 const OPERAND_MASK: u8 = 0b11;
 const LOCAL_TAG: u8 = 0b00;
@@ -53,6 +55,7 @@ impl From<Operand> for u8 {
 #[derive(Debug, Clone, Copy)]
 pub enum Instr {
     Mov(u8, u8),
+    SvK(u16),
 
     Fun(u8, u16),
 
@@ -73,14 +76,15 @@ impl Display for Instr {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::Instr::*;
         match self {
-            &Mov(dest, src) => write!(f, "mov  l{}, {}", dest, Operand::from(src)),
-            &Fun(d, i) => write!(f, "fun  l{}, {}", d, i),
-            &IAdd(d, l, r) => write!(f, "iadd l{}, {}, {}", d, Operand::from(l), Operand::from(r)),
-            &ISub(d, l, r) => write!(f, "isub l{}, {}, {}", d, Operand::from(l), Operand::from(r)),
-            &IMul(d, l, r) => write!(f, "imul l{}, {}, {}", d, Operand::from(l), Operand::from(r)),
+            &Mov(dest, src) => write!(f, "mov  {}, {}", dest, Operand::from(src)),
+            &SvK(fp_offset) => write!(f, "svk  {}", fp_offset),
+            &Fun(d, i) => write!(f, "fun  {}, {}", d, i),
+            &IAdd(d, l, r) => write!(f, "iadd {}, {}, {}", d, Operand::from(l), Operand::from(r)),
+            &ISub(d, l, r) => write!(f, "isub {}, {}, {}", d, Operand::from(l), Operand::from(r)),
+            &IMul(d, l, r) => write!(f, "imul {}, {}, {}", d, Operand::from(l), Operand::from(r)),
             &ILt(l, r) => write!(f, "ilt  {}, {}", Operand::from(l), Operand::from(r)),
             &Br(offset) => write!(f, "br   {}", offset),
-            &Call(offset) => write!(f, "call {}", offset),
+            &Call(argc) => write!(f, "call {}", argc),
             &Ret(v) => write!(f, "ret  {}", Operand::from(v)),
             &Halt => write!(f, "halt")
         }
@@ -97,7 +101,7 @@ pub struct CodeObject {
 }
 
 /// A temporary shim for closures.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Closure {
     pub cob: CodeObject
 }
@@ -129,13 +133,22 @@ impl VM {
 
         loop {
             let instr = self.cl.cob.code[self.ip];
-            println!("{} [{}]: {}", self.stack.len(), self.ip, instr);
+            //println!("{} [{}]: {}", self.stack.len(), self.ip, instr);
             self.ip += 1;
 
             match instr {
                 Mov(di, si) => {
                     let s = self.decode_operand(si);
                     self.set_reg(di, s);
+                },
+                SvK(fp_offset) => {
+                    let newfp = self.fp + fp_offset as usize;
+                    self.stack[newfp - 3] = RawRef(self.fp);
+                    self.stack[newfp - 2] = RawRef(self.ip + 1);
+                    self.stack[newfp - 1] = unsafe {
+                        mem::transmute(Box::new((*self.cl).clone()))
+                    };
+                    self.fp = newfp;
                 },
 
                 Fun(di, ci) => {
@@ -170,27 +183,23 @@ impl VM {
                 Br(offset) => {
                     self.ip += offset as usize;
                 },
-                // TODO: `Call` is a bit messy. Also need `TCall`. Maybe `Call` can be broken into
-                // `PushK` and `TCall` to solve both?
-                Call(fp_offset) => {
-                    let newfp = self.fp + fp_offset as usize;
-                    self.stack[newfp - 3] = RawRef(self.fp);
-                    self.stack[newfp - 2] = RawRef(self.ip);
-                    let mut cl = unsafe { mem::transmute(self.stack[newfp]) };
-                    mem::swap(&mut cl, &mut self.cl);
-                    self.stack[newfp - 1] = unsafe { mem::transmute(cl) };
+                Call(argc) => {
+                    self.cl = unsafe { mem::transmute(self.stack[self.fp]) };
                     self.ip = 0;
-                    self.fp = newfp;
-                    self.stack.resize(self.fp + self.cl.cob.reg_req, RawRef(0));
+                    let keep = self.fp + argc as usize;
+                    let total = self.fp + self.cl.cob.reg_req;
+                    self.resize_stack(keep, total);
                 },
-                // TODO: Estimate register quantity better, null out registers above return value.
                 Ret(vi) => {
-                    let newfp = self.stack[self.fp - 3];
-                    self.stack[self.fp - 3] = self.decode_operand(vi);
-                    self.ip = self.stack[self.fp - 2].0;
-                    self.cl = unsafe { mem::transmute(self.stack[self.fp - 1]) };
-                    self.fp = newfp.0;
-                    self.stack.resize(self.fp + self.cl.cob.reg_req, RawRef(0));
+                    let oldfp = self.fp;
+                    let newfp = self.stack[oldfp - 3].0;
+                    self.stack[oldfp - 3] = self.decode_operand(vi);
+                    self.fp = newfp;
+                    self.ip = self.stack[oldfp - 2].0;
+                    self.cl = unsafe { mem::transmute(self.stack[oldfp - 1]) };
+                    let keep = oldfp - 2;
+                    let total = self.fp + self.cl.cob.reg_req; // TODO: better estimate
+                    self.resize_stack(keep, total);
                 },
 
                 Halt => break
@@ -207,5 +216,92 @@ impl VM {
 
     fn set_reg(&mut self, reg_index: u8, val: RawRef) {
         self.stack[self.fp + reg_index as usize] = val;
+    }
+
+    fn resize_stack(&mut self, keep: usize, total: usize) {
+        self.stack.truncate(keep);
+        self.stack.resize(total, RawRef(0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VM, CodeObject};
+    use super::Instr::*;
+    use super::Operand::*;
+    use value::RawRef;
+
+    // TODO: use globals
+
+    #[test]
+    fn fact() {
+        let mut vm = VM::new(CodeObject {
+            code: vec![
+                Fun(3, 0),
+                Mov(4, From::from(Const(0))),
+                SvK(3),
+                Call(2),
+                Halt
+            ],
+            consts: vec![RawRef(5)],
+            reg_req: 5,
+            cobs: vec![
+                CodeObject {
+                    code: vec![
+                        ILt(From::from(Local(1)), From::from(Const(0))),
+                        Br(1),
+                        Ret(From::from(Const(1))),
+                        ISub(2, From::from(Local(1)), From::from(Const(1))),
+                        Mov(4, From::from(Local(0))),
+                        Mov(0, From::from(Local(1))),
+                        Mov(5, From::from(Local(2))),
+                        SvK(4),
+                        Call(2),
+                        IMul(2, From::from(Local(0)), From::from(Local(1))),
+                        Ret(From::from(Local(2)))
+                    ],
+                    consts: vec![RawRef(2), RawRef(1)],
+                    reg_req: 6,
+                    cobs: vec![]
+                }
+            ]
+        });
+        vm.run();
+        assert_eq!(vm.stack[0].0, 120);
+    }
+
+    #[test]
+    fn tailfact() {
+        let mut vm = VM::new(CodeObject {
+            code: vec![
+                Fun(3, 0),
+                Mov(4, From::from(Const(0))),
+                Mov(5, From::from(Const(1))),
+                SvK(3),
+                Call(3),
+                Halt
+            ],
+            consts: vec![RawRef(5), RawRef(1)],
+            reg_req: 6,
+            cobs: vec![
+                CodeObject {
+                    code: vec![
+                        ILt(From::from(Local(1)), From::from(Const(0))),
+                        Br(1),
+                        Ret(From::from(Local(2))),
+                        ISub(3, From::from(Local(1)), From::from(Const(1))),
+                        IMul(4, From::from(Local(1)), From::from(Local(2))),
+                        Mov(1, From::from(Local(3))),
+                        Mov(2, From::from(Local(4))),
+                        Call(3)
+                    ],
+                    consts: vec![RawRef(2), RawRef(1)],
+                    reg_req: 5,
+                    cobs: vec![]
+                }
+            ]
+        });
+        vm.run();
+        assert_eq!(vm.stack[0].0, 120);
     }
 }
