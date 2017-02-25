@@ -8,11 +8,6 @@ use util::ProffError;
 
 // FIXME: Box<Closure> transmutes probably leak memory
 
-const OPERAND_SHIFT: u8 = 2;
-const OPERAND_MASK: u8 = 0b11;
-const LOCAL_TAG: u8 = 0b00;
-const CONST_TAG: u8 = 0b01;
-
 /// Unpacked representation for complex operands of virtual instructions
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
@@ -20,22 +15,27 @@ pub enum Operand {
     Const(u8)
 }
 
+impl Operand {
+    const SHIFT: u8 = 2;
+    const MASK: u8 = 0b11;
+    const LOCAL_TAG: u8 = 0b00;
+    const CONST_TAG: u8 = 0b01;
+}
+
 impl Display for Operand {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::Operand::*;
         match self {
-            &Local(i) => write!(f, "l{}", i),
-            &Const(i) => write!(f, "c{}", i)
+            &self::Operand::Local(i) => write!(f, "l{}", i),
+            &self::Operand::Const(i) => write!(f, "c{}", i)
         }
     }
 }
 
 impl From<u8> for Operand {
     fn from(byte: u8) -> Operand {
-        use self::Operand::*;
-        match byte & OPERAND_MASK {
-            LOCAL_TAG => Local(byte >> OPERAND_SHIFT),
-            CONST_TAG => Const(byte >> OPERAND_SHIFT),
+        match byte & Operand::MASK {
+            Operand::LOCAL_TAG => Operand::Local(byte >> Operand::SHIFT),
+            Operand::CONST_TAG => Operand::Const(byte >> Operand::SHIFT),
             2 => unimplemented!(),
             3 => unimplemented!(),
             _ => unreachable!()
@@ -45,10 +45,9 @@ impl From<u8> for Operand {
 
 impl From<Operand> for u8 {
     fn from(op: Operand) -> u8 {
-        use self::Operand::*;
         match op {
-            Local(i) => i << OPERAND_SHIFT | LOCAL_TAG,
-            Const(i) => i << OPERAND_SHIFT | CONST_TAG
+            Operand::Local(i) => i << Operand::SHIFT | Operand::LOCAL_TAG,
+            Operand::Const(i) => i << Operand::SHIFT | Operand::CONST_TAG
         }
     }
 }

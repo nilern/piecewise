@@ -4,12 +4,6 @@ use std::slice;
 use std::convert::TryFrom;
 use std::mem;
 
-const MARK_MASK: usize = 0b0100;
-const BLOB_MASK: usize = 0b1000;
-const TAG_SHIFT: usize = 4;
-const TAG_MASK: usize = 0b1111;
-const LEN_SHIFT: usize = 8;
-
 #[derive(Debug)]
 pub struct TypeError(usize, usize);
 
@@ -17,23 +11,40 @@ pub struct TypeError(usize, usize);
 #[derive(Clone, Copy)]
 pub struct Header(usize);
 
+impl Header {
+    const MARK_MASK: usize = 0b0100;
+    const BLOB_MASK: usize = 0b1000;
+    const TAG_SHIFT: usize = 4;
+    const TAG_MASK: usize = 0b1111;
+    const LEN_SHIFT: usize = 8;
+}
+
 impl gc::Header for Header {
-    fn is_marked(self) -> bool { self.0 & MARK_MASK != 0 }
+    fn is_marked(self) -> bool { self.0 & Header::MARK_MASK != 0 }
 
-    fn is_blob(self) -> bool { self.0 & BLOB_MASK != 0 }
+    fn is_blob(self) -> bool { self.0 & Header::BLOB_MASK != 0 }
 
-    fn tag(self) -> usize { self.0 >> TAG_SHIFT & TAG_MASK }
+    fn tag(self) -> usize { self.0 >> Header::TAG_SHIFT & Header::TAG_MASK }
 
-    fn len(self) -> usize { self.0 >> LEN_SHIFT }
+    fn len(self) -> usize { self.0 >> Header::LEN_SHIFT }
 }
 
 /// A raw object reference, tagged pointer.
 #[derive(Debug, Clone, Copy)]
 pub struct RawRef(usize);
 
+impl RawRef {
+    const SHIFT: usize = 2;
+    const MASK: usize = 0b11;
+    const INT_TAG: usize = 0b00;
+    const PTR_TAG: usize = 0b01;
+    // const FLOAT_TAG: usize = 0b10;
+    // const HEADER_TAG: usize = 0b11;
+}
+
 impl From<isize> for RawRef {
     fn from(i: isize) -> RawRef {
-        RawRef((i as usize) << 2)
+        RawRef((i << RawRef::SHIFT) as usize)
     }
 }
 
@@ -41,10 +52,11 @@ impl TryFrom<RawRef> for isize {
     type Err = TypeError;
 
     fn try_from(RawRef(i): RawRef) -> Result<isize, TypeError> {
-        if i & 0b11 == 0b00 {
-            Ok(i as isize >> 2)
+        let tag = i & RawRef::MASK;
+        if tag == RawRef::INT_TAG {
+            Ok((i as isize) >> RawRef::SHIFT)
         } else {
-            Err(TypeError(0b00, i & 0b11))
+            Err(TypeError(RawRef::INT_TAG, tag))
         }
     }
 }
@@ -57,8 +69,8 @@ impl gc::Reference for RawRef {
     }
 
     fn ptr_mut(self) -> Option<*mut Header> {
-        if self.0 & 0b11 == 0b01 {
-            let ptr: *mut Header = unsafe { mem::transmute(self.0 - 1) };
+        if self.0 & RawRef::MASK == RawRef::PTR_TAG {
+            let ptr: *mut Header = unsafe { mem::transmute(self.0 >> RawRef::SHIFT) };
             if !ptr.is_null() {
                 return Some(ptr);
             }
