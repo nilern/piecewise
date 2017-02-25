@@ -1,4 +1,4 @@
-#![feature(box_patterns)]
+#![feature(box_patterns, try_from)]
 
 extern crate rustyline;
 extern crate lalrpop_util as __lalrpop_util;

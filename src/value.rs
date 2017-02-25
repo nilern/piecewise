@@ -1,6 +1,7 @@
 use gc;
 
 use std::slice;
+use std::convert::TryFrom;
 use std::mem;
 
 const MARK_MASK: usize = 0b0100;
@@ -8,6 +9,9 @@ const BLOB_MASK: usize = 0b1000;
 const TAG_SHIFT: usize = 4;
 const TAG_MASK: usize = 0b1111;
 const LEN_SHIFT: usize = 8;
+
+#[derive(Debug)]
+pub struct TypeError(usize, usize);
 
 /// An object header.
 #[derive(Clone, Copy)]
@@ -25,7 +29,25 @@ impl gc::Header for Header {
 
 /// A raw object reference, tagged pointer.
 #[derive(Debug, Clone, Copy)]
-pub struct RawRef(pub usize);
+pub struct RawRef(usize);
+
+impl From<isize> for RawRef {
+    fn from(i: isize) -> RawRef {
+        RawRef((i as usize) << 2)
+    }
+}
+
+impl TryFrom<RawRef> for isize {
+    type Err = TypeError;
+
+    fn try_from(RawRef(i): RawRef) -> Result<isize, TypeError> {
+        if i & 0b11 == 0b00 {
+            Ok(i as isize >> 2)
+        } else {
+            Err(TypeError(0b00, i & 0b11))
+        }
+    }
+}
 
 impl gc::Reference for RawRef {
     type Header = Header;

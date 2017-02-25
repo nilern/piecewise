@@ -1,8 +1,10 @@
 use std::fmt;
 use std::fmt::Display;
+use std::convert::TryFrom;
 use std::mem;
 
-use value::RawRef;
+use value::{RawRef, TypeError};
+use util::ProffError;
 
 // FIXME: Box<Closure> transmutes probably leak memory
 
@@ -69,7 +71,7 @@ pub enum Instr {
     Call(u16),
     Ret(u8),
 
-    Halt
+    Halt(u8)
 }
 
 impl Display for Instr {
@@ -86,7 +88,7 @@ impl Display for Instr {
             &Br(offset) => write!(f, "br   {}", offset),
             &Call(argc) => write!(f, "call {}", argc),
             &Ret(v) => write!(f, "ret  {}", Operand::from(v)),
-            &Halt => write!(f, "halt")
+            &Halt(ri) => write!(f, "halt {}", Operand::from(ri))
         }
     }
 }
@@ -123,12 +125,12 @@ impl VM {
             cl: Box::new(Closure { cob: fun }),
             ip: 0,
             fp: 0,
-            stack: vec![RawRef(0); stacksize]
+            stack: vec![From::from(0); stacksize]
         }
     }
 
     /// Start the VM.
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<RawRef, ProffError> {
         use self::Instr::*;
 
         loop {
@@ -143,8 +145,8 @@ impl VM {
                 },
                 SvK(fp_offset) => {
                     let newfp = self.fp + fp_offset as usize;
-                    self.stack[newfp - 3] = RawRef(self.fp);
-                    self.stack[newfp - 2] = RawRef(self.ip + 1);
+                    self.stack[newfp - 3] = From::from(self.fp as isize);
+                    self.stack[newfp - 2] = From::from((self.ip + 1) as isize);
                     self.stack[newfp - 1] = unsafe {
                         mem::transmute(Box::new((*self.cl).clone()))
                     };
@@ -157,25 +159,25 @@ impl VM {
                 },
 
                 IAdd(di, li, ri) => {
-                    let l = self.decode_operand(li);
-                    let r = self.decode_operand(ri);
-                    self.set_reg(di, RawRef(l.0 + r.0));
+                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    self.set_reg(di, From::from(l + r));
                 },
                 ISub(di, li, ri) => {
-                    let l = self.decode_operand(li);
-                    let r = self.decode_operand(ri);
-                    self.set_reg(di, RawRef(l.0 - r.0));
+                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    self.set_reg(di, From::from(l - r));
                 },
                 IMul(di, li, ri) => {
-                    let l = self.decode_operand(li);
-                    let r = self.decode_operand(ri);
-                    self.set_reg(di, RawRef(l.0 * r.0));
+                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    self.set_reg(di, From::from(l * r));
                 },
 
                 ILt(li, ri) => {
-                    let l = self.decode_operand(li);
-                    let r = self.decode_operand(ri);
-                    if l.0 < r.0 {
+                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    if l < r {
                         self.ip += 1;
                     }
                 },
@@ -192,17 +194,17 @@ impl VM {
                 },
                 Ret(vi) => {
                     let oldfp = self.fp;
-                    let newfp = self.stack[oldfp - 3].0;
+                    let newfp = self.load_usize(oldfp - 3)?;
                     self.stack[oldfp - 3] = self.decode_operand(vi);
                     self.fp = newfp;
-                    self.ip = self.stack[oldfp - 2].0;
+                    self.ip = self.load_usize(oldfp - 2)?;
                     self.cl = unsafe { mem::transmute(self.stack[oldfp - 1]) };
                     let keep = oldfp - 2;
                     let total = self.fp + self.cl.cob.reg_req; // TODO: better estimate
                     self.resize_stack(keep, total);
                 },
 
-                Halt => break
+                Halt(ri) => return Ok(self.decode_operand(ri))
             }
         }
     }
@@ -214,18 +216,24 @@ impl VM {
         }
     }
 
+    fn load_usize(&self, i: usize) -> Result<usize, TypeError> {
+        <isize as TryFrom<RawRef>>::try_from(self.stack[i]).map(|n| n as usize)
+    }
+
     fn set_reg(&mut self, reg_index: u8, val: RawRef) {
         self.stack[self.fp + reg_index as usize] = val;
     }
 
     fn resize_stack(&mut self, keep: usize, total: usize) {
         self.stack.truncate(keep);
-        self.stack.resize(total, RawRef(0));
+        self.stack.resize(total, From::from(0));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
     use super::{VM, CodeObject};
     use super::Instr::*;
     use super::Operand::*;
@@ -241,9 +249,9 @@ mod tests {
                 Mov(4, From::from(Const(0))),
                 SvK(3),
                 Call(2),
-                Halt
+                Halt(From::from(Local(0)))
             ],
-            consts: vec![RawRef(5)],
+            consts: vec![From::from(5)],
             reg_req: 5,
             cobs: vec![
                 CodeObject {
@@ -260,14 +268,13 @@ mod tests {
                         IMul(2, From::from(Local(0)), From::from(Local(1))),
                         Ret(From::from(Local(2)))
                     ],
-                    consts: vec![RawRef(2), RawRef(1)],
+                    consts: vec![From::from(2), From::from(1)],
                     reg_req: 6,
                     cobs: vec![]
                 }
             ]
         });
-        vm.run();
-        assert_eq!(vm.stack[0].0, 120);
+        assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 
     #[test]
@@ -279,9 +286,9 @@ mod tests {
                 Mov(5, From::from(Const(1))),
                 SvK(3),
                 Call(3),
-                Halt
+                Halt(From::from(Local(0)))
             ],
-            consts: vec![RawRef(5), RawRef(1)],
+            consts: vec![From::from(5), From::from(1)],
             reg_req: 6,
             cobs: vec![
                 CodeObject {
@@ -295,13 +302,12 @@ mod tests {
                         Mov(2, From::from(Local(4))),
                         Call(3)
                     ],
-                    consts: vec![RawRef(2), RawRef(1)],
+                    consts: vec![From::from(2), From::from(1)],
                     reg_req: 5,
                     cobs: vec![]
                 }
             ]
         });
-        vm.run();
-        assert_eq!(vm.stack[0].0, 120);
+        assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 }
