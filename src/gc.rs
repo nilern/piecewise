@@ -3,12 +3,13 @@ use std::mem;
 use std::mem::transmute;
 use std::mem::size_of;
 
-/// Object references should implement this.
+/// Object reference, usually a (possibly tagged) pointer.
 pub trait Reference: Copy + Default {
-    type Header: Header;
+    /// The object header type `Self` possibly refers to.
+    type Header;
 
     /// Create a new reference from an object pointer,
-    fn from_mut_ptr<O>(ptr: *mut O) -> Self where O: Object<Slot=Self>;
+    fn from_mut_ptr(ptr: *mut Self::Header) -> Self;
 
     /// Try to convert the reference to a raw pointer. Should produce `None` when self is immediate
     /// or null.
@@ -19,7 +20,7 @@ pub trait Reference: Copy + Default {
     fn ptr_mut(self) -> Option<*mut Self::Header>;
 }
 
-/// Object headers should implement this.
+/// Object header
 pub trait Header {
     /// Is the object marked?
     fn is_marked(&self) -> bool;
@@ -34,7 +35,7 @@ pub trait Header {
     fn len(&self) -> usize;
 
     /// Get the forwarding pointer.
-    fn get_forward<O>(&self) -> *mut O where O: Object;
+    fn get_forward(&self) -> *mut Self;
 
     /// Set the mark to true.
     fn set_mark(&mut self);
@@ -43,33 +44,37 @@ pub trait Header {
     fn remove_mark(&mut self);
 
     /// Turn into a forwarding pointer.
-    fn set_forward_to<O>(&mut self, dest: *mut O) where O: Object;
+    fn set_forward_to(&mut self, dest: *mut Self);
 }
 
-/// Any data that should be allocated and managed by GC should implement this.
-pub trait Object: Sized {
-    /// The header representation.
+// /// Any data that should be allocated and managed by GC should implement this.
+// pub trait Object: Sized {
+//     /// The header representation.
+//     type Header: Header;
+//
+//     /// The slot type that makes up the actual data.
+//     type Slot: Reference;
+//
+//     /// Get the header of the object.
+//     fn header(&self) -> &Self::Header;
+//
+//     /// Get the header of the object.
+//     fn header_mut(&mut self) -> &mut Self::Header;
+//
+//     /// Set the header of the object.
+//     fn set_header(&mut self, header: Self::Header);
+//
+//     /// Get a slice to the data of the object.
+//     fn data(&self) -> &[Self::Slot];
+// }
+
+/// Allocation of header-tagged memory.
+pub trait Allocator {
+    /// The type to use for object headers.
     type Header: Header;
 
-    /// The slot type that makes up the actual data.
-    type Slot: Reference;
-
-    /// Get the header of the object.
-    fn header(&self) -> &Self::Header;
-
-    /// Get the header of the object.
-    fn header_mut(&mut self) -> &mut Self::Header;
-
-    /// Set the header of the object.
-    fn set_header(&mut self, header: Self::Header);
-
-    /// Get a slice to the data of the object.
-    fn data(&self) -> &[Self::Slot];
-}
-
-/// A memory manager.
-pub trait Collector {
-    type O: Object;
+    /// The type to use for object slots.
+    type Slot: Reference<Header=Self::Header>;
 
     /// Can we allocate `slot_count` worth of pointy objects (including headers)?
     fn pointy_poll(&self, slot_count: usize) -> bool;
@@ -80,20 +85,23 @@ pub trait Collector {
     /// # Safety
     /// 1. You should pointy_poll() first to make sure `slot_count` slots can be allocated.
     /// 2. `slot_count == header.len() + size_of::<O::Header>() / size_of::<O::Slot>()`
-    unsafe fn alloc_pointy(&mut self, header: <Self::O as Object>::Header, slot_count: usize)
-        -> <Self::O as Object>::Slot;
+    unsafe fn alloc_pointy(&mut self, header: Self::Header, slot_count: usize) -> Self::Slot;
 
     /// # Safety
     /// 1. You should flat_poll() first to make sure `byte_count` bytes can be allocated.
     /// 2. `byte_count == header.len() + size_of::<O::Header>()`
-    unsafe fn alloc_flat(&mut self, header: <Self::O as Object>::Header, byte_count: usize)
-        -> <Self::O as Object>::Slot;
+    unsafe fn alloc_flat(&mut self, header: Self::Header, byte_count: usize) -> Self::Slot;
+}
+
+/// Garbage collection.
+pub trait Collector {
+    type Slot: Reference;
 
     /// Mark/move a reference. Return the new value of the reference.
     ///
     /// # Safety
     /// `oref` must actually point into the GC heap.
-    unsafe fn mark(&mut self, oref: <Self::O as Object>::Slot) -> <Self::O as Object>::Slot;
+    unsafe fn mark(&mut self, oref: Self::Slot) -> Self::Slot;
 
     /// Collect garbage. Assumes that all roots have already been `mark()`:ed.
     ///
@@ -104,19 +112,21 @@ pub trait Collector {
     unsafe fn collect(&mut self);
 }
 
-pub struct SimpleCollector<O> where O: Object {
-    fromspace: Vec<O::Slot>,
-    tospace: Vec<O::Slot>,
+// ------------------------------------------------------------------------------------------------
+
+pub struct SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+    fromspace: Vec<R>,
+    tospace: Vec<R>,
     space_interval: usize,
 
-    blobspace: Vec<*mut O>,
+    blobspace: Vec<*mut H>,
     blob_bytes_allocated: usize,
     byte_interval: usize
 }
 
-impl<O> SimpleCollector<O> where O: Object {
-    /// Create a new `Collector`.
-    pub fn new(space_interval: usize, byte_interval: usize) -> SimpleCollector<O> {
+impl<H, R> SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+    /// Create a new `SimpleCollector`.
+    pub fn new(space_interval: usize, byte_interval: usize) -> SimpleCollector<H, R> {
         SimpleCollector {
             fromspace: Vec::with_capacity(space_interval),
             tospace: Vec::with_capacity(space_interval),
@@ -128,24 +138,23 @@ impl<O> SimpleCollector<O> where O: Object {
         }
     }
 
-    unsafe fn salvage(&mut self, obj: *mut O::Header) -> *mut O {
-        let free = self.tospace.as_mut_ptr().offset(self.tospace.len() as isize) as *mut O;
+    unsafe fn salvage(&mut self, obj: *mut H) -> *mut H {
+        let free = self.tospace.as_mut_ptr().offset(self.tospace.len() as isize) as *mut H;
         let oslice = slice::from_raw_parts(
-            obj as *const O::Slot,
-            (*obj).len() + size_of::<O::Header>() / size_of::<O::Slot>());
+            obj as *const R,
+            (*obj).len() + size_of::<H>() / size_of::<R>());
         self.tospace.extend_from_slice(oslice);
         free
     }
 
     fn sweep(&mut self) {
-        self.blobspace.retain(|&ptr| unsafe {
-            let header = (*ptr).header_mut();
-            if header.is_marked() {
-                header.remove_mark();
+        self.blobspace.retain(|&header| unsafe {
+            if (*header).is_marked() {
+                (*header).remove_mark();
                 true
             } else {
-                let size = header.len() + size_of::<O::Header>();
-                mem::drop(Vec::from_raw_parts(ptr, size, size)); // deallocate
+                let size = (*header).len() + size_of::<H>();
+                mem::drop(Vec::from_raw_parts(header, size, size)); // deallocate
                 false
             }
         });
@@ -155,7 +164,7 @@ impl<O> SimpleCollector<O> where O: Object {
         let mut scan = 0;
         while scan < self.tospace.len() {
             let len = unsafe {
-                transmute::<&mut O::Slot, &mut O>(&mut self.tospace[scan]).header().len()
+                transmute::<&mut R, &mut H>(&mut self.tospace[scan]).len()
             };
             scan += 1;
 
@@ -168,54 +177,59 @@ impl<O> SimpleCollector<O> where O: Object {
     }
 }
 
-impl<O> Collector for SimpleCollector<O> where O: Object {
-    type O = O;
+impl<H, R> Allocator for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+    type Header = H;
+    type Slot = R;
 
     fn pointy_poll(&self, slot_count: usize) -> bool {
-        self.fromspace.capacity() - self.fromspace.len() >= slot_count * size_of::<O::Slot>()
+        self.fromspace.capacity() - self.fromspace.len() >= slot_count * size_of::<R>()
     }
 
     fn flat_poll(&self, byte_count: usize) -> bool {
         self.byte_interval - self.blob_bytes_allocated >= byte_count
     }
 
-    unsafe fn alloc_pointy(&mut self, header: O::Header, slot_count: usize) -> O::Slot {
+    unsafe fn alloc_pointy(&mut self, header: Self::Header, slot_count: usize) -> R {
         let oldlen = self.fromspace.len();
-        let ptr = self.fromspace.as_mut_ptr().offset(oldlen as isize) as *mut O;
+        let ptr = self.fromspace.as_mut_ptr().offset(oldlen as isize) as *mut H;
         self.fromspace.resize(oldlen + slot_count, Default::default());
-        (*ptr).set_header(header);
+        *ptr = header;
 
-        O::Slot::from_mut_ptr(ptr)
+        Self::Slot::from_mut_ptr(ptr)
     }
 
-    unsafe fn alloc_flat(&mut self, header: O::Header, byte_count: usize) -> O::Slot {
+    unsafe fn alloc_flat(&mut self, header: Self::Header, byte_count: usize) -> R {
         let mut bytes = vec![0; byte_count];
-        let ptr = bytes.as_mut_ptr() as *mut O;
+        let ptr = bytes.as_mut_ptr() as *mut H;
         mem::forget(bytes);
-        (*ptr).set_header(header);
+        *ptr = header;
 
         self.blobspace.push(ptr);
         self.blob_bytes_allocated += byte_count;
 
-        O::Slot::from_mut_ptr(ptr)
+        Self::Slot::from_mut_ptr(ptr)
     }
+}
 
-    unsafe fn mark(&mut self, oref: O::Slot) -> O::Slot {
+impl<H, R> Collector for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+    type Slot = R;
+
+    unsafe fn mark(&mut self, oref: Self::Slot) -> Self::Slot {
         if let Some(ptr) = oref.ptr_mut() {
             if (*ptr).is_marked() {
                 if (*ptr).is_blob() {
                     oref
                 } else {
-                    O::Slot::from_mut_ptr((*ptr).get_forward::<O>())
+                    Self::Slot::from_mut_ptr((*ptr).get_forward())
                 }
             } else {
                 if (*ptr).is_blob() {
                     (*ptr).set_mark();
                     oref
                 } else {
-                    let newptr = self.salvage(ptr as *mut O::Header);
+                    let newptr = self.salvage(ptr as *mut H);
                     (*ptr).set_forward_to(newptr);
-                    O::Slot::from_mut_ptr(newptr)
+                    Self::Slot::from_mut_ptr(newptr)
                 }
             }
         } else {

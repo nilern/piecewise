@@ -8,6 +8,8 @@ use util::ProffError;
 
 // FIXME: Box<Closure> transmutes probably leak memory
 
+// ------------------------------------------------------------------------------------------------
+
 /// Unpacked representation for complex operands of virtual instructions
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
@@ -92,6 +94,8 @@ impl Display for Instr {
     }
 }
 
+// ------------------------------------------------------------------------------------------------
+
 /// A temporary shim for code objects
 #[derive(Debug, Clone)]
 pub struct CodeObject {
@@ -106,6 +110,8 @@ pub struct CodeObject {
 pub struct Closure {
     pub cob: CodeObject
 }
+
+// ------------------------------------------------------------------------------------------------
 
 /// Proff virtual machine
 #[derive(Debug)]
@@ -228,6 +234,8 @@ impl VM {
         self.stack.resize(total, From::from(0));
     }
 }
+
+// ------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

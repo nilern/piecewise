@@ -1,14 +1,15 @@
 use gc;
 
-use std::slice;
 use std::convert::TryFrom;
 use std::mem;
 
 #[derive(Debug)]
 pub struct TypeError(usize, usize);
 
+// ------------------------------------------------------------------------------------------------
+
 /// An object header.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Header(usize);
 
 impl Header {
@@ -40,21 +41,23 @@ impl gc::Header for Header {
 
     fn len(&self) -> usize { self.0 >> Header::LEN_SHIFT }
 
-    fn get_forward<O>(&self) -> *mut O where O: gc::Object {
-        ((self.0 & !Header::ADMIN_MASK) >> Header::FWD_SHIFT) as *mut O
+    fn get_forward(&self) -> *mut Header {
+        ((self.0 & !Header::ADMIN_MASK) >> Header::FWD_SHIFT) as *mut Header
     }
 
     fn set_mark(&mut self) { self.0 |= Header::MARK_MASK; }
 
     fn remove_mark(&mut self) { self.0 &= !Header::MARK_MASK; }
 
-    fn set_forward_to<O>(&mut self, dest: *mut O) where O: gc::Object {
+    fn set_forward_to(&mut self, dest: *mut Header) {
         self.0 = (dest as usize) << Header::FWD_SHIFT
                | 1 << Header::BLOB_SHIFT
                | 1 << Header::MARK_SHIFT
                | RawRef::HEADER_TAG;
     }
 }
+
+// ------------------------------------------------------------------------------------------------
 
 /// A raw object reference, tagged pointer.
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +75,12 @@ impl RawRef {
 impl From<isize> for RawRef {
     fn from(i: isize) -> RawRef {
         RawRef((i << RawRef::SHIFT) as usize)
+    }
+}
+
+impl<H> From<*mut H> for RawRef where H: gc::Header {
+    fn from(ptr: *mut H) -> RawRef {
+        RawRef((ptr as usize) | RawRef::PTR_TAG)
     }
 }
 
@@ -95,12 +104,12 @@ impl Default for RawRef {
 impl gc::Reference for RawRef {
     type Header = Header;
 
-    fn from_mut_ptr<O>(ptr: *mut O) -> Self where O: gc::Object<Slot=RawRef> {
-        RawRef((ptr as usize) | RawRef::PTR_TAG)
+    fn from_mut_ptr(ptr: *mut Header) -> RawRef {
+        From::from(ptr)
     }
 
     fn ptr(self) -> Option<*const Header> {
-        self.ptr_mut().map(|ptr| ptr as *const Header)
+        <RawRef as gc::Reference>::ptr_mut(self).map(|ptr| ptr as *const Header)
     }
 
     fn ptr_mut(self) -> Option<*mut Header> {
@@ -114,31 +123,33 @@ impl gc::Reference for RawRef {
     }
 }
 
-/// The tag pair implementation.
-#[repr(C)]
-pub struct TagPair {
-    header: Header,
-    left: RawRef,
-    right: RawRef
-}
+// ------------------------------------------------------------------------------------------------
 
-impl gc::Object for TagPair {
-    type Header = Header;
-    type Slot = RawRef;
-
-    fn header(&self) -> &Header { &self.header }
-
-    fn header_mut(&mut self) -> &mut Self::Header { &mut self.header }
-
-    fn set_header(&mut self, header: Header) { self.header = header; }
-
-    fn data(&self) -> &[RawRef] {
-        unsafe {
-            slice::from_raw_parts(mem::transmute::<&RawRef, *const RawRef>(&self.left),
-                                  gc::Header::len(&self.header))
-        }
-    }
-}
+// /// The tag pair implementation.
+// #[repr(C)]
+// pub struct TagPair {
+//     header: Header,
+//     left: RawRef,
+//     right: RawRef
+// }
+//
+// impl gc::Object for TagPair {
+//     type Header = Header;
+//     type Slot = RawRef;
+//
+//     fn header(&self) -> &Header { &self.header }
+//
+//     fn header_mut(&mut self) -> &mut Self::Header { &mut self.header }
+//
+//     fn set_header(&mut self, header: Header) { self.header = header; }
+//
+//     fn data(&self) -> &[RawRef] {
+//         unsafe {
+//             slice::from_raw_parts(mem::transmute::<&RawRef, *const RawRef>(&self.left),
+//                                   gc::Header::len(&self.header))
+//         }
+//     }
+// }
 
 // enum BaseTag {
 //     Int = 0b00,
