@@ -16,17 +16,44 @@ impl Header {
     const BLOB_MASK: usize = 0b1000;
     const TAG_SHIFT: usize = 4;
     const TAG_MASK: usize = 0b1111;
+    const ADMIN_MASK: usize = 0b1111;
     const LEN_SHIFT: usize = 8;
+    const BLOB_SHIFT: usize = 3;
+    const MARK_SHIFT: usize = 2;
+    const FWD_SHIFT: usize = 1;
+
+    pub fn new(marked: bool, blob: bool, tag: usize, len: usize) -> Header {
+        Header(len << Header::LEN_SHIFT
+               | tag << Header::TAG_SHIFT
+               | (blob as usize) << Header::BLOB_SHIFT
+               | (marked as usize) << Header::MARK_SHIFT
+               | RawRef::HEADER_TAG)
+    }
 }
 
 impl gc::Header for Header {
-    fn is_marked(self) -> bool { self.0 & Header::MARK_MASK != 0 }
+    fn is_marked(&self) -> bool { self.0 & Header::MARK_MASK != 0 }
 
-    fn is_blob(self) -> bool { self.0 & Header::BLOB_MASK != 0 }
+    fn is_blob(&self) -> bool { self.0 & Header::BLOB_MASK != 0 }
 
-    fn tag(self) -> usize { self.0 >> Header::TAG_SHIFT & Header::TAG_MASK }
+    fn tag(&self) -> usize { self.0 >> Header::TAG_SHIFT & Header::TAG_MASK }
 
-    fn len(self) -> usize { self.0 >> Header::LEN_SHIFT }
+    fn len(&self) -> usize { self.0 >> Header::LEN_SHIFT }
+
+    fn get_forward<O>(&self) -> *mut O where O: gc::Object {
+        ((self.0 & !Header::ADMIN_MASK) >> Header::FWD_SHIFT) as *mut O
+    }
+
+    fn set_mark(&mut self) { self.0 |= Header::MARK_MASK; }
+
+    fn remove_mark(&mut self) { self.0 &= !Header::MARK_MASK; }
+
+    fn set_forward_to<O>(&mut self, dest: *mut O) where O: gc::Object {
+        self.0 = (dest as usize) << Header::FWD_SHIFT
+               | 1 << Header::BLOB_SHIFT
+               | 1 << Header::MARK_SHIFT
+               | RawRef::HEADER_TAG;
+    }
 }
 
 /// A raw object reference, tagged pointer.
@@ -39,7 +66,7 @@ impl RawRef {
     const INT_TAG: usize = 0b00;
     const PTR_TAG: usize = 0b01;
     // const FLOAT_TAG: usize = 0b10;
-    // const HEADER_TAG: usize = 0b11;
+    const HEADER_TAG: usize = 0b11;
 }
 
 impl From<isize> for RawRef {
@@ -61,8 +88,16 @@ impl TryFrom<RawRef> for isize {
     }
 }
 
+impl Default for RawRef {
+    fn default() -> RawRef { RawRef(RawRef::PTR_TAG) }
+}
+
 impl gc::Reference for RawRef {
     type Header = Header;
+
+    fn from_mut_ptr<O>(ptr: *mut O) -> Self where O: gc::Object<Slot=RawRef> {
+        RawRef((ptr as usize) | RawRef::PTR_TAG)
+    }
 
     fn ptr(self) -> Option<*const Header> {
         self.ptr_mut().map(|ptr| ptr as *const Header)
@@ -70,7 +105,7 @@ impl gc::Reference for RawRef {
 
     fn ptr_mut(self) -> Option<*mut Header> {
         if self.0 & RawRef::MASK == RawRef::PTR_TAG {
-            let ptr: *mut Header = unsafe { mem::transmute(self.0 >> RawRef::SHIFT) };
+            let ptr: *mut Header = unsafe { mem::transmute(self.0) };
             if !ptr.is_null() {
                 return Some(ptr);
             }
@@ -93,10 +128,14 @@ impl gc::Object for TagPair {
 
     fn header(&self) -> &Header { &self.header }
 
+    fn header_mut(&mut self) -> &mut Self::Header { &mut self.header }
+
+    fn set_header(&mut self, header: Header) { self.header = header; }
+
     fn data(&self) -> &[RawRef] {
         unsafe {
             slice::from_raw_parts(mem::transmute::<&RawRef, *const RawRef>(&self.left),
-                                  gc::Header::len(self.header))
+                                  gc::Header::len(&self.header))
         }
     }
 }
