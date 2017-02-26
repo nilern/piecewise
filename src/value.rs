@@ -1,7 +1,11 @@
-use gc;
-
 use std::convert::TryFrom;
 use std::mem;
+use std::mem::{size_of, transmute};
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+
+use gc;
+use gc::{Reference, Allocator};
 
 #[derive(Debug)]
 pub struct TypeError(usize, usize);
@@ -101,7 +105,7 @@ impl Default for RawRef {
     fn default() -> RawRef { RawRef(RawRef::PTR_TAG) }
 }
 
-impl gc::Reference for RawRef {
+impl Reference for RawRef {
     type Header = Header;
 
     fn from_mut_ptr(ptr: *mut Header) -> RawRef {
@@ -120,6 +124,139 @@ impl gc::Reference for RawRef {
             }
         }
         None
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+/// Statically typed version of RawRef
+#[derive(Debug, Clone, Copy)]
+pub struct TypedRef<T>(RawRef, PhantomData<T>) where T: Sized;
+
+impl<T> From<RawRef> for TypedRef<T> {
+    fn from(rref: RawRef) -> TypedRef<T> { TypedRef(rref, Default::default()) }
+}
+
+impl<T> Deref for TypedRef<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { transmute(self.0.ptr().unwrap().offset(1)) }
+    }
+}
+
+impl<T> DerefMut for TypedRef<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { transmute(self.0.ptr_mut().unwrap().offset(1)) }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct ByteArray;
+
+impl ByteArray {
+    const TAG: usize = 0;
+
+    pub fn new<A>(mem: &mut A, len: usize) -> TypedRef<ByteArray>
+        where A: Allocator<Header=Header, Slot=RawRef>
+    {
+        let oref = unsafe { mem.alloc_flat(ByteArray::header(len), len + size_of::<Header>()) };
+        From::from(oref)
+    }
+
+    fn header(len: usize) -> Header {
+        Header::new(false, true, ByteArray::TAG, len)
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct Tuple;
+
+impl Tuple {
+    const TAG: usize = 1;
+
+    pub fn new<A>(mem: &mut A, len: usize) -> TypedRef<Tuple>
+        where A: Allocator<Header=Header, Slot=RawRef>
+    {
+        let oref = unsafe {
+            mem.alloc_flat(Tuple::header(len), len + size_of::<Header>() / size_of::<RawRef>())
+        };
+        From::from(oref)
+    }
+
+    fn header(len: usize) -> Header {
+        Header::new(false, true, Tuple::TAG, len)
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct CodeObject {
+    pub code: TypedRef<ByteArray>,
+    pub consts: TypedRef<Tuple>,
+    pub reg_req: TypedRef<isize>,
+    pub cobs: TypedRef<Tuple>
+}
+
+impl CodeObject {
+    const TAG: usize = 2;
+
+    pub fn new<A>(mem: &mut A,
+                  code: TypedRef<ByteArray>,
+                  consts: TypedRef<Tuple>,
+                  reg_req: TypedRef<isize>,
+                  cobs: TypedRef<Tuple>) -> TypedRef<CodeObject>
+        where A: Allocator<Header=Header, Slot=RawRef>
+    {
+        let header = CodeObject::header();
+        let oref = unsafe {
+            mem.alloc_pointy(header,
+                gc::Header::len(&header) + size_of::<Header>() / size_of::<RawRef>())
+        };
+        let mut res: TypedRef<CodeObject> = From::from(oref);
+        *res = CodeObject {
+            code: code,
+            consts: consts,
+            reg_req: reg_req,
+            cobs: cobs
+        };
+        res
+    }
+
+    fn header() -> Header {
+        Header::new(false, false, CodeObject::TAG, size_of::<CodeObject>() / size_of::<RawRef>())
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+pub struct Closure {
+    pub cob: TypedRef<CodeObject>
+}
+
+impl Closure {
+    const TAG: usize = 3;
+
+    pub fn new<A>(mem: &mut A, cob: TypedRef<CodeObject>) -> TypedRef<Closure>
+        where A: Allocator<Header=Header, Slot=RawRef>
+    {
+        let header = Closure::header();
+        let oref = unsafe {
+            mem.alloc_pointy(header,
+                gc::Header::len(&header) + size_of::<Header>() / size_of::<RawRef>())
+        };
+        let mut res: TypedRef<Closure> = From::from(oref);
+        *res = Closure { cob: cob };
+        res
+    }
+
+    fn header() -> Header {
+        Header::new(false, false, Closure::TAG, size_of::<Closure>() / size_of::<RawRef>())
     }
 }
 
