@@ -4,7 +4,7 @@ use std::fmt::Display;
 use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
 use expand::ExpansionError;
-use value::TypeError;
+use value::{TypeError, BoundsError};
 
 /// Values that originated in source code, IR trees and suchlike.
 pub trait Sourced {
@@ -37,7 +37,8 @@ impl Display for SrcPos {
 pub enum ProffError {
     Parse(ParseError<SrcPos, Tok, LexicalError>),
     Expansion(ExpansionError),
-    Type(TypeError)
+    Type(TypeError),
+    Bounds(BoundsError)
 }
 
 impl From<ParseError<SrcPos, Tok, LexicalError>> for ProffError {
@@ -55,5 +56,11 @@ impl From<ExpansionError> for ProffError {
 impl From<TypeError> for ProffError {
     fn from(terr: TypeError) -> ProffError {
         ProffError::Type(terr)
+    }
+}
+
+impl From<BoundsError> for ProffError {
+    fn from(terr: BoundsError) -> ProffError {
+        ProffError::Bounds(terr)
     }
 }

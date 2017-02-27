@@ -3,10 +3,9 @@ use std::fmt::Display;
 use std::convert::TryFrom;
 use std::mem;
 
-use value::{RawRef, TypeError};
+use gc::{SimpleCollector, Allocator};
+use value::{Header, RawRef, TypedRef, Closure, CodeObject, TypeError, BoundsError};
 use util::ProffError;
-
-// FIXME: Box<Closure> transmutes probably leak memory
 
 // ------------------------------------------------------------------------------------------------
 
@@ -96,41 +95,44 @@ impl Display for Instr {
 
 // ------------------------------------------------------------------------------------------------
 
-/// A temporary shim for code objects
-#[derive(Debug, Clone)]
-pub struct CodeObject {
-    pub code: Vec<Instr>,
-    pub consts: Vec<RawRef>,
-    pub reg_req: usize,
-    pub cobs: Vec<CodeObject>
-}
-
-/// A temporary shim for closures.
-#[derive(Debug, Clone)]
-pub struct Closure {
-    pub cob: CodeObject
-}
+// /// A temporary shim for code objects
+// #[derive(Debug, Clone)]
+// pub struct CodeObject {
+//     pub code: Vec<Instr>,
+//     pub consts: Vec<RawRef>,
+//     pub reg_req: usize,
+//     pub cobs: Vec<CodeObject>
+// }
+//
+// /// A temporary shim for closures.
+// #[derive(Debug, Clone)]
+// pub struct Closure {
+//     pub cob: CodeObject
+// }
 
 // ------------------------------------------------------------------------------------------------
 
 /// Proff virtual machine
 #[derive(Debug)]
 pub struct VM {
-    cl: Box<Closure>,
+    cl: TypedRef<Closure>,
     ip: usize,
     fp: usize,
-    stack: Vec<RawRef>
+    stack: Vec<RawRef>,
+    heap: SimpleCollector<Header, RawRef>
 }
 
-impl VM {
+impl VM{
     /// Create a new VM.
-    pub fn new(fun: CodeObject) -> VM {
-        let stacksize = fun.reg_req;
+    pub fn new(mut mem: SimpleCollector<Header, RawRef>, fun: CodeObject) -> VM {
+        let fun: TypedRef<CodeObject> = From::from(unsafe { mem.alloc_sized_pointy(fun) });
+        let stacksize: isize = From::from(fun.reg_req);
         VM {
-            cl: Box::new(Closure { cob: fun }),
+            cl: From::from(unsafe { mem.alloc_sized_pointy(Closure { cob: fun }) }),
             ip: 0,
             fp: 0,
-            stack: vec![From::from(0); stacksize]
+            stack: vec![Default::default(); stacksize as usize],
+            heap: SimpleCollector::new(1024, 1024)
         }
     }
 
@@ -139,49 +141,48 @@ impl VM {
         use self::Instr::*;
 
         loop {
-            let instr = self.cl.cob.code[self.ip];
+            let instr = unsafe { self.cl.cob.code.get(self.ip)? };
             //println!("{} [{}]: {}", self.stack.len(), self.ip, instr);
             self.ip += 1;
 
             match instr {
                 Mov(di, si) => {
-                    let s = self.decode_operand(si);
+                    let s = self.decode_operand(si)?;
                     self.set_reg(di, s);
                 },
                 SvK(fp_offset) => {
                     let newfp = self.fp + fp_offset as usize;
                     self.stack[newfp - 3] = From::from(self.fp as isize);
                     self.stack[newfp - 2] = From::from((self.ip + 1) as isize);
-                    self.stack[newfp - 1] = unsafe {
-                        mem::transmute(Box::new((*self.cl).clone()))
-                    };
+                    self.stack[newfp - 1] = From::from(self.cl.clone());
                     self.fp = newfp;
                 },
 
                 Fun(di, ci) => {
-                    let cob = self.cl.cob.cobs[ci as usize].clone();
-                    self.set_reg(di, unsafe { mem::transmute(Box::new(Closure {cob: cob })) });
+                    let cob = From::from(unsafe { self.cl.cob.cobs.get(ci as usize)?.clone() });
+                    let cl = unsafe { self.heap.alloc_sized_pointy(Closure {cob: cob }) };
+                    self.set_reg(di, cl);
                 },
 
                 IAdd(di, li, ri) => {
-                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
-                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    let l: isize = TryFrom::try_from(self.decode_operand(li)?)?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri)?)?;
                     self.set_reg(di, From::from(l + r));
                 },
                 ISub(di, li, ri) => {
-                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
-                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    let l: isize = TryFrom::try_from(self.decode_operand(li)?)?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri)?)?;
                     self.set_reg(di, From::from(l - r));
                 },
                 IMul(di, li, ri) => {
-                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
-                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    let l: isize = TryFrom::try_from(self.decode_operand(li)?)?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri)?)?;
                     self.set_reg(di, From::from(l * r));
                 },
 
                 ILt(li, ri) => {
-                    let l: isize = TryFrom::try_from(self.decode_operand(li))?;
-                    let r: isize = TryFrom::try_from(self.decode_operand(ri))?;
+                    let l: isize = TryFrom::try_from(self.decode_operand(li)?)?;
+                    let r: isize = TryFrom::try_from(self.decode_operand(ri)?)?;
                     if l < r {
                         self.ip += 1;
                     }
@@ -191,33 +192,35 @@ impl VM {
                     self.ip += offset as usize;
                 },
                 Call(argc) => {
-                    self.cl = unsafe { mem::transmute(self.stack[self.fp]) };
+                    self.cl = From::from(self.stack[self.fp]);
                     self.ip = 0;
                     let keep = self.fp + argc as usize;
-                    let total = self.fp + self.cl.cob.reg_req;
+                    let total = self.fp +
+                        <isize as From<TypedRef<isize>>>::from(self.cl.cob.reg_req) as usize;
                     self.resize_stack(keep, total);
                 },
                 Ret(vi) => {
                     let oldfp = self.fp;
                     let newfp = self.load_usize(oldfp - 3)?;
-                    self.stack[oldfp - 3] = self.decode_operand(vi);
+                    self.stack[oldfp - 3] = self.decode_operand(vi)?;
                     self.fp = newfp;
                     self.ip = self.load_usize(oldfp - 2)?;
                     self.cl = unsafe { mem::transmute(self.stack[oldfp - 1]) };
                     let keep = oldfp - 2;
-                    let total = self.fp + self.cl.cob.reg_req; // TODO: better estimate
+                    let total = self.fp +  // TODO: better estimate
+                        <isize as From<TypedRef<isize>>>::from(self.cl.cob.reg_req) as usize;
                     self.resize_stack(keep, total);
                 },
 
-                Halt(ri) => return Ok(self.decode_operand(ri))
+                Halt(ri) => return Ok(self.decode_operand(ri)?)
             }
         }
     }
 
-    fn decode_operand(&self, operand: u8) -> RawRef {
+    fn decode_operand(&self, operand: u8) -> Result<RawRef, BoundsError> {
         match From::from(operand) {
-            Operand::Local(li) => self.stack[self.fp + li as usize],
-            Operand::Const(ci) => self.cl.cob.consts[ci as usize]
+            Operand::Local(li) => Ok(self.stack[self.fp + li as usize]),
+            Operand::Const(ci) => unsafe { self.cl.cob.consts.get(ci as usize) }
         }
     }
 

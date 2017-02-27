@@ -3,6 +3,8 @@ use std::mem;
 use std::mem::transmute;
 use std::mem::size_of;
 
+// FIXME: Make it possible to allocate pointy objects while trying to reach safepoint
+
 /// Object reference, usually a (possibly tagged) pointer.
 pub trait Reference: Copy + Default {
     /// The object header type `Self` possibly refers to.
@@ -21,7 +23,7 @@ pub trait Reference: Copy + Default {
 }
 
 /// Object header
-pub trait Header {
+pub trait Header: Copy {
     /// Is the object marked?
     fn is_marked(&self) -> bool;
 
@@ -47,26 +49,25 @@ pub trait Header {
     fn set_forward_to(&mut self, dest: *mut Self);
 }
 
-// /// Any data that should be allocated and managed by GC should implement this.
-// pub trait Object: Sized {
-//     /// The header representation.
-//     type Header: Header;
-//
-//     /// The slot type that makes up the actual data.
-//     type Slot: Reference;
-//
-//     /// Get the header of the object.
-//     fn header(&self) -> &Self::Header;
-//
-//     /// Get the header of the object.
-//     fn header_mut(&mut self) -> &mut Self::Header;
-//
-//     /// Set the header of the object.
-//     fn set_header(&mut self, header: Self::Header);
-//
-//     /// Get a slice to the data of the object.
-//     fn data(&self) -> &[Self::Slot];
-// }
+pub trait Object {
+    type Header: Header;
+}
+
+pub trait SizedPointyObject: Object + Sized {
+    fn header() -> Self::Header;
+}
+
+pub trait SizedFlatObject: Object + Sized {
+    fn header() -> Self::Header;
+}
+
+pub trait UnSizedPointyObject: Object {
+    fn header(len: usize) -> Self::Header;
+}
+
+pub trait UnSizedFlatObject: Object {
+    fn header(len: usize) -> Self::Header;
+}
 
 /// Allocation of header-tagged memory.
 pub trait Allocator {
@@ -91,6 +92,27 @@ pub trait Allocator {
     /// 1. You should flat_poll() first to make sure `byte_count` bytes can be allocated.
     /// 2. `byte_count == header.len() + size_of::<O::Header>()`
     unsafe fn alloc_flat(&mut self, header: Self::Header, byte_count: usize) -> Self::Slot;
+
+    unsafe fn alloc_sized_pointy<T>(&mut self, v: T) -> Self::Slot
+        where T: SizedPointyObject<Header=Self::Header>
+    {
+        let header = T::header();
+        let oref = self.alloc_pointy(header,
+            header.len() + size_of::<Self::Header>() / size_of::<Self::Slot>());
+        let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
+        *data_ptr = v;
+        oref
+    }
+
+    unsafe fn alloc_sized_flat<T>(&mut self, v: T) -> Self::Slot
+        where T: SizedFlatObject<Header=Self::Header>
+    {
+        let header = T::header();
+        let oref = self.alloc_flat(header, header.len() + size_of::<Self::Header>());
+        let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
+        *data_ptr = v;
+        oref
+    }
 }
 
 /// Garbage collection.
@@ -114,6 +136,7 @@ pub trait Collector {
 
 // ------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
     fromspace: Vec<R>,
     tospace: Vec<R>,
