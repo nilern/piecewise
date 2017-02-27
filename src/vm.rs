@@ -1,59 +1,13 @@
-use std::fmt;
-use std::fmt::Display;
 use std::convert::TryFrom;
 use std::mem;
 
 use gc::{SimpleCollector, Allocator};
 use value::{Header, RawRef, TypedRef, Closure, CodeObject, TypeError, BoundsError};
 use util::ProffError;
+use bytecode;
+use bytecode::{Operand};
 
-// ------------------------------------------------------------------------------------------------
-
-/// Unpacked representation for complex operands of virtual instructions
-#[derive(Debug, Clone, Copy)]
-pub enum Operand {
-    Local(u8),
-    Const(u8)
-}
-
-impl Operand {
-    const SHIFT: u8 = 2;
-    const MASK: u8 = 0b11;
-    const LOCAL_TAG: u8 = 0b00;
-    const CONST_TAG: u8 = 0b01;
-}
-
-impl Display for Operand {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &self::Operand::Local(i) => write!(f, "l{}", i),
-            &self::Operand::Const(i) => write!(f, "c{}", i)
-        }
-    }
-}
-
-impl From<u8> for Operand {
-    fn from(byte: u8) -> Operand {
-        match byte & Operand::MASK {
-            Operand::LOCAL_TAG => Operand::Local(byte >> Operand::SHIFT),
-            Operand::CONST_TAG => Operand::Const(byte >> Operand::SHIFT),
-            2 => unimplemented!(),
-            3 => unimplemented!(),
-            _ => unreachable!()
-        }
-    }
-}
-
-impl From<Operand> for u8 {
-    fn from(op: Operand) -> u8 {
-        match op {
-            Operand::Local(i) => i << Operand::SHIFT | Operand::LOCAL_TAG,
-            Operand::Const(i) => i << Operand::SHIFT | Operand::CONST_TAG
-        }
-    }
-}
-
-/// A virtual instruction.
+/// A packed instruction.
 #[derive(Debug, Clone, Copy)]
 pub enum Instr {
     Mov(u8, u8),
@@ -74,41 +28,29 @@ pub enum Instr {
     Halt(u8)
 }
 
-impl Display for Instr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::Instr::*;
-        match self {
-            &Mov(dest, src) => write!(f, "mov  {}, {}", dest, Operand::from(src)),
-            &SvK(fp_offset) => write!(f, "svk  {}", fp_offset),
-            &Fun(d, i) => write!(f, "fun  {}, {}", d, i),
-            &IAdd(d, l, r) => write!(f, "iadd {}, {}, {}", d, Operand::from(l), Operand::from(r)),
-            &ISub(d, l, r) => write!(f, "isub {}, {}, {}", d, Operand::from(l), Operand::from(r)),
-            &IMul(d, l, r) => write!(f, "imul {}, {}, {}", d, Operand::from(l), Operand::from(r)),
-            &ILt(l, r) => write!(f, "ilt  {}, {}", Operand::from(l), Operand::from(r)),
-            &Br(offset) => write!(f, "br   {}", offset),
-            &Call(argc) => write!(f, "call {}", argc),
-            &Ret(v) => write!(f, "ret  {}", Operand::from(v)),
-            &Halt(ri) => write!(f, "halt {}", Operand::from(ri))
+impl From<bytecode::Instr> for Instr {
+    fn from(instr: bytecode::Instr) -> Instr {
+        use bytecode::Instr::*;
+        match instr {
+            Mov(dest, src) => Instr::Mov(dest, From::from(src)),
+            SvK(fp_offset) => Instr::SvK(fp_offset),
+
+            Fun(dest, src) => Instr::Fun(dest, src),
+
+            IAdd(dest, l, r) => Instr::IAdd(dest, From::from(l), From::from(r)),
+            ISub(dest, l, r) => Instr::ISub(dest, From::from(l), From::from(r)),
+            IMul(dest, l, r) => Instr::IMul(dest, From::from(l), From::from(r)),
+
+            ILt(l, r) => Instr::ILt(From::from(l), From::from(r)),
+
+            Br(offset) => Instr::Br(offset),
+            Call(argc) => Instr::Call(argc),
+            Ret(src) => Instr::Ret(From::from(src)),
+
+            Halt(src) => Instr::Ret(From::from(src)),
         }
     }
 }
-
-// ------------------------------------------------------------------------------------------------
-
-// /// A temporary shim for code objects
-// #[derive(Debug, Clone)]
-// pub struct CodeObject {
-//     pub code: Vec<Instr>,
-//     pub consts: Vec<RawRef>,
-//     pub reg_req: usize,
-//     pub cobs: Vec<CodeObject>
-// }
-//
-// /// A temporary shim for closures.
-// #[derive(Debug, Clone)]
-// pub struct Closure {
-//     pub cob: CodeObject
-// }
 
 // ------------------------------------------------------------------------------------------------
 

@@ -15,6 +15,7 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod expand;
+pub mod bytecode;
 pub mod vm;
 
 use util::ProffError;

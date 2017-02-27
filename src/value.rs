@@ -5,7 +5,8 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use gc;
-use gc::Reference;
+use gc::{Reference, Allocator, UnSizedPointyObject, UnSizedFlatObject};
+use ast::ConstVal;
 
 #[derive(Debug)]
 pub struct TypeError(usize, usize);
@@ -75,13 +76,31 @@ impl RawRef {
     const MASK: usize = 0b11;
     const INT_TAG: usize = 0b00;
     const PTR_TAG: usize = 0b01;
-    // const FLOAT_TAG: usize = 0b10;
+    const FLOAT_TAG: usize = 0b10;
     const HEADER_TAG: usize = 0b11;
+
+    pub unsafe fn from_const<A>(heap: &mut A, v: ConstVal) -> RawRef
+        where A: Allocator<Header=Header, Slot=RawRef>
+    {
+        match v {
+            ConstVal::Int(i) => From::from(i),
+            ConstVal::Float(f) => From::from(f),
+            ConstVal::Char(c) => heap.alloc_sized_flat(c),
+            ConstVal::String(s) => From::from(ByteArray::from_iter(heap, s.bytes())),
+            ConstVal::Bool(b) => heap.alloc_sized_flat(b)
+        }
+    }
 }
 
 impl From<isize> for RawRef {
     fn from(i: isize) -> RawRef {
-        RawRef((i << RawRef::SHIFT) as usize)
+        RawRef(((i << RawRef::SHIFT) as usize) | RawRef::INT_TAG)
+    }
+}
+
+impl From<f64> for RawRef {
+    fn from(f: f64) -> RawRef {
+        RawRef((f as usize) << RawRef::SHIFT | RawRef::FLOAT_TAG)
     }
 }
 
@@ -166,9 +185,43 @@ impl<T> From<TypedRef<T>> for RawRef {
     }
 }
 
+impl From<isize> for TypedRef<isize> {
+    fn from(n: isize) -> TypedRef<isize> {
+        From::from(RawRef::from(n))
+    }
+}
+
 impl From<TypedRef<isize>> for isize {
     fn from(tref: TypedRef<isize>) -> isize {
         TryFrom::try_from(tref.0).unwrap()
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+const CHAR_TAG: usize = 0;
+
+impl gc::Object for char {
+    type Header = Header;
+}
+
+impl gc::SizedFlatObject for char {
+    fn header() -> Header {
+        Header::new(false, true, CHAR_TAG, size_of::<char>())
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
+const BOOL_TAG: usize = 1;
+
+impl gc::Object for bool {
+    type Header = Header;
+}
+
+impl gc::SizedFlatObject for bool {
+    fn header() -> Header {
+        Header::new(false, true, BOOL_TAG, size_of::<bool>())
     }
 }
 
@@ -178,7 +231,7 @@ impl From<TypedRef<isize>> for isize {
 pub struct ByteArray;
 
 impl ByteArray {
-    const TAG: usize = 0;
+    const TAG: usize = 2;
 
     pub unsafe fn len(&self) -> usize {
         let header = transmute::<&ByteArray, *const Header>(self).offset(-1);
@@ -194,13 +247,26 @@ impl ByteArray {
             Err(BoundsError(self.len(), index))
         }
     }
+
+    pub unsafe fn from_iter<A, I, T>(heap: &mut A, iter: I) -> TypedRef<ByteArray>
+        where A: Allocator<Header=Header, Slot=RawRef>, I: ExactSizeIterator<Item=T>, T: Copy
+    {
+        let size = iter.len() * size_of::<T>();
+        let oref = heap.alloc_flat(ByteArray::header(size), size);
+        let mut ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
+        for v in iter {
+            *ptr = v;
+            ptr = ptr.offset(1);
+        }
+        From::from(oref)
+    }
 }
 
 impl gc::Object for ByteArray {
     type Header = Header;
 }
 
-impl gc::UnSizedFlatObject for ByteArray {
+impl UnSizedFlatObject for ByteArray {
     fn header(len: usize) -> Header {
         Header::new(false, true, ByteArray::TAG, len)
     }
@@ -212,7 +278,7 @@ impl gc::UnSizedFlatObject for ByteArray {
 pub struct Tuple;
 
 impl Tuple {
-    const TAG: usize = 1;
+    const TAG: usize = 3;
 
     pub unsafe fn len(&self) -> usize {
         let header = transmute::<&Tuple, *const Header>(self).offset(-1);
@@ -227,13 +293,26 @@ impl Tuple {
             Err(BoundsError(self.len(), index))
         }
     }
+
+    pub unsafe fn from_iter<A, I>(heap: &mut A, iter: I) -> TypedRef<Tuple>
+        where A: Allocator<Header=Header, Slot=RawRef>, I: ExactSizeIterator<Item=RawRef>
+    {
+        let len = iter.len();
+        let oref = heap.alloc_flat(Tuple::header(len), len);
+        let mut ptr = oref.ptr_mut().unwrap().offset(1) as *mut RawRef;
+        for v in iter {
+            *ptr = v;
+            ptr = ptr.offset(1);
+        }
+        From::from(oref)
+    }
 }
 
 impl gc::Object for Tuple {
     type Header = Header;
 }
 
-impl gc::UnSizedPointyObject for Tuple {
+impl UnSizedPointyObject for Tuple {
     fn header(len: usize) -> Header {
         Header::new(false, true, Tuple::TAG, len)
     }
@@ -250,7 +329,7 @@ pub struct CodeObject {
 }
 
 impl CodeObject {
-    const TAG: usize = 2;
+    const TAG: usize = 4;
 }
 
 impl gc::Object for CodeObject {
@@ -272,7 +351,7 @@ pub struct Closure {
 }
 
 impl Closure {
-    const TAG: usize = 3;
+    const TAG: usize = 5;
 }
 
 impl gc::Object for Closure {
