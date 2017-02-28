@@ -22,7 +22,7 @@ impl VM{
     pub fn new(mut mem: SimpleCollector<Header, RawRef>, fun: TypedRef<CodeObject>) -> VM {
         let stacksize: isize = From::from(fun.reg_req);
         VM {
-            cl: From::from(unsafe { mem.alloc_sized_pointy(Closure { cob: fun }) }),
+            cl: From::from(mem.alloc_sized_pointy(Closure { cob: fun })),
             ip: 0,
             fp: 0,
             stack: vec![Default::default(); stacksize as usize],
@@ -54,7 +54,7 @@ impl VM{
 
                 Fun(di, ci) => {
                     let cob = From::from(unsafe { self.cl.cob.cobs.get(ci as usize)?.clone() });
-                    let cl = unsafe { self.heap.alloc_sized_pointy(Closure {cob: cob }) };
+                    let cl = self.heap.alloc_sized_pointy(Closure {cob: cob });
                     self.set_reg(di, cl);
                 },
 

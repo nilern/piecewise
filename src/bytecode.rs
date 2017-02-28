@@ -240,13 +240,11 @@ impl Assembler {
             Tuple::from_iter(heap, crefs.into_iter())
         };
         let reg_req: TypedRef<isize> = From::from(self.reg_req as isize);
-        unsafe {
-            <TypedRef<CodeObject> as From<RawRef>>::from(heap.alloc_sized_pointy(CodeObject {
-                code: code,
-                consts: consts,
-                cobs: cobs,
-                reg_req: reg_req
-            }))
-        }
+        <TypedRef<CodeObject> as From<RawRef>>::from(heap.alloc_sized_pointy(CodeObject {
+            code: code,
+            consts: consts,
+            cobs: cobs,
+            reg_req: reg_req
+        }))
     }
 }

@@ -40,7 +40,7 @@ impl Header {
     }
 }
 
-impl gc::Header for Header {
+unsafe impl gc::Header for Header {
     fn is_marked(&self) -> bool { self.0 & Header::MARK_MASK != 0 }
 
     fn is_blob(&self) -> bool { self.0 & Header::BLOB_MASK != 0 }
@@ -49,15 +49,19 @@ impl gc::Header for Header {
 
     fn len(&self) -> usize { self.0 >> Header::LEN_SHIFT }
 
-    fn get_forward(&self) -> *mut Header {
-        ((self.0 & !Header::ADMIN_MASK) >> Header::FWD_SHIFT) as *mut Header
+    fn get_forward(&self) -> Option<*mut Header> {
+        if !self.is_blob() && self.is_marked() {
+            Some(((self.0 & !Header::ADMIN_MASK) >> Header::FWD_SHIFT) as *mut Header)
+        } else {
+            None
+        }
     }
 
     fn set_mark(&mut self) { self.0 |= Header::MARK_MASK; }
 
-    fn remove_mark(&mut self) { self.0 &= !Header::MARK_MASK; }
+    unsafe fn remove_mark(&mut self) { self.0 &= !Header::MARK_MASK; }
 
-    fn set_forward_to(&mut self, dest: *mut Header) {
+    unsafe fn set_forward_to(&mut self, dest: *mut Header) {
         self.0 = (dest as usize) << Header::FWD_SHIFT
                | 1 << Header::BLOB_SHIFT
                | 1 << Header::MARK_SHIFT
@@ -127,10 +131,10 @@ impl Default for RawRef {
     fn default() -> RawRef { RawRef(RawRef::PTR_TAG) }
 }
 
-impl Reference for RawRef {
+unsafe impl Reference for RawRef {
     type Header = Header;
 
-    fn from_mut_ptr(ptr: *mut Header) -> RawRef {
+    unsafe fn from_mut_ptr(ptr: *mut Header) -> RawRef {
         From::from(ptr)
     }
 
@@ -205,7 +209,7 @@ impl gc::Object for char {
     type Header = Header;
 }
 
-impl gc::SizedFlatObject for char {
+unsafe impl gc::SizedFlatObject for char {
     fn header() -> Header {
         Header::new(false, true, CHAR_TAG, size_of::<char>())
     }
@@ -219,7 +223,7 @@ impl gc::Object for bool {
     type Header = Header;
 }
 
-impl gc::SizedFlatObject for bool {
+unsafe impl gc::SizedFlatObject for bool {
     fn header() -> Header {
         Header::new(false, true, BOOL_TAG, size_of::<bool>())
     }
@@ -266,7 +270,7 @@ impl gc::Object for ByteArray {
     type Header = Header;
 }
 
-impl UnSizedFlatObject for ByteArray {
+unsafe impl UnSizedFlatObject for ByteArray {
     fn header(len: usize) -> Header {
         Header::new(false, true, ByteArray::TAG, len)
     }
@@ -312,7 +316,7 @@ impl gc::Object for Tuple {
     type Header = Header;
 }
 
-impl UnSizedPointyObject for Tuple {
+unsafe impl UnSizedPointyObject for Tuple {
     fn header(len: usize) -> Header {
         Header::new(false, true, Tuple::TAG, len)
     }
@@ -336,7 +340,7 @@ impl gc::Object for CodeObject {
     type Header = Header;
 }
 
-impl gc::SizedPointyObject for CodeObject {
+unsafe impl gc::SizedPointyObject for CodeObject {
     fn header() -> Header {
         Header::new(false, false, CodeObject::TAG, size_of::<CodeObject>() / size_of::<RawRef>())
     }
@@ -358,7 +362,7 @@ impl gc::Object for Closure {
     type Header = Header;
 }
 
-impl gc::SizedPointyObject for Closure {
+unsafe impl gc::SizedPointyObject for Closure {
     fn header() -> Header {
         Header::new(false, false, Closure::TAG, size_of::<Closure>() / size_of::<RawRef>())
     }

@@ -6,12 +6,15 @@ use std::mem::size_of;
 // FIXME: Make it possible to allocate pointy objects while trying to reach safepoint
 
 /// Object reference, usually a (possibly tagged) pointer.
-pub trait Reference: Copy + Default {
+pub unsafe trait Reference: Copy + Default {
     /// The object header type `Self` possibly refers to.
     type Header;
 
-    /// Create a new reference from an object pointer,
-    fn from_mut_ptr(ptr: *mut Self::Header) -> Self;
+    /// Create a new reference from an object pointer.
+    ///
+    /// # Safety
+    /// `ptr` should point to managed memory.
+    unsafe fn from_mut_ptr(ptr: *mut Self::Header) -> Self;
 
     /// Try to convert the reference to a raw pointer. Should produce `None` when self is immediate
     /// or null.
@@ -23,7 +26,7 @@ pub trait Reference: Copy + Default {
 }
 
 /// Object header
-pub trait Header: Copy {
+pub unsafe trait Header: Copy {
     /// Is the object marked?
     fn is_marked(&self) -> bool;
 
@@ -33,44 +36,62 @@ pub trait Header: Copy {
     /// Get the raw tag of the object. Currently the tag is in the range [0, 16).
     fn tag(&self) -> usize;
 
-    /// Get the size of the object (in slots).
+    /// Get the size of the object (in bytes if `self.is_blob()`, otherwise in slots).
     fn len(&self) -> usize;
 
     /// Get the forwarding pointer.
-    fn get_forward(&self) -> *mut Self;
+    fn get_forward(&self) -> Option<*mut Self>;
 
-    /// Set the mark to true.
+    /// Set the mark to true. Doing this at the wrong time will result in memory leaks but those
+    /// are not considered unsafe so neither is this method.
     fn set_mark(&mut self);
 
     /// Set the mark to false.
-    fn remove_mark(&mut self);
+    ///
+    /// # Safety
+    /// Removing the mark from the header of a live object at the wrong time will result in
+    /// dangling pointers.
+    unsafe fn remove_mark(&mut self);
 
     /// Turn into a forwarding pointer.
-    fn set_forward_to(&mut self, dest: *mut Self);
+    ///
+    /// # Safety
+    /// `dest` should point to managed memory. Doing this at the wrong time will probably confuse
+    /// the mutator and thus result in undefined behaviour.
+    unsafe fn set_forward_to(&mut self, dest: *mut Self);
 }
 
+/// An `Object` can be allocated under `Self::Header`.
 pub trait Object {
     type Header: Header;
 }
 
-pub trait SizedPointyObject: Object + Sized {
+/// An `Object` that has a static size and contains (only) pointers.
+pub unsafe trait SizedPointyObject: Object + Sized {
+    /// Create the appropriate `Self::Header`.
     fn header() -> Self::Header;
 }
 
-pub trait SizedFlatObject: Object + Sized {
+/// An `Object` that has a static size and doesn't contain any pointers.
+pub unsafe trait SizedFlatObject: Object + Sized {
+    /// Create the appropriate `Self::Header`.
     fn header() -> Self::Header;
 }
 
-pub trait UnSizedPointyObject: Object {
+/// An `Object` that has a dynamically determined size and contains (only) pointers.
+pub unsafe trait UnSizedPointyObject: Object {
+    /// Create the appropriate `Self::Header`. `len` is the amount of slots contained.
     fn header(len: usize) -> Self::Header;
 }
 
-pub trait UnSizedFlatObject: Object {
+/// An `Object` that has a dynamically determined size and doesn't contain any pointers.
+pub unsafe trait UnSizedFlatObject: Object {
+    /// Create the appropriate `Self::Header`. `len` is the size of the data in bytes.
     fn header(len: usize) -> Self::Header;
 }
 
 /// Allocation of header-tagged memory.
-pub trait Allocator {
+pub unsafe trait Allocator {
     /// The type to use for object headers.
     type Header: Header;
 
@@ -84,46 +105,45 @@ pub trait Allocator {
     fn flat_poll(&self, byte_count: usize) -> bool;
 
     /// # Safety
-    /// 1. You should pointy_poll() first to make sure `slot_count` slots can be allocated.
-    /// 2. `slot_count == header.len() + size_of::<O::Header>() / size_of::<O::Slot>()`
+    /// `slot_count == header.len() + size_of::<O::Header>() / size_of::<O::Slot>()`
     unsafe fn alloc_pointy(&mut self, header: Self::Header, slot_count: usize) -> Self::Slot;
 
     /// # Safety
-    /// 1. You should flat_poll() first to make sure `byte_count` bytes can be allocated.
-    /// 2. `byte_count == header.len() + size_of::<O::Header>()`
+    /// `byte_count == header.len() + size_of::<O::Header>()`
     unsafe fn alloc_flat(&mut self, header: Self::Header, byte_count: usize) -> Self::Slot;
 
-    unsafe fn alloc_sized_pointy<T>(&mut self, v: T) -> Self::Slot
+    fn alloc_sized_pointy<T>(&mut self, v: T) -> Self::Slot
         where T: SizedPointyObject<Header=Self::Header>
     {
-        let header = T::header();
-        let oref = self.alloc_pointy(header,
-            header.len() + size_of::<Self::Header>() / size_of::<Self::Slot>());
-        let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
-        *data_ptr = v;
-        oref
+        unsafe {
+            let header = T::header();
+            let oref = self.alloc_pointy(header,
+                header.len() + size_of::<Self::Header>() / size_of::<Self::Slot>());
+            let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
+            *data_ptr = v;
+            oref
+        }
     }
 
-    unsafe fn alloc_sized_flat<T>(&mut self, v: T) -> Self::Slot
+    fn alloc_sized_flat<T>(&mut self, v: T) -> Self::Slot
         where T: SizedFlatObject<Header=Self::Header>
     {
-        let header = T::header();
-        let oref = self.alloc_flat(header, header.len() + size_of::<Self::Header>());
-        let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
-        *data_ptr = v;
-        oref
+        unsafe {
+            let header = T::header();
+            let oref = self.alloc_flat(header, header.len() + size_of::<Self::Header>());
+            let data_ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
+            *data_ptr = v;
+            oref
+        }
     }
 }
 
 /// Garbage collection.
-pub trait Collector {
+pub unsafe trait Collector {
     type Slot: Reference;
 
     /// Mark/move a reference. Return the new value of the reference.
-    ///
-    /// # Safety
-    /// `oref` must actually point into the GC heap.
-    unsafe fn mark(&mut self, oref: Self::Slot) -> Self::Slot;
+    fn mark(&mut self, oref: Self::Slot) -> Self::Slot;
 
     /// Collect garbage. Assumes that all roots have already been `mark()`:ed.
     ///
@@ -193,14 +213,14 @@ impl<H, R> SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
 
             for _ in 0..len {
                 let slot = self.tospace[scan];
-                self.tospace[scan] = unsafe { self.mark(slot) };
+                self.tospace[scan] = self.mark(slot);
                 scan += 1;
             }
         }
     }
 }
 
-impl<H, R> Allocator for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+unsafe impl<H, R> Allocator for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
     type Header = H;
     type Slot = R;
 
@@ -234,25 +254,23 @@ impl<H, R> Allocator for SimpleCollector<H, R> where H: Header, R: Reference<Hea
     }
 }
 
-impl<H, R> Collector for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
+unsafe impl<H, R> Collector for SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
     type Slot = R;
 
-    unsafe fn mark(&mut self, oref: Self::Slot) -> Self::Slot {
+    fn mark(&mut self, oref: Self::Slot) -> Self::Slot {
         if let Some(ptr) = oref.ptr_mut() {
-            if (*ptr).is_marked() {
-                if (*ptr).is_blob() {
-                    oref
-                } else {
-                    Self::Slot::from_mut_ptr((*ptr).get_forward())
-                }
-            } else {
-                if (*ptr).is_blob() {
-                    (*ptr).set_mark();
-                    oref
-                } else {
+            unsafe {
+                if let Some(fwd) = (*ptr).get_forward() {
+                    Self::Slot::from_mut_ptr(fwd)
+                } else if !(*ptr).is_blob() {
                     let newptr = self.salvage(ptr as *mut H);
                     (*ptr).set_forward_to(newptr);
                     Self::Slot::from_mut_ptr(newptr)
+                } else {
+                    if !(*ptr).is_marked() {
+                        (*ptr).set_mark();
+                    }
+                    oref
                 }
             }
         } else {
