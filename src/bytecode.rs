@@ -120,6 +120,77 @@ impl Display for Instr {
 
 // ------------------------------------------------------------------------------------------------
 
+/// A packed instruction.
+#[derive(Debug, Clone, Copy)]
+pub enum PackedInstr {
+    Mov(u8, u8),
+    SvK(u16),
+
+    Fun(u8, u16),
+
+    IAdd(u8, u8, u8),
+    ISub(u8, u8, u8),
+    IMul(u8, u8, u8),
+
+    ILt(u8, u8),
+
+    Br(u16),
+    Call(u16),
+    Ret(u8),
+
+    Halt(u8)
+}
+
+impl From<Instr> for PackedInstr {
+    fn from(instr: self::Instr) -> PackedInstr {
+        use self::Instr::*;
+        match instr {
+            Mov(dest, src) => PackedInstr::Mov(dest, From::from(src)),
+            SvK(fp_offset) => PackedInstr::SvK(fp_offset),
+
+            Fun(dest, src) => PackedInstr::Fun(dest, src),
+
+            IAdd(dest, l, r) => PackedInstr::IAdd(dest, From::from(l), From::from(r)),
+            ISub(dest, l, r) => PackedInstr::ISub(dest, From::from(l), From::from(r)),
+            IMul(dest, l, r) => PackedInstr::IMul(dest, From::from(l), From::from(r)),
+
+            ILt(l, r) => PackedInstr::ILt(From::from(l), From::from(r)),
+
+            Br(offset) => PackedInstr::Br(offset),
+            Call(argc) => PackedInstr::Call(argc),
+            Ret(src) => PackedInstr::Ret(From::from(src)),
+
+            Halt(src) => PackedInstr::Ret(From::from(src)),
+        }
+    }
+}
+
+impl From<PackedInstr> for Instr {
+    fn from(instr: PackedInstr) -> Instr {
+        use self::PackedInstr::*;
+        match instr {
+            Mov(dest, src) => Instr::Mov(dest, From::from(src)),
+            SvK(fp_offset) => Instr::SvK(fp_offset),
+
+            Fun(dest, src) => Instr::Fun(dest, src),
+
+            IAdd(dest, l, r) => Instr::IAdd(dest, From::from(l), From::from(r)),
+            ISub(dest, l, r) => Instr::ISub(dest, From::from(l), From::from(r)),
+            IMul(dest, l, r) => Instr::IMul(dest, From::from(l), From::from(r)),
+
+            ILt(l, r) => Instr::ILt(From::from(l), From::from(r)),
+
+            Br(offset) => Instr::Br(offset),
+            Call(argc) => Instr::Call(argc),
+            Ret(src) => Instr::Ret(From::from(src)),
+
+            Halt(src) => Instr::Ret(From::from(src)),
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+
 pub struct Assembler {
     code: Vec<Instr>,
     consts: Vec<ConstVal>,
