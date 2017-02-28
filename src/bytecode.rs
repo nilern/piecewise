@@ -19,9 +19,9 @@ impl Operand {
     const LOCAL_TAG: u8 = 0b00;
     const CONST_TAG: u8 = 0b01;
 
-    fn local_index(&self) -> Option<u8> {
+    fn reg_req(&self) -> Option<u8> {
         match self {
-            &Operand::Local(i) => Some(i),
+            &Operand::Local(i) => Some(i + 1),
             &Operand::Const(..) => None
         }
     }
@@ -79,22 +79,22 @@ pub enum Instr {
 }
 
 impl Instr {
-    fn max_reg(&self) -> Option<u8> {
+    fn reg_req(&self) -> Option<u8> {
         use self::Instr::*;
         match self {
             &SvK(..) | &Fun(..) | &Br(..) | &Call(..) => None,
 
-            &Mov(dest, si) => Some(max(si.local_index().unwrap_or(0), dest)),
+            &Mov(dest, si) => Some(max(si.reg_req().unwrap_or(0), dest)),
 
             &IAdd(di, li, ri) | &ISub(di, li, ri) | &IMul(di, li, ri) =>
-                Some(max(max(li.local_index().unwrap_or(0),
-                             ri.local_index().unwrap_or(0)),
+                Some(max(max(li.reg_req().unwrap_or(0),
+                             ri.reg_req().unwrap_or(0)),
                          di)),
 
             &ILt(li, ri) =>
-                li.local_index().or_else(|| ri.local_index()),
+                li.reg_req().or_else(|| ri.reg_req()),
 
-            &Ret(ri) | &Halt(ri) => ri.local_index()
+            &Ret(ri) | &Halt(ri) => ri.reg_req()
         }
     }
 }
@@ -138,8 +138,12 @@ impl Assembler {
     }
 
     pub fn push_instr(&mut self, instr: Instr) {
-        self.reg_req = max(self.reg_req, instr.max_reg().unwrap_or(0));
+        self.reg_req = max(self.reg_req, instr.reg_req().unwrap_or(0));
         self.code.push(instr);
+    }
+
+    pub fn extend_code<I>(&mut self, instrs: I) where I: Iterator<Item=Instr> {
+        self.code.extend(instrs);
     }
 
     pub fn push_const(&mut self, c: ConstVal) {

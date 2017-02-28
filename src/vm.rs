@@ -52,6 +52,30 @@ impl From<bytecode::Instr> for Instr {
     }
 }
 
+impl From<Instr> for bytecode::Instr {
+    fn from(instr: Instr) -> bytecode::Instr {
+        use self::Instr::*;
+        match instr {
+            Mov(dest, src) => bytecode::Instr::Mov(dest, From::from(src)),
+            SvK(fp_offset) => bytecode::Instr::SvK(fp_offset),
+
+            Fun(dest, src) => bytecode::Instr::Fun(dest, src),
+
+            IAdd(dest, l, r) => bytecode::Instr::IAdd(dest, From::from(l), From::from(r)),
+            ISub(dest, l, r) => bytecode::Instr::ISub(dest, From::from(l), From::from(r)),
+            IMul(dest, l, r) => bytecode::Instr::IMul(dest, From::from(l), From::from(r)),
+
+            ILt(l, r) => bytecode::Instr::ILt(From::from(l), From::from(r)),
+
+            Br(offset) => bytecode::Instr::Br(offset),
+            Call(argc) => bytecode::Instr::Call(argc),
+            Ret(src) => bytecode::Instr::Ret(From::from(src)),
+
+            Halt(src) => bytecode::Instr::Ret(From::from(src)),
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 
 /// Proff virtual machine
@@ -66,8 +90,7 @@ pub struct VM {
 
 impl VM{
     /// Create a new VM.
-    pub fn new(mut mem: SimpleCollector<Header, RawRef>, fun: CodeObject) -> VM {
-        let fun: TypedRef<CodeObject> = From::from(unsafe { mem.alloc_sized_pointy(fun) });
+    pub fn new(mut mem: SimpleCollector<Header, RawRef>, fun: TypedRef<CodeObject>) -> VM {
         let stacksize: isize = From::from(fun.reg_req);
         VM {
             cl: From::from(unsafe { mem.alloc_sized_pointy(Closure { cob: fun }) }),
@@ -83,8 +106,8 @@ impl VM{
         use self::Instr::*;
 
         loop {
-            let instr = unsafe { self.cl.cob.code.get(self.ip)? };
-            //println!("{} [{}]: {}", self.stack.len(), self.ip, instr);
+            let instr: Instr = unsafe { self.cl.cob.code.get(self.ip)? };
+            println!("{} [{}]: {}", self.stack.len(), self.ip, bytecode::Instr::from(instr));
             self.ip += 1;
 
             match instr {
@@ -186,80 +209,86 @@ impl VM{
 mod tests {
     use std::convert::TryFrom;
 
-    use super::{VM, CodeObject};
-    use super::Instr::*;
-    use super::Operand::*;
-    use value::RawRef;
+    use super::VM;
+    use gc::SimpleCollector;
+    use ast::ConstVal;
+    use bytecode::Assembler;
+    use bytecode::Instr::*;
+    use bytecode::Operand::*;
+    use value::{Header, RawRef};
 
     // TODO: use globals
 
     #[test]
     fn fact() {
-        let mut vm = VM::new(CodeObject {
-            code: vec![
-                Fun(3, 0),
-                Mov(4, From::from(Const(0))),
-                SvK(3),
-                Call(2),
-                Halt(From::from(Local(0)))
-            ],
-            consts: vec![From::from(5)],
-            reg_req: 5,
-            cobs: vec![
-                CodeObject {
-                    code: vec![
-                        ILt(From::from(Local(1)), From::from(Const(0))),
-                        Br(1),
-                        Ret(From::from(Const(1))),
-                        ISub(2, From::from(Local(1)), From::from(Const(1))),
-                        Mov(4, From::from(Local(0))),
-                        Mov(0, From::from(Local(1))),
-                        Mov(5, From::from(Local(2))),
-                        SvK(4),
-                        Call(2),
-                        IMul(2, From::from(Local(0)), From::from(Local(1))),
-                        Ret(From::from(Local(2)))
-                    ],
-                    consts: vec![From::from(2), From::from(1)],
-                    reg_req: 6,
-                    cobs: vec![]
-                }
-            ]
-        });
+        let mut fact_asm = Assembler::new();
+        fact_asm.extend_code(vec![
+            ILt(Local(1), Const(0)),
+            Br(1),
+            Ret(Const(1)),
+            ISub(2, Local(1), Const(1)),
+            Mov(4, Local(0)),
+            Mov(0, Local(1)),
+            Mov(5, Local(2)),
+            SvK(4),
+            Call(2),
+            IMul(2, Local(0), Local(1)),
+            Ret(Local(2))
+        ].into_iter());
+        fact_asm.push_const(ConstVal::Int(2));
+        fact_asm.push_const(ConstVal::Int(1));
+
+        let mut main_asm = Assembler::new();
+        main_asm.extend_code(vec![
+            Fun(3, 0),
+            Mov(4, Const(0)),
+            SvK(3),
+            Call(2),
+            Halt(Local(0))
+        ].into_iter());
+        main_asm.push_const(ConstVal::Int(5));
+        main_asm.push_child(fact_asm);
+
+        let mut heap = SimpleCollector::<Header, RawRef>::new(1024, 1024);
+        let main = main_asm.assemble(&mut heap);
+        let mut vm = VM::new(heap, main);
+
         assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 
     #[test]
     fn tailfact() {
-        let mut vm = VM::new(CodeObject {
-            code: vec![
-                Fun(3, 0),
-                Mov(4, From::from(Const(0))),
-                Mov(5, From::from(Const(1))),
-                SvK(3),
-                Call(3),
-                Halt(From::from(Local(0)))
-            ],
-            consts: vec![From::from(5), From::from(1)],
-            reg_req: 6,
-            cobs: vec![
-                CodeObject {
-                    code: vec![
-                        ILt(From::from(Local(1)), From::from(Const(0))),
-                        Br(1),
-                        Ret(From::from(Local(2))),
-                        ISub(3, From::from(Local(1)), From::from(Const(1))),
-                        IMul(4, From::from(Local(1)), From::from(Local(2))),
-                        Mov(1, From::from(Local(3))),
-                        Mov(2, From::from(Local(4))),
-                        Call(3)
-                    ],
-                    consts: vec![From::from(2), From::from(1)],
-                    reg_req: 5,
-                    cobs: vec![]
-                }
-            ]
-        });
+        let mut fact_asm = Assembler::new();
+        fact_asm.extend_code(vec![
+            ILt(Local(1), Const(0)),
+            Br(1),
+            Ret(Local(2)),
+            ISub(3, Local(1), Const(1)),
+            IMul(4, Local(1), Local(2)),
+            Mov(1, Local(3)),
+            Mov(2, Local(4)),
+            Call(3)
+        ].into_iter());
+        fact_asm.push_const(ConstVal::Int(2));
+        fact_asm.push_const(ConstVal::Int(1));
+
+        let mut main_asm = Assembler::new();
+        main_asm.extend_code(vec![
+            Fun(3, 0),
+            Mov(4, Const(0)),
+            Mov(5, Const(1)),
+            SvK(3),
+            Call(3),
+            Halt(Local(0))
+        ].into_iter());
+        main_asm.push_const(ConstVal::Int(5));
+        main_asm.push_const(ConstVal::Int(1));
+        main_asm.push_child(fact_asm);
+
+        let mut heap = SimpleCollector::new(1024, 1024);
+        let main = main_asm.assemble(&mut heap);
+        let mut vm = VM::new(heap, main);
+
         assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 }
