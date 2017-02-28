@@ -180,9 +180,9 @@ mod tests {
 
         let mut heap = SimpleCollector::<Header, RawRef>::new(1024, 1024);
         let main = main_asm.assemble(&mut heap);
-        // let mut vm = VM::new(heap, main);
-        //
-        // assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
+        let mut vm = VM::new(heap, main);
+
+        assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 
     #[test]
@@ -214,10 +214,10 @@ mod tests {
         main_asm.push_const(ConstVal::Int(1));
         main_asm.push_child(fact_asm);
 
-        // let mut heap = SimpleCollector::new(1024, 1024);
-        // let main = main_asm.assemble(&mut heap);
-        // let mut vm = VM::new(heap, main);
-        //
-        // assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
+        let mut heap = SimpleCollector::new(1024, 1024);
+        let main = main_asm.assemble(&mut heap);
+        let mut vm = VM::new(heap, main);
+
+        assert_eq!(<isize as TryFrom<RawRef>>::try_from(vm.run().unwrap()).unwrap(), 120isize);
     }
 }

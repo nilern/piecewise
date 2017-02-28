@@ -206,9 +206,7 @@ impl<H, R> SimpleCollector<H, R> where H: Header, R: Reference<Header=H> {
     fn copy_compact(&mut self) {
         let mut scan = 0;
         while scan < self.tospace.len() {
-            let len = unsafe {
-                transmute::<&mut R, &mut H>(&mut self.tospace[scan]).len()
-            };
+            let len = unsafe { transmute::<&mut R, &mut H>(&mut self.tospace[scan]).len() };
             scan += 1;
 
             for _ in 0..len {

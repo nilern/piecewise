@@ -3,6 +3,9 @@ use std::mem;
 use std::mem::{size_of, transmute};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::fmt;
+use std::fmt::Debug;
+use std::slice;
 
 use gc;
 use gc::{Reference, Allocator, UnSizedPointyObject, UnSizedFlatObject};
@@ -144,7 +147,7 @@ unsafe impl Reference for RawRef {
 
     fn ptr_mut(self) -> Option<*mut Header> {
         if self.0 & RawRef::MASK == RawRef::PTR_TAG {
-            let ptr: *mut Header = unsafe { mem::transmute(self.0) };
+            let ptr: *mut Header = unsafe { mem::transmute(self.0 & !RawRef::MASK) };
             if !ptr.is_null() {
                 return Some(ptr);
             }
@@ -231,7 +234,6 @@ unsafe impl gc::SizedFlatObject for bool {
 
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
 pub struct ByteArray;
 
 impl ByteArray {
@@ -256,13 +258,23 @@ impl ByteArray {
         where A: Allocator<Header=Header, Slot=RawRef>, I: ExactSizeIterator<Item=T>, T: Copy
     {
         let size = iter.len() * size_of::<T>();
-        let oref = heap.alloc_flat(ByteArray::header(size), size);
+        let oref = heap.alloc_flat(ByteArray::header(size), size + size_of::<Header>());
         let mut ptr = oref.ptr_mut().unwrap().offset(1) as *mut T;
         for v in iter {
             *ptr = v;
             ptr = ptr.offset(1);
         }
         From::from(oref)
+    }
+}
+
+impl Debug for ByteArray {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "ByteArray[")?;
+        for i in 0..unsafe { self.len() } {
+            write!(f, "{}, ", unsafe { self.get::<u8>(i).unwrap() })?;
+        }
+        write!(f, "]")
     }
 }
 
@@ -302,7 +314,8 @@ impl Tuple {
         where A: Allocator<Header=Header, Slot=RawRef>, I: ExactSizeIterator<Item=RawRef>
     {
         let len = iter.len();
-        let oref = heap.alloc_flat(Tuple::header(len), len);
+        let oref = heap.alloc_flat(Tuple::header(len),
+                                   len + size_of::<Header>() / size_of::<RawRef>());
         let mut ptr = oref.ptr_mut().unwrap().offset(1) as *mut RawRef;
         for v in iter {
             *ptr = v;

@@ -3,7 +3,8 @@ use std::fmt::Display;
 use std::cmp::max;
 
 use ast::ConstVal;
-use gc::Allocator;
+use gc;
+use gc::{Reference, Allocator};
 use value::{Header, RawRef, TypedRef, CodeObject, ByteArray, Tuple};
 
 /// Unpacked representation for complex operands of virtual instructions
