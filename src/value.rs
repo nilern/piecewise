@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::fmt;
 use std::fmt::Debug;
-use std::slice;
 
 use gc;
 use gc::{Reference, Allocator, UnSizedPointyObject, UnSizedFlatObject};
@@ -314,8 +313,8 @@ impl Tuple {
         where A: Allocator<Header=Header, Slot=RawRef>, I: ExactSizeIterator<Item=RawRef>
     {
         let len = iter.len();
-        let oref = heap.alloc_flat(Tuple::header(len),
-                                   len + size_of::<Header>() / size_of::<RawRef>());
+        let oref = heap.alloc_pointy(Tuple::header(len),
+                                     len + size_of::<Header>() / size_of::<RawRef>());
         let mut ptr = oref.ptr_mut().unwrap().offset(1) as *mut RawRef;
         for v in iter {
             *ptr = v;

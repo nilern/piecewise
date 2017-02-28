@@ -3,8 +3,7 @@ use std::fmt::Display;
 use std::cmp::max;
 
 use ast::ConstVal;
-use gc;
-use gc::{Reference, Allocator};
+use gc::Allocator;
 use value::{Header, RawRef, TypedRef, CodeObject, ByteArray, Tuple};
 
 /// Unpacked representation for complex operands of virtual instructions
@@ -58,6 +57,8 @@ impl From<Operand> for u8 {
     }
 }
 
+// ------------------------------------------------------------------------------------------------
+
 /// Unpacked virtual instruction
 #[derive(Debug, Clone, Copy)]
 pub enum Instr {
@@ -85,15 +86,14 @@ impl Instr {
         match self {
             &SvK(..) | &Fun(..) | &Br(..) | &Call(..) => None,
 
-            &Mov(dest, si) => Some(max(si.reg_req().unwrap_or(0), dest)),
+            &Mov(dest, si) => Some(max(si.reg_req().unwrap_or(0), dest + 1)),
 
             &IAdd(di, li, ri) | &ISub(di, li, ri) | &IMul(di, li, ri) =>
                 Some(max(max(li.reg_req().unwrap_or(0),
                              ri.reg_req().unwrap_or(0)),
-                         di)),
+                         di + 1)),
 
-            &ILt(li, ri) =>
-                li.reg_req().or_else(|| ri.reg_req()),
+            &ILt(li, ri) => li.reg_req().or_else(|| ri.reg_req()),
 
             &Ret(ri) | &Halt(ri) => ri.reg_req()
         }
@@ -161,7 +161,7 @@ impl From<Instr> for PackedInstr {
             Call(argc) => PackedInstr::Call(argc),
             Ret(src) => PackedInstr::Ret(From::from(src)),
 
-            Halt(src) => PackedInstr::Ret(From::from(src)),
+            Halt(src) => PackedInstr::Halt(From::from(src)),
         }
     }
 }
@@ -185,7 +185,7 @@ impl From<PackedInstr> for Instr {
             Call(argc) => Instr::Call(argc),
             Ret(src) => Instr::Ret(From::from(src)),
 
-            Halt(src) => Instr::Ret(From::from(src)),
+            Halt(src) => Instr::Halt(From::from(src)),
         }
     }
 }
@@ -215,7 +215,9 @@ impl Assembler {
     }
 
     pub fn extend_code<I>(&mut self, instrs: I) where I: Iterator<Item=Instr> {
-        self.code.extend(instrs);
+        for instr in instrs {
+            self.push_instr(instr);
+        }
     }
 
     pub fn push_const(&mut self, c: ConstVal) {
@@ -229,9 +231,12 @@ impl Assembler {
     pub fn assemble<A>(self, heap: &mut A) -> TypedRef<CodeObject>
         where A: Allocator<Header=Header, Slot=RawRef>
     {
-        let code = unsafe { ByteArray::from_iter(heap, self.code.into_iter()) };
+        let code = unsafe { ByteArray::from_iter(heap, self.code.into_iter()
+                                                                .map(PackedInstr::from)) };
         let consts = unsafe {
-            let crefs: Vec<RawRef> = self.consts.into_iter().map(|c| RawRef::from_const(heap, c)).collect();
+            let crefs: Vec<RawRef> = self.consts.into_iter()
+                                                .map(|c| RawRef::from_const(heap, c))
+                                                .collect();
             Tuple::from_iter(heap, crefs.into_iter())
         };
         let cobs = unsafe {
