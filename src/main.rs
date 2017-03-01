@@ -15,6 +15,7 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod expand;
+pub mod resolve;
 pub mod bytecode;
 pub mod vm;
 
@@ -40,7 +41,8 @@ fn main() {
                         // println!("");
                         let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
                             .map_err(ProffError::from)
-                            .and_then(|ast| ast.expand().map_err(ProffError::from));
+                            .and_then(|ast| ast.expand().map_err(ProffError::from))
+                            .and_then(|ast| ast.resolve().map_err(ProffError::from));
                         match ast {
                             Ok(ast) => println!("{}", ast),
                             Err(err) => println!("Error: {:?}", err)
@@ -67,7 +69,8 @@ fn main() {
             // }
             // println!("");
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
-                        .and_then(|ast| ast.expand().map_err(ProffError::from)) {
+                        .and_then(|ast| ast.expand().map_err(ProffError::from))
+                        .and_then(|ast| ast.resolve().map_err(ProffError::from)) {
                 Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)
             }

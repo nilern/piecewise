@@ -19,6 +19,32 @@ pub trait NodeMapping {
     fn map_clause(&mut self, node: Clause) -> Result<Clause, Self::Err> { Ok(node) }
 }
 
+/// A `CtxMapping` is essentially a piecewise function that consumes a node and a context value
+/// and produces a new one (or an error).
+pub trait CtxMapping {
+    /// The type of the context (usually an inherited attribute).
+    type Ctx;
+    /// The type to put in Result::Err(_).
+    type Err;
+
+    fn map_block(&mut self, node: Block, _: Self::Ctx) -> Result<AST, Self::Err> {
+        Ok(AST::Block(node))
+    }
+    fn map_fn(&mut self, node: Fn, _: Self::Ctx) -> Result<AST, Self::Err> { Ok(AST::Fn(node)) }
+    fn map_app(&mut self, node: App, _: Self::Ctx) -> Result<AST, Self::Err> {
+        Ok(AST::App(node))
+    }
+    fn map_var(&mut self, node: Var, _: Self::Ctx) -> Result<AST, Self::Err> {
+        Ok(AST::Var(node))
+    }
+    fn map_const(&mut self, node: Const, _: Self::Ctx) -> Result<AST, Self::Err> {
+        Ok(AST::Const(node))
+    }
+
+    fn map_stmt(&mut self, node: Stmt, _: Self::Ctx) -> Result<Stmt, Self::Err> { Ok(node) }
+    fn map_clause(&mut self, node: Clause, _: Self::Ctx) -> Result<Clause, Self::Err> { Ok(node) }
+}
+
 /// A `FunctorNode` knows how to apply a NodeMapping to each of its children.
 pub trait FunctorNode: Sized {
 
@@ -53,7 +79,10 @@ impl AST {
                     Clause {
                         pos: then.pos(),
                         params: String::from("_"), // HACK
-                        cond: Var(self::Var { pos: pos, name: String::from("_") }), // HACK
+                        cond: Var(self::Var {
+                            pos: pos,
+                            name: VarRef::Global(String::from("_")) // HACK
+                        }),
                         body: vec![Stmt::Expr(then)]
                     },
                     Clause {
@@ -78,6 +107,19 @@ impl AST {
             App(app) => f.map_app(app),
             Var(v) => f.map_var(v),
             Const(c) => f.map_const(c)
+        }
+    }
+
+    /// Apply `f` to this node and produce a new one.
+    pub fn accept_ctx<F>(self, f: &mut F, ctx: F::Ctx) -> Result<AST, F::Err> where F: CtxMapping {
+        use self::AST::*;
+
+        match self {
+            Block(block) => f.map_block(block, ctx),
+            Fn(fun) => f.map_fn(fun, ctx),
+            App(app) => f.map_app(app, ctx),
+            Var(v) => f.map_var(v, ctx),
+            Const(c) => f.map_const(c, ctx)
         }
     }
 
@@ -238,11 +280,17 @@ impl FunctorNode for App {
     }
 }
 
-/// A variable reference.
+/// A variable reference with `SrcPos` information,
 #[derive(Debug)]
 pub struct Var {
     pub pos: SrcPos,
-    pub name: Name
+    pub name: VarRef
+}
+
+impl Var {
+    pub fn name(&self) -> &str {
+        self.name.name()
+    }
 }
 
 impl Sourced for Var {
@@ -251,6 +299,34 @@ impl Sourced for Var {
 
 impl Display for Var {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> { self.name.fmt(f) }
+}
+
+/// A variable reference.
+#[derive(Debug)]
+pub enum VarRef {
+    Local(Name),
+    Clover(Name),
+    Global(Name)
+}
+
+impl VarRef {
+    pub fn name(&self) -> &str {
+        match self {
+            &VarRef::Local(ref name) => name,
+            &VarRef::Clover(ref name) => name,
+            &VarRef::Global(ref name) => name
+        }
+    }
+}
+
+impl Display for VarRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &VarRef::Local(ref name) => name.fmt(f),
+            &VarRef::Clover(ref name) => write!(f, "€{}", name),
+            &VarRef::Global(ref name) => write!(f, "${}", name)
+        }
+    }
 }
 
 /// Statement (for `Block`s).

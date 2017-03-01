@@ -1,5 +1,5 @@
 use ast;
-use ast::{AST, App, Stmt, Var, NodeMapping};
+use ast::{AST, App, Stmt, Var, VarRef, NodeMapping};
 
 // TODO: Carry some useful information
 /// An error to signal when the AST cannot be expanded.
@@ -13,7 +13,7 @@ impl NodeMapping for ExpandStep {
 
     fn map_app(&mut self, node: App) -> Result<AST, ExpansionError> {
         match node {
-            App { pos, op: box AST::Var(Var { pos: oppos, name: opname}), args } =>
+            App { pos, op: box AST::Var(Var { pos: oppos, name: VarRef::Global(opname) }), args } =>
                 if opname.chars().next().unwrap() == '@' {
                     let mut it = args.into_iter();
                     let cond = it.next().unwrap(); // HACK
@@ -34,7 +34,7 @@ impl NodeMapping for ExpandStep {
                 } else {
                     Ok(AST::App(App {
                         pos: pos,
-                        op: Box::new(AST::Var(Var { pos: oppos, name: opname})),
+                        op: Box::new(AST::Var(Var { pos: oppos, name: VarRef::Global(opname) })),
                         args: args.into_iter()
                                   .map(AST::expand)
                                   .collect::<Result<Vec<AST>, ExpansionError>>()?
