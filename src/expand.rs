@@ -13,11 +13,13 @@ impl NodeMapping for ExpandStep {
 
     fn map_app(&mut self, node: App) -> Result<AST, ExpansionError> {
         match node {
-            App { pos, op: box AST::Var(Var { pos: oppos, name: VarRef::Global(opname) }), args } =>
-                if opname.chars().next().unwrap() == '@' {
+            App { pos,
+                  op: box AST::Var(Var { pos: oppos, name: VarRef::Global(opname) }), args } => {
+                let opstr = opname.to_string();
+                if opstr.chars().next().unwrap() == '@' {
                     let mut it = args.into_iter();
                     let cond = it.next().unwrap(); // HACK
-                    match &opname as &str {
+                    match &opstr as &str {
                         "@if" => if let Some(AST::Block(ast::Block { stmts, .. })) = it.next() {
                             let mut stit = stmts.into_iter();
                             if let Some(Stmt::Expr(then)) = stit.next() {
@@ -39,7 +41,8 @@ impl NodeMapping for ExpandStep {
                                   .map(AST::expand)
                                   .collect::<Result<Vec<AST>, ExpansionError>>()?
                     }))
-                },
+                }
+            },
             App { pos, op, args} => Ok(AST::App(App {
                 pos: pos,
                 op: Box::new(op.expand()?),

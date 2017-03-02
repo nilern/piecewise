@@ -1,4 +1,4 @@
-use util::SrcPos;
+use util::{SrcPos, Name};
 use lexer::{Precedence, Tok, LexicalError};
 use lexer::Side::*;
 use lexer::Delimiter::*;
@@ -44,7 +44,7 @@ SemiColon<T>: Vec<T> = {
 Infix<Self, Op, Next>: AST = {
     <pos: @L> <l: Self> <opos: @L> <op: Op> <r: Next> => AST::App(App {
         pos: pos,
-        op: Box::new(AST::Var(Var { pos: opos, name: VarRef::Global(op) })),
+        op: Box::new(AST::Var(Var { pos: opos, name: VarRef::Global(Name::from(op)) })),
         args: vec![l, r]
     }),
     <Next>
@@ -70,7 +70,7 @@ Block: AST = {
 BlockItem: BlockItem = {
     <pos: @L> <params: Name> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
         pos: pos,
-        params: params,
+        params: Name::from(params),
         cond: AST::Const(Const { pos: pos, val: ConstVal::Bool(true) }),
         body: vec![stmt]
     }),
@@ -79,7 +79,7 @@ BlockItem: BlockItem = {
 
 Stmt: Stmt = {
     <name: Name> "=" <val: Infix1> => Stmt::Def {
-        name: name,
+        name: Name::from(name),
         val: val
     },
     <expr: Infix1> => Stmt::Expr(expr)
@@ -123,7 +123,7 @@ Simple: AST = {
 // };
 
 Atom: AST = {
-    <pos: @L> <name: Name> => AST::Var(Var { pos: pos, name: VarRef::Global(name) }),
+    <pos: @L> <name: Name> => AST::Var(Var { pos: pos, name: VarRef::Global(Name::from(name)) }),
     <pos: @L> <n: Number> => AST::Const(Const {
         pos: pos,
         val: ConstVal::Int(isize::from_str(&n).unwrap())

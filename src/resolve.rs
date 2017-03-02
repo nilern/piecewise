@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use util::{Name, IndexSrc};
 use ast;
 use ast::{AST, App, Var, VarRef, Block, Stmt, Clause, CtxMapping};
 
@@ -10,29 +11,29 @@ use ast::{AST, App, Var, VarRef, Block, Stmt, Clause, CtxMapping};
 pub struct ResolveError;
 
 struct Env {
-    bindings: HashMap<String, String>,
+    bindings: HashMap<Name, Name>,
     parent: Option<Rc<Env>>
 }
 
 impl Env {
-    fn new(parent: Option<Rc<Env>>, bindings: HashMap<String, String>) -> Env {
+    fn new(parent: Option<Rc<Env>>, bindings: HashMap<Name, Name>) -> Env {
         Env {
             bindings: bindings,
             parent: parent
         }
     }
 
-    fn resolve(&self, name: &str) -> VarRef {
+    fn resolve(&self, name: &Name) -> VarRef {
         self.bindings.get(name)
                      .map(|name| VarRef::Local(name.clone()))
                      .or_else(||
                          self.parent.clone()
                                     .and_then(|parent| parent.resolve_str(name))
                                     .map(|name| VarRef::Clover(name.clone())))
-                     .unwrap_or(VarRef::Global(name.to_string()))
+                     .unwrap_or(VarRef::Global(name.clone()))
     }
 
-    fn resolve_str(&self, name: &str) -> Option<String> {
+    fn resolve_str(&self, name: &Name) -> Option<Name> {
         self.bindings.get(name)
                      .map(Clone::clone)
                      .or_else(||
@@ -41,21 +42,19 @@ impl Env {
 }
 
 struct Resolve {
-    counter: usize
+    counter: IndexSrc
 }
 
 impl Resolve {
-    fn new() -> Resolve {
-        Resolve { counter: 0 }
+    fn new(counter: IndexSrc) -> Resolve {
+        Resolve { counter: counter }
     }
 
-    fn rename(&mut self, name: &str) -> String {
-        let res = format!("{}{}", name, self.counter);
-        self.counter += 1;
-        res
+    fn rename(&mut self, name: &Name) -> Name {
+        name.as_unique(&mut self.counter)
     }
 
-    fn block_bindings<'a, I>(&mut self, bindings: &mut HashMap<String, String>, stmts: I)
+    fn block_bindings<'a, I>(&mut self, bindings: &mut HashMap<Name, Name>, stmts: I)
         where I: Iterator<Item=&'a Stmt>
     {
         for stmt in stmts {
@@ -68,8 +67,8 @@ impl Resolve {
         }
     }
 
-    fn param_bindings<'a>(&mut self, bindings: &mut HashMap<String, String>, params: &str) {
-        bindings.insert(params.to_string(), self.rename(params));
+    fn param_bindings<'a>(&mut self, bindings: &mut HashMap<Name, Name>, params: &Name) {
+        bindings.insert(params.clone(), self.rename(params));
     }
 }
 
@@ -149,7 +148,7 @@ impl CtxMapping for Resolve {
 
 impl AST {
     /// Resolve variables to be local, closed over or global and alphatize their names.
-    pub fn resolve(self) -> Result<AST, ResolveError> {
-        self.accept_ctx(&mut Resolve::new(), None)
+    pub fn resolve(self, counter: IndexSrc) -> Result<AST, ResolveError> {
+        self.accept_ctx(&mut Resolve::new(counter), None)
     }
 }

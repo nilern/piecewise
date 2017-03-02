@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::Display;
+use std::ops::RangeFrom;
 
 use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
@@ -30,6 +31,45 @@ impl Default for SrcPos {
 impl Display for SrcPos {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{},{}:{}", self.index, self.line, self.col)
+    }
+}
+
+/// Iterator over plentiful stream of unique indices
+pub type IndexSrc = RangeFrom<usize>;
+
+/// An identifier/symbol type for use in ASTs
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Name {
+    Simple(String),
+    Unique(String, usize)
+}
+
+impl Name {
+    /// Create unique name based on `chars` with `index_source`.
+    pub fn unique(chars: String, index_source: &mut IndexSrc) -> Name {
+        Name::Unique(chars, index_source.next().unwrap())
+    }
+
+    pub fn as_unique(&self, index_source: &mut IndexSrc) -> Name {
+        match self {
+            &Name::Simple(ref chars) => Name::unique(chars.clone(), index_source),
+            u @ &Name::Unique(..) => u.clone()
+        }
+    }
+}
+
+impl Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Name::Simple(ref chars) => chars.fmt(f),
+            &Name::Unique(ref chars, i) => write!(f, "{}{}", chars, i)
+        }
+    }
+}
+
+impl From<String> for Name {
+    fn from(chars: String) -> Name {
+        Name::Simple(chars)
     }
 }
 

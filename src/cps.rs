@@ -1,12 +1,13 @@
 use std::fmt;
 use std::fmt::Display;
 
-use util::{SrcPos, Sourced};
+use util::{SrcPos, Sourced, Name};
 use ast;
-use ast::{AST, Block, Stmt, Var, VarRef, Const, ConstVal, Name};
+use ast::{AST, Block, Stmt, Var, VarRef, Const, ConstVal};
 
 // TODO: Use proper counters for temp name and continuation label generation. For temp vars use the
-//       same one as the alphatization pass to guarantee global uniqueness.
+//       same one as the alphatization pass to guarantee global uniqueness. Continuation labels
+//       should also be globally unique instead of per-function to keep inlining simple.
 // TODO: Make `Display` output readable (with indentation, probably)
 // TODO: Differentiate trivial/serious exprs on the type level.
 
@@ -156,7 +157,7 @@ impl ContMap {
     /// pushes continuations and returns `None` if it was not. `tempname` is the name that was
     /// given to the previous nontrivial expression (if required) and `cont` the tail continuation
     /// (`ContRef::Ret` or `ContRef::Halt`) if we are in tail position.
-    fn convert_step(&mut self, expr: AST, mut tempname: Option<String>, cont: Option<ContRef>)
+    fn convert_step(&mut self, expr: AST, mut tempname: Option<Name>, cont: Option<ContRef>)
         -> Option<CPS>
     {
         match expr {
@@ -214,12 +215,12 @@ impl ContMap {
     }
 
     /// Like `convert_step` but always returns a trivial term even if `expr` was serious.
-    fn convert_subexpr(&mut self, expr: AST, tempname: &mut Option<String>) -> CPS {
+    fn convert_subexpr(&mut self, expr: AST, tempname: &mut Option<Name>) -> CPS {
         let pos = expr.pos();
         match self.convert_step(expr, tempname.clone(), None) {
             Some(t) => t,
             None => {
-                *tempname = Some("__tmp".to_string());
+                *tempname = Some(Name::from("__tmp".to_string()));
                 CPS::Var(Var {
                     pos: pos,
                     name: VarRef::Local(tempname.clone().unwrap())
@@ -230,7 +231,7 @@ impl ContMap {
 
     /// Like `convert_step` but force pushing of `Cont` instead of returning trivial term.
     fn convert_nontrivially(&mut self, expr: AST, cont: Option<ContRef>,
-                            tempname: &mut Option<String>)
+                            tempname: &mut Option<Name>)
     {
         if let Some(t) = self.convert_step(expr, tempname.clone(), cont) {
             let ki = self.peek_label();

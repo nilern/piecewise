@@ -44,7 +44,7 @@ fn main() {
                         let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
                             .map_err(ProffError::from)
                             .and_then(|ast| ast.expand().map_err(ProffError::from))
-                            .and_then(|ast| ast.resolve().map_err(ProffError::from))
+                            .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
                             .map(|ast| ContMap::new(ast, ContRef::Halt));
                         match ast {
                             Ok(ast) => println!("{}", ast),
@@ -73,7 +73,7 @@ fn main() {
             // println!("");
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
                         .and_then(|ast| ast.expand().map_err(ProffError::from))
-                        .and_then(|ast| ast.resolve().map_err(ProffError::from))
+                        .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
                         .map(|ast| ContMap::new(ast, ContRef::Halt)) {
                 Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)

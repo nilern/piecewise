@@ -1,4 +1,4 @@
-use util::{Sourced, SrcPos};
+use util::{Sourced, SrcPos, Name};
 
 use std::fmt;
 use std::fmt::Display;
@@ -52,9 +52,6 @@ pub trait FunctorNode: Sized {
     fn map<F>(self, f: &mut F) -> Result<Self, F::Err> where F: NodeMapping;
 }
 
-/// A type for variable names.
-pub type Name = String;
-
 /// Abstract Syntax Tree
 #[derive(Debug)]
 pub enum AST {
@@ -78,16 +75,16 @@ impl AST {
                 clauses: vec![
                     Clause {
                         pos: then.pos(),
-                        params: String::from("_"), // HACK
+                        params: Name::from(String::from("_")), // HACK
                         cond: Var(self::Var {
                             pos: pos,
-                            name: VarRef::Global(String::from("_")) // HACK
+                            name: VarRef::Global(Name::from(String::from("_"))) // HACK
                         }),
                         body: vec![Stmt::Expr(then)]
                     },
                     Clause {
                         pos: els.pos(),
-                        params: String::from("_"), // HACK
+                        params: Name::from(String::from("_")), // HACK
                         cond: Const(self::Const { pos: pos, val: ConstVal::Bool(true) }),
                         body: vec![Stmt::Expr(els)]
                     }
@@ -288,7 +285,7 @@ pub struct Var {
 }
 
 impl Var {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &Name {
         self.name.name()
     }
 }
@@ -310,7 +307,7 @@ pub enum VarRef {
 }
 
 impl VarRef {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &Name {
         match self {
             &VarRef::Local(ref name) => name,
             &VarRef::Clover(ref name) => name,
@@ -332,7 +329,7 @@ impl Display for VarRef {
 /// Statement (for `Block`s).
 #[derive(Debug)]
 pub enum Stmt {
-    Def { name: String, val: AST },
+    Def { name: Name, val: AST },
     Expr(AST)
 }
 
