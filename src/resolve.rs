@@ -4,7 +4,7 @@ use std::rc::Rc;
 use ast;
 use ast::{AST, App, Var, VarRef, Block, Stmt, Clause, CtxMapping};
 
-// TODO: Carry some useful information
+// FIXME: Remove this since it is actually unused.
 /// An error to signal when resolution fails.
 #[derive(Debug)]
 pub struct ResolveError;

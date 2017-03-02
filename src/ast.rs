@@ -336,6 +336,15 @@ pub enum Stmt {
     Expr(AST)
 }
 
+impl Stmt {
+    pub fn into_expr(self) -> AST {
+        match self {
+            Stmt::Def { val, .. } => val,
+            Stmt::Expr(expr) => expr
+        }
+    }
+}
+
 impl Sourced for Stmt {
     fn pos(&self) -> SrcPos {
         match self {
