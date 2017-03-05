@@ -16,13 +16,14 @@ pub mod lexer;
 pub mod parser;
 pub mod expand;
 pub mod resolve;
+pub mod flatten;
 pub mod cps;
 pub mod bytecode;
 pub mod vm;
 
 use util::ProffError;
 use lexer::Lexer;
-use cps::{ContMap, ContRef};
+//use cps::{ContMap, ContRef};
 
 fn main() {
     let mut args = std::env::args();
@@ -44,8 +45,9 @@ fn main() {
                         let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
                             .map_err(ProffError::from)
                             .and_then(|ast| ast.expand().map_err(ProffError::from))
-                            .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
-                            .map(|ast| ContMap::new(ast, ContRef::Halt));
+                            .map(|ast| ast.flatten(0..));
+                            // .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
+                            // .map(|ast| ContMap::new(ast, ContRef::Halt));
                         match ast {
                             Ok(ast) => println!("{}", ast),
                             Err(err) => println!("Error: {:?}", err)
@@ -73,8 +75,10 @@ fn main() {
             // println!("");
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
                         .and_then(|ast| ast.expand().map_err(ProffError::from))
-                        .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
-                        .map(|ast| ContMap::new(ast, ContRef::Halt)) {
+                        .map(|ast| ast.flatten(0..))
+                        // .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
+                        // .map(|ast| ContMap::new(ast, ContRef::Halt))
+            {
                 Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)
             }

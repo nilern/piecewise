@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use util::{Name, IndexSrc};
 use ast;
-use ast::{AST, App, Var, VarRef, Block, Stmt, Clause, CtxMapping};
+use ast::{AST, App, Var, VarRef, Const, Block, Stmt, Clause, CtxMapping};
 
 // FIXME: Remove this since it is actually unused.
 /// An error to signal when resolution fails.
@@ -74,9 +74,11 @@ impl Resolve {
 
 impl CtxMapping for Resolve {
     type Ctx = Option<Rc<Env>>;
-    type Err = ResolveError;
+    type ASTRes = Result<AST, ResolveError>;
+    type StmtRes = Result<Stmt, ResolveError>;
+    type ClauseRes = Result<Clause, ResolveError>;
 
-    fn map_block(&mut self, node: Block, env: Option<Rc<Env>>) -> Result<AST, Self::Err> {
+    fn map_block(&mut self, node: Block, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         let mut bindings = HashMap::new();
         self.block_bindings(&mut bindings, node.stmts.iter());
         let env = Some(Rc::new(Env::new(env, bindings)));
@@ -84,35 +86,39 @@ impl CtxMapping for Resolve {
             pos: node.pos,
             stmts: node.stmts.into_iter()
                              .map(|stmt| self.map_stmt(stmt, env.clone()))
-                             .collect::<Result<Vec<Stmt>, Self::Err>>()?
+                             .collect::<Result<Vec<Stmt>, ResolveError>>()?
         }))
     }
 
-    fn map_fn(&mut self, node: ast::Fn, env: Option<Rc<Env>>) -> Result<AST, Self::Err> {
+    fn map_fn(&mut self, node: ast::Fn, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         Ok(AST::Fn(ast::Fn {
             pos: node.pos,
             clauses: node.clauses.into_iter()
                                  .map(|clause| self.map_clause(clause, env.clone()))
-                                 .collect::<Result<Vec<Clause>, Self::Err>>()?
+                                 .collect::<Result<Vec<Clause>, ResolveError>>()?
         }))
     }
 
-    fn map_app(&mut self, node: App, env: Option<Rc<Env>>) -> Result<AST, Self::Err> {
+    fn map_app(&mut self, node: App, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         Ok(AST::App(App {
             pos: node.pos,
             op: Box::new(node.op.accept_ctx(self, env.clone())?),
             args: node.args.into_iter()
                            .map(|arg| arg.accept_ctx(self, env.clone()))
-                           .collect::<Result<Vec<AST>, Self::Err>>()?
+                           .collect::<Result<Vec<AST>, ResolveError>>()?
         }))
     }
 
-    fn map_var(&mut self, node: Var, env: Option<Rc<Env>>) -> Result<AST, Self::Err> {
+    fn map_var(&mut self, node: Var, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         Ok(env.map(|env| AST::Var(Var { pos: node.pos, name: env.resolve(&node.name()) }))
               .unwrap_or(AST::Var(node)))
     }
 
-    fn map_stmt(&mut self, node: Stmt, env: Option<Rc<Env>>) -> Result<Stmt, Self::Err> {
+    fn map_const(&mut self, c: Const, _: Option<Rc<Env>>) -> Result<AST, ResolveError> {
+        Ok(AST::Const(c))
+    }
+
+    fn map_stmt(&mut self, node: Stmt, env: Option<Rc<Env>>) -> Result<Stmt, ResolveError> {
         match node {
             Stmt::Def { name, val } => {
                 Ok(Stmt::Def {
@@ -124,7 +130,7 @@ impl CtxMapping for Resolve {
          }
     }
 
-    fn map_clause(&mut self, node: Clause, env: Option<Rc<Env>>) -> Result<Clause, Self::Err> {
+    fn map_clause(&mut self, node: Clause, env: Option<Rc<Env>>) -> Result<Clause, ResolveError> {
         let mut param_bindings = HashMap::new();
         self.param_bindings(&mut param_bindings, &node.params);
         let param_env = Some(Rc::new(Env::new(env.clone(), param_bindings.clone())));
@@ -141,7 +147,7 @@ impl CtxMapping for Resolve {
             cond: node.cond.accept_ctx(self, param_env)?,
             body: node.body.into_iter()
                            .map(|stmt| self.map_stmt(stmt, env.clone()))
-                           .collect::<Result<Vec<Stmt>, Self::Err>>()?
+                           .collect::<Result<Vec<Stmt>, ResolveError>>()?
         })
     }
 }

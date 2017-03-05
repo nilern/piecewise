@@ -24,25 +24,18 @@ pub trait NodeMapping {
 pub trait CtxMapping {
     /// The type of the context (usually an inherited attribute).
     type Ctx;
-    /// The type to put in Result::Err(_).
-    type Err;
+    type ASTRes;
+    type StmtRes;
+    type ClauseRes;
 
-    fn map_block(&mut self, node: Block, _: Self::Ctx) -> Result<AST, Self::Err> {
-        Ok(AST::Block(node))
-    }
-    fn map_fn(&mut self, node: Fn, _: Self::Ctx) -> Result<AST, Self::Err> { Ok(AST::Fn(node)) }
-    fn map_app(&mut self, node: App, _: Self::Ctx) -> Result<AST, Self::Err> {
-        Ok(AST::App(node))
-    }
-    fn map_var(&mut self, node: Var, _: Self::Ctx) -> Result<AST, Self::Err> {
-        Ok(AST::Var(node))
-    }
-    fn map_const(&mut self, node: Const, _: Self::Ctx) -> Result<AST, Self::Err> {
-        Ok(AST::Const(node))
-    }
+    fn map_block(&mut self, node: Block, _: Self::Ctx) -> Self::ASTRes;
+    fn map_fn(&mut self, node: Fn, _: Self::Ctx) -> Self::ASTRes;
+    fn map_app(&mut self, node: App, _: Self::Ctx) -> Self::ASTRes;
+    fn map_var(&mut self, node: Var, _: Self::Ctx) -> Self::ASTRes;
+    fn map_const(&mut self, node: Const, _: Self::Ctx) -> Self::ASTRes;
 
-    fn map_stmt(&mut self, node: Stmt, _: Self::Ctx) -> Result<Stmt, Self::Err> { Ok(node) }
-    fn map_clause(&mut self, node: Clause, _: Self::Ctx) -> Result<Clause, Self::Err> { Ok(node) }
+    fn map_stmt(&mut self, node: Stmt, _: Self::Ctx) -> Self::StmtRes;
+    fn map_clause(&mut self, node: Clause, _: Self::Ctx) -> Self::ClauseRes;
 }
 
 /// A `FunctorNode` knows how to apply a NodeMapping to each of its children.
@@ -108,7 +101,7 @@ impl AST {
     }
 
     /// Apply `f` to this node and produce a new one.
-    pub fn accept_ctx<F>(self, f: &mut F, ctx: F::Ctx) -> Result<AST, F::Err> where F: CtxMapping {
+    pub fn accept_ctx<F>(self, f: &mut F, ctx: F::Ctx) -> F::ASTRes where F: CtxMapping {
         use self::AST::*;
 
         match self {
