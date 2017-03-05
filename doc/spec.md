@@ -51,19 +51,66 @@
           | String String
           | Symbol Symbol
 
-## Concrete Syntax Tree
+# Compilation Pipeline
 
-    CST = Block  { pos: SrcPos, stmts: CST* }
-        | Def    { pos: SrcPos, pat: CST, val: CST }
-        | Params { pos: SrcPos, pat: CST, val: CST }
-        | Infix  { pos: SrcPos, op: CST, left: CST, right: CST }
-        | App    { pos: SrcPos, op: CST args: CST+ }
-        | Tuple  { pos: SrcPos, vals: CST* }
-        | Array  { pos: SrcPos, vals: CST* }
-        | Set    { pos: SrcPos, vals: CST* }
-        | Map    { pos: SrcPos, vals: (CST, CST)* }
-        | Id     { pos: SrcPos, name: Symbol }
-        | Atom   { pos: SrcPos, val: Const }
+    Text
+    -(Lexer)-> Tokens -(WSLexer)-> Tokens
+    -(parse)-> AST
+    -(Expand)-> AST
+    -(Flatten)-> FAST
+    -(CPSConvert)-> CPS
+    -(Liveness)-> CPS
+    -(RegAlloc)-> RCPS
+    -(bytecode::Assembler)-> TypedRef<CodeObject>
+
+## Lexer
+
+Transform text into token stream.
+
+## WSLexer
+
+Add whitespace-based tokens (NEWLINE, INDENT, DEDENT) into token stream.
+
+## Parse
+
+Parse token stream into AST.
+
+## Expand
+
+Expand macros. A preorder traversal that iterates on every node until
+stabilization.
+
+## Flatten
+
+Identify variable references as Local, Clover or Global, alphatize and perform
+closure conversion, yielding an alphatized FAST (First order AST). A 'down-up'
+traversal that uniquely renames variables on the way down with the help of an
+inherited environment attribute and records closed over variables on lambdas and
+creates the FAST on the way up.
+
+## CPSConvert
+
+Perform CPS conversion. Some sort of post order traversal, needs to be
+clarified. At least it is not the extremely confusing higher-order one.
+
+## Liveness
+
+Annotate escaping closures with the variables they need to close over (which
+they do by saving them on the stack below the frame pointer and return address
+stuff).
+
+## RegAlloc
+
+Register allocation. With the current instruction design it is awkward to use
+more than 64 registers. More importantly each closure creation and call requires
+shuffling the registers carefully while minimizing the amount of moves as much
+as possible.
+
+## bytecode::Assembler
+
+Feed the low-level CPS program to the bytecode assembler to obtain bytecode
+objects. The assembler takes care of the tedious details of clover, const and
+global indexing as well as jump offset resolution.
 
 # Value Representation
 
