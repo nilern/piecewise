@@ -77,7 +77,7 @@ BlockItem: BlockItem = {
     <stmt: Stmt> => BlockItem::Stmt(stmt)
 };
 
-Stmt: Stmt = {
+Stmt: Stmt<AST> = {
     <name: Name> "=" <val: Infix1> => Stmt::Def {
         name: Name::from(name),
         val: val

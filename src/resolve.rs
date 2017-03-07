@@ -55,7 +55,7 @@ impl Resolve {
     }
 
     fn block_bindings<'a, I>(&mut self, bindings: &mut HashMap<Name, Name>, stmts: I)
-        where I: Iterator<Item=&'a Stmt>
+        where I: Iterator<Item=&'a Stmt<AST>>
     {
         for stmt in stmts {
             match stmt {
@@ -75,10 +75,10 @@ impl Resolve {
 impl CtxMapping for Resolve {
     type Ctx = Option<Rc<Env>>;
     type ASTRes = Result<AST, ResolveError>;
-    type StmtRes = Result<Stmt, ResolveError>;
+    type StmtRes = Result<Stmt<AST>, ResolveError>;
     type ClauseRes = Result<Clause, ResolveError>;
 
-    fn map_block(&mut self, node: Block, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
+    fn map_block(&mut self, node: Block<Stmt<AST>>, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         let mut bindings = HashMap::new();
         self.block_bindings(&mut bindings, node.stmts.iter());
         let env = Some(Rc::new(Env::new(env, bindings)));
@@ -86,7 +86,7 @@ impl CtxMapping for Resolve {
             pos: node.pos,
             stmts: node.stmts.into_iter()
                              .map(|stmt| self.map_stmt(stmt, env.clone()))
-                             .collect::<Result<Vec<Stmt>, ResolveError>>()?
+                             .collect::<Result<Vec<Stmt<AST>>, ResolveError>>()?
         }))
     }
 
@@ -99,7 +99,7 @@ impl CtxMapping for Resolve {
         }))
     }
 
-    fn map_app(&mut self, node: App, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
+    fn map_app(&mut self, node: App<AST>, env: Option<Rc<Env>>) -> Result<AST, ResolveError> {
         Ok(AST::App(App {
             pos: node.pos,
             op: Box::new(node.op.accept_ctx(self, env.clone())?),
@@ -118,7 +118,7 @@ impl CtxMapping for Resolve {
         Ok(AST::Const(c))
     }
 
-    fn map_stmt(&mut self, node: Stmt, env: Option<Rc<Env>>) -> Result<Stmt, ResolveError> {
+    fn map_stmt(&mut self, node: Stmt<AST>, env: Option<Rc<Env>>) -> Result<Stmt<AST>, ResolveError> {
         match node {
             Stmt::Def { name, val } => {
                 Ok(Stmt::Def {
@@ -147,7 +147,7 @@ impl CtxMapping for Resolve {
             cond: node.cond.accept_ctx(self, param_env)?,
             body: node.body.into_iter()
                            .map(|stmt| self.map_stmt(stmt, env.clone()))
-                           .collect::<Result<Vec<Stmt>, ResolveError>>()?
+                           .collect::<Result<Vec<Stmt<AST>>, ResolveError>>()?
         })
     }
 }

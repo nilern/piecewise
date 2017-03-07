@@ -117,8 +117,8 @@ impl Display for Clause {
     }
 }
 
-impl From<ast::Clause> for Clause {
-    fn from(ast::Clause { pos, params, cond, body }: ast::Clause) -> Clause {
+impl From<ast::Clause<AST>> for Clause {
+    fn from(ast::Clause { pos, params, cond, body }: ast::Clause<AST>) -> Clause {
         Clause {
             pos: pos,
             params: params,

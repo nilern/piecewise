@@ -5,7 +5,7 @@ use std::ops::RangeFrom;
 use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
 use expand::ExpansionError;
-use resolve::ResolveError;
+//use resolve::ResolveError;
 use value::{TypeError, BoundsError};
 
 /// Values that originated in source code, IR trees and suchlike.
@@ -78,7 +78,7 @@ impl From<String> for Name {
 pub enum ProffError {
     Parse(ParseError<SrcPos, Tok, LexicalError>),
     Expansion(ExpansionError),
-    Resolution(ResolveError),
+    //Resolution(ResolveError),
     Type(TypeError),
     Bounds(BoundsError)
 }
@@ -95,11 +95,11 @@ impl From<ExpansionError> for ProffError {
     }
 }
 
-impl From<ResolveError> for ProffError {
-    fn from(res_err: ResolveError) -> ProffError {
-        ProffError::Resolution(res_err)
-    }
-}
+// impl From<ResolveError> for ProffError {
+//     fn from(res_err: ResolveError) -> ProffError {
+//         ProffError::Resolution(res_err)
+//     }
+// }
 
 impl From<TypeError> for ProffError {
     fn from(terr: TypeError) -> ProffError {

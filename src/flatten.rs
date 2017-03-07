@@ -2,10 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::fmt;
 use std::fmt::Display;
+use std::ops;
 
 use util::{SrcPos, Name, IndexSrc};
 use ast;
 use ast::{AST, Var, VarRef, Const, CtxMapping};
+
+// FIXME: Block binding frames should not cause params to be taken as clovers.
 
 #[derive(Debug)]
 pub struct FAST {
@@ -56,27 +59,7 @@ impl Display for Fn {
     }
 }
 
-#[derive(Debug)]
-pub struct Clause {
-    pub pos: SrcPos,
-    pub params: Name, // TODO: Vec<AST>
-    pub cond: Expr,
-    pub body: Vec<Stmt>
-}
-
-impl Display for Clause {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{} | {} => ", self.params, self.cond)?;
-        let mut it = self.body.iter();
-        if let Some(stmt) = it.next() {
-            write!(f, "{}", stmt)?;
-        }
-        for stmt in it {
-            write!(f, "; {}", stmt)?;
-        }
-        Ok(())
-    }
-}
+pub type Clause = ast::Clause<Expr>;
 
 #[derive(Debug)]
 pub enum Expr {
@@ -100,46 +83,9 @@ impl Display for Expr {
     }
 }
 
-#[derive(Debug)]
-pub struct Block {
-    pub pos: SrcPos,
-    pub stmts: Vec<Stmt>
-}
+pub type Block = ast::Block<Stmt>;
 
-impl Display for Block {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{{")?;
-        let mut it = self.stmts.iter();
-        if let Some(arg) = it.next() {
-            write!(f, "{}", arg)?;
-        }
-        for arg in it {
-            write!(f, "; {}", arg)?;
-        }
-        write!(f, "}}")
-    }
-}
-
-#[derive(Debug)]
-pub struct App {
-    pub pos: SrcPos,
-    pub op: Box<Expr>,
-    pub args: Vec<Expr>
-}
-
-impl Display for App {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "({} ", self.op)?;
-        let mut it = self.args.iter();
-        if let Some(arg) = it.next() {
-            write!(f, "{}", arg)?;
-        }
-        for arg in it {
-            write!(f, " {}", arg)?;
-        }
-        write!(f, ")")
-    }
-}
+pub type App = ast::App<Expr>;
 
 #[derive(Debug)]
 pub struct Closure {
@@ -162,25 +108,12 @@ impl Display for Closure {
     }
 }
 
-#[derive(Debug)]
-pub enum Stmt {
-    Def { name: Name, val: Expr },
-    Expr(Expr)
-}
-
-impl Display for Stmt {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &Stmt::Def { ref name, ref val, ..} => write!(f, "{} = {}", name, val),
-            &Stmt::Expr(ref expr) => expr.fmt(f)
-        }
-    }
-}
+pub type Stmt = ast::Stmt<Expr>;
 
 // ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct Env {
+struct Env {
     bindings: HashMap<Name, Name>,
     parent: Option<Rc<Env>>
 }
@@ -213,22 +146,33 @@ impl Env {
 
 // ------------------------------------------------------------------------------------------------
 
-pub struct Flatten {
-    counter: IndexSrc
+struct Flatten {
+    counter: IndexSrc,
+    procs: HashMap<Name, Fn>
 }
 
 impl Flatten {
     fn new(counter: IndexSrc) -> Flatten {
-        Flatten { counter: counter }
+        Flatten {
+            counter: counter,
+            procs: HashMap::new()
+        }
     }
 
     fn rename(&mut self, name: &Name) -> Name {
         name.as_unique(&mut self.counter)
     }
 
-    fn block_bindings<'a, I>(&mut self, bindings: &mut HashMap<Name, Name>, stmts: I)
-        where I: Iterator<Item=&'a ast::Stmt>
+    fn add_proc(&mut self, fun: Fn) -> Name {
+        let name = Name::unique(String::from("f"), &mut self.counter);
+        self.procs.insert(name.clone(), fun);
+        name
+    }
+
+    fn block_bindings<'a, I>(&mut self, stmts: I) -> HashMap<Name, Name>
+        where I: Iterator<Item=&'a ast::Stmt<AST>>
     {
+        let mut bindings = HashMap::new();
         for stmt in stmts {
             match stmt {
                 &ast::Stmt::Def { ref name, .. } => {
@@ -237,67 +181,91 @@ impl Flatten {
                 &ast::Stmt::Expr(..) => ()
             }
         }
+        bindings
     }
 
-    fn param_bindings<'a>(&mut self, bindings: &mut HashMap<Name, Name>, params: &Name) {
+    fn param_bindings<'a>(&mut self, params: &Name) -> HashMap<Name, Name> {
+        let mut bindings = HashMap::new();
         bindings.insert(params.clone(), self.rename(params));
+        bindings
+    }
+
+    fn flat_map_to<A, B, F, I>(&mut self, f: F, asts: I, env: Option<Rc<Env>>,
+                            adest: &mut Vec<B>, vdest: &mut HashSet<Name>)
+        where F: ops::Fn(&mut Self, A, Option<Rc<Env>>) -> (B, HashSet<Name>),
+              I: IntoIterator<Item=A>
+    {
+        for a in asts {
+            let (a, fs) = f(self, a, env.clone());
+            adest.push(a);
+            vdest.extend(fs);
+        }
+    }
+
+    fn flat_map<A, B, F, I>(&mut self, f: F, asts: I, env: Option<Rc<Env>>)
+        -> (Vec<B>, HashSet<Name>)
+        where F: ops::Fn(&mut Self, A, Option<Rc<Env>>) -> (B, HashSet<Name>),
+              I: IntoIterator<Item=A>
+    {
+        let mut fas = Vec::new();
+        let mut freevars = HashSet::new();
+        self.flat_map_to(f, asts, env, &mut fas, &mut freevars);
+        (fas, freevars)
+    }
+
+    fn remove_bindings(freevars: &mut HashSet<Name>, bindings: &HashMap<Name, Name>) {
+        for name in bindings.values() {
+            freevars.remove(name);
+        }
     }
 }
 
 impl CtxMapping for Flatten {
     type Ctx = Option<Rc<Env>>;
-    type ASTRes = ((HashMap<Name, Fn>, Expr), HashSet<Name>);
-    type StmtRes = ((HashMap<Name, Fn>, Stmt), HashSet<Name>);
-    type ClauseRes = ((HashMap<Name, Fn>, Clause), HashSet<Name>);
+    type ASTRes = (Expr, HashSet<Name>);
+    type StmtRes = (Stmt, HashSet<Name>);
+    type ClauseRes = (Clause, HashSet<Name>);
 
-    fn map_block(&mut self, block: ast::Block, env: Option<Rc<Env>>) -> Self::ASTRes {
-        let mut bindings = HashMap::new();
-        self.block_bindings(&mut bindings, block.stmts.iter());
-        let env = Some(Rc::new(Env::new(env, bindings)));
+    fn map_block(&mut self, ast::Block { pos, stmts }: ast::Block<ast::Stmt<AST>>, env: Option<Rc<Env>>)
+        -> Self::ASTRes
+    {
+        let bindings = self.block_bindings(stmts.iter());
+        let env = Some(Rc::new(Env::new(env, bindings.clone())));
 
-        let (procexprs, freesets): (Vec<(HashMap<Name, Fn>, Stmt)>, Vec<HashSet<Name>>) =
-            block.stmts.into_iter()
-                       .map(|stmt| self.map_stmt(stmt, env.clone()))
-                       .unzip();
-        let (procs, stmts): (Vec<HashMap<Name, Fn>>, Vec<Stmt>) = procexprs.into_iter().unzip();
-        ((procs.into_iter().flat_map(|procs| procs).collect(),
-          Expr::Block(Block { pos: block.pos, stmts: stmts })),
-         freesets.into_iter().flat_map(|frees| frees).collect())
+        let (fstmts, mut freevars) = self.flat_map(Flatten::map_stmt, stmts, env.clone());
+
+        Flatten::remove_bindings(&mut freevars, &bindings);
+
+        (Expr::Block(Block { pos: pos, stmts: fstmts }), freevars)
     }
 
     fn map_fn(&mut self, ast::Fn { pos, clauses }: ast::Fn, env: Option<Rc<Env>>) -> Self::ASTRes {
-        let name = Name::unique(String::from("f"), &mut self.counter);
+        let (fclauses, freevars) = self.flat_map(Flatten::map_clause, clauses, env.clone());
 
-        let (cprocexprs, freesets): (Vec<(HashMap<Name, Fn>, Clause)>, Vec<HashSet<Name>>) =
-            clauses.into_iter().map(|clause| self.map_clause(clause, env.clone())).unzip();
-        let (procmaps, clauses): (Vec<HashMap<Name, Fn>>, Vec<Clause>) =
-            cprocexprs.into_iter().unzip();
-        let freeset: HashSet<Name> = freesets.into_iter().flat_map(|frees| frees).collect();
-        let mut freevec = Vec::new();
-        for var in freeset.iter() {
-            freevec.push(var.clone())
-        }
-        let mut procs: HashMap<Name, Fn> = procmaps.into_iter().flat_map(|procs| procs).collect();
-        procs.insert(name.clone(), Fn { pos: pos, freevars: freevec.clone(), clauses: clauses});
-        ((procs, Expr::Closure(Closure { pos: pos, fun: name, freevars: freevec })), freeset)
+        let freevec: Vec<Name> = freevars.iter().cloned().collect();
+        let name = self.add_proc(Fn {
+            pos: pos,
+            freevars:
+            freevec.clone(), clauses: fclauses
+        });
+
+        (Expr::Closure(Closure {
+            pos: pos,
+            fun: name,
+            freevars: freevec
+        }), freevars)
     }
 
-    fn map_app(&mut self, ast::App { pos, op, args }: ast::App, env: Option<Rc<Env>>)
+    fn map_app(&mut self, ast::App { pos, op, args }: ast::App<AST>, env: Option<Rc<Env>>)
         -> Self::ASTRes
     {
-        let ((mut procs, op), mut freevars) = op.accept_ctx(self, env.clone());
-        let (fargs, argfrees): (Vec<(HashMap<Name, Fn>, Expr)>, Vec<HashSet<Name>>) =
-            args.into_iter()
-                .map(|arg| arg.accept_ctx(self, env.clone()))
-                .unzip();
-        let (aprocs, args): (Vec<HashMap<Name, Fn>>, Vec<Expr>) = fargs.into_iter().unzip();
-        for aprocset in aprocs {
-            procs.extend(aprocset);
-        }
-        for frees in argfrees {
-            freevars.extend(frees);
-        }
-        ((procs, Expr::App(App { pos: pos, op: Box::new(op), args: args })), freevars)
+        let (op, mut freevars) = op.accept_ctx(self, env.clone());
+
+        let mut fargs = Vec::new();
+        self.flat_map_to(|f, arg, env| arg.accept_ctx(f, env),
+                         args, env.clone(), &mut fargs, &mut freevars);
+
+        (Expr::App(App { pos: pos, op: Box::new(op), args: fargs }), freevars)
     }
 
     fn map_var(&mut self, Var { pos, name }: Var, env: Option<Rc<Env>>) ->  Self::ASTRes {
@@ -306,58 +274,54 @@ impl CtxMapping for Flatten {
         if let VarRef::Clover(ref name) = vref {
             freevars.insert(name.clone());
         }
-        ((HashMap::new(), Expr::Var(Var { pos: pos, name: vref })), freevars)
+        (Expr::Var(Var { pos: pos, name: vref }), freevars)
     }
 
     fn map_const(&mut self, c: Const, _: Option<Rc<Env>>) ->  Self::ASTRes {
-        ((HashMap::new(), Expr::Const(c)), HashSet::new())
+        (Expr::Const(c), HashSet::new())
     }
 
-    fn map_stmt(&mut self, stmt: ast::Stmt, env: Option<Rc<Env>>) -> Self::StmtRes {
+    fn map_stmt(&mut self, stmt: ast::Stmt<AST>, env: Option<Rc<Env>>) -> Self::StmtRes {
         match stmt {
             ast::Stmt::Def { name, val } => {
-                let ((procs, expr), freevars) = val.accept_ctx(self, env.clone());
-                ((procs, Stmt::Def {
+                let (expr, freevars) = val.accept_ctx(self, env.clone());
+                (ast::Stmt::Def {
                     name: env.and_then(|env| env.resolve_str(&name)).unwrap_or(name),
                     val: expr
-                 }), freevars)
+                 }, freevars)
             }
             ast::Stmt::Expr(e) => {
-                let ((procs, expr), freevars) = e.accept_ctx(self, env);
-                ((procs, Stmt::Expr(expr)), freevars)
+                let (expr, freevars) = e.accept_ctx(self, env);
+                (ast::Stmt::Expr(expr), freevars)
             }
         }
     }
 
-    fn map_clause(&mut self, ast::Clause { pos, params, cond, body }: ast::Clause,
+    fn map_clause(&mut self, ast::Clause { pos, params, cond, body }: ast::Clause<AST>,
                   env: Option<Rc<Env>>) -> Self::ClauseRes
     {
-        let mut param_bindings = HashMap::new();
-        self.param_bindings(&mut param_bindings, &params);
+        let param_bindings = self.param_bindings(&params);
         let param_env = Some(Rc::new(Env::new(env.clone(), param_bindings.clone())));
 
-        let mut bindings = param_bindings;
-        self.block_bindings(&mut bindings, body.iter());
-        let env = Some(Rc::new(Env::new(env.clone(), bindings)));
+        let (cond, mut freevars) = cond.accept_ctx(self, param_env.clone());
 
-        let ((mut procs, cond), mut freevars) = cond.accept_ctx(self, param_env.clone());
-        let (bprocexprs, bfreesets): (Vec<(HashMap<Name, Fn>, Stmt)>, Vec<HashSet<Name>>) =
-            body.into_iter()
-                .map(|stmt| self.map_stmt(stmt, env.clone()))
-                .unzip();
-        let (bprocs, bstmts): (Vec<HashMap<Name, Fn>>, Vec<Stmt>) = bprocexprs.into_iter().unzip();
-        for freeset in bfreesets {
-            freevars.extend(freeset);
-        }
-        for procmap in bprocs {
-            procs.extend(procmap);
-        }
-        ((procs, Clause {
+        Flatten::remove_bindings(&mut freevars, &param_bindings);
+
+        let mut bindings = param_bindings;
+        bindings.extend(self.block_bindings(body.iter()));
+        let env = Some(Rc::new(Env::new(env.clone(), bindings.clone())));
+
+        let mut fstmts = Vec::new();
+        self.flat_map_to(Flatten::map_stmt, body, env.clone(), &mut fstmts, &mut freevars);
+
+        Flatten::remove_bindings(&mut freevars, &bindings);
+
+        (Clause {
             pos: pos,
             params: param_env.and_then(|env| env.resolve_str(&params)).unwrap(), // unwrap is OK
             cond: cond,
-            body: bstmts
-         }), freevars)
+            body: fstmts
+         }, freevars)
     }
 }
 
@@ -365,7 +329,8 @@ impl CtxMapping for Flatten {
 
 impl AST {
     pub fn flatten(self, counter: IndexSrc) -> FAST {
-        let ((procs, expr), _) = self.accept_ctx(&mut Flatten::new(counter), None);
-        FAST::new(procs, expr)
+        let mut flattener = Flatten::new(counter);
+        let (expr, _) = self.accept_ctx(&mut flattener, None);
+        FAST::new(flattener.procs, expr)
     }
 }

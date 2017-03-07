@@ -11,7 +11,7 @@ struct ExpandStep;
 impl NodeMapping for ExpandStep {
     type Err = ExpansionError;
 
-    fn map_app(&mut self, node: App) -> Result<AST, ExpansionError> {
+    fn map_app(&mut self, node: App<AST>) -> Result<AST, ExpansionError> {
         match node {
             App { pos,
                   op: box AST::Var(Var { pos: oppos, name: VarRef::Global(opname) }), args } => {
