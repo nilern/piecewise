@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::ops;
 
-use util::{SrcPos, Name, IndexSrc};
+use util::{Sourced, SrcPos, Name, IndexSrc};
 use ast;
 use ast::{AST, Var, VarRef, Const, CtxMapping};
 
@@ -12,8 +12,8 @@ use ast::{AST, Var, VarRef, Const, CtxMapping};
 
 #[derive(Debug)]
 pub struct FAST {
-    procs: HashMap<Name, Fn>,
-    expr: Expr
+    pub procs: HashMap<Name, Fn>,
+    pub expr: Expr
 }
 
 impl FAST {
@@ -35,13 +35,15 @@ impl Display for FAST {
 }
 
 #[derive(Debug)]
-pub struct Fn {
+pub struct Fun<C> {
     pub pos: SrcPos,
     pub freevars: Vec<Name>,
-    pub clauses: Vec<Clause>
+    pub clauses: Vec<C>
 }
 
-impl Display for Fn {
+pub type Fn = Fun<Clause>;
+
+impl<C> Display for Fun<C> where C: Display {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "[")?;
         for v in self.freevars.iter() {
@@ -83,6 +85,18 @@ impl Display for Expr {
     }
 }
 
+impl Sourced for Expr {
+    fn pos(&self) -> SrcPos {
+        match self {
+            &Expr::Block(ref block) => block.pos(),
+            &Expr::Closure(ref close) => close.pos(),
+            &Expr::App(ref app) => app.pos(),
+            &Expr::Var(ref v) => v.pos(),
+            &Expr::Const(ref c) => c.pos(),
+        }
+    }
+}
+
 pub type Block = ast::Block<Stmt>;
 
 pub type App = ast::App<Expr>;
@@ -105,6 +119,12 @@ impl Display for Closure {
             write!(f, " {}", arg)?;
         }
         write!(f, ")")
+    }
+}
+
+impl Sourced for Closure {
+    fn pos(&self) -> SrcPos {
+        self.pos
     }
 }
 
