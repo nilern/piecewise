@@ -15,16 +15,13 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod expand;
-//pub mod resolve;
 pub mod flatten;
 pub mod cps;
-pub mod fcps;
 pub mod bytecode;
 pub mod vm;
 
 use util::ProffError;
 use lexer::Lexer;
-//use cps::{ContMap, ContRef};
 
 /// FIXME: use the temp_counter for flatten also
 
@@ -52,8 +49,6 @@ fn main() {
                             .and_then(|ast| ast.expand().map_err(ProffError::from))
                             .map(|ast|
                                 ast.flatten(0..).to_cps(&mut temp_counter, &mut label_counter));
-                            // .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
-                            // .map(|ast| ContMap::new(ast, ContRef::Halt));
                         match ast {
                             Ok(ast) => println!("{}", ast),
                             Err(err) => println!("Error: {:?}", err)
@@ -84,8 +79,6 @@ fn main() {
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
                         .and_then(|ast| ast.expand().map_err(ProffError::from))
                         .map(|ast| ast.flatten(0..).to_cps(&mut temp_counter, &mut label_counter))
-                        // .and_then(|ast| ast.resolve(0..).map_err(ProffError::from))
-                        // .map(|ast| ContMap::new(ast, ContRef::Halt))
             {
                 Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)
