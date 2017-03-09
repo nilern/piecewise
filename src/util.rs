@@ -8,6 +8,11 @@ use passes::expand::ExpansionError;
 //use resolve::ResolveError;
 use value::{TypeError, BoundsError};
 
+pub enum Either<L, R> {
+    Left(L),
+    Right(R)
+}
+
 /// Values that originated in source code, IR trees and suchlike.
 pub trait Sourced {
     /// Return the source position.

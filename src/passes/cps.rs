@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::collections::HashMap;
 use std::iter::Peekable;
 
-use util::{Sourced, Name, SrcPos, IndexSrc};
+use util::{Sourced, Name, SrcPos, IndexSrc, Either};
 use ast;
 use ast::{Var, VarRef, Const, ConstVal};
 use passes::flatten;
@@ -35,7 +35,7 @@ impl Display for CPS {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let mut procvec: Vec<(&Name, &Fun)> = self.procs.iter().collect();
         procvec.sort_by_key(|&(n, _)| n);
-        
+
         for (name, p) in procvec {
             write!(f, "{} {}\n\n", name, p)?;
         }
@@ -132,28 +132,27 @@ impl ContMap {
             entry: *label_counter.peek().unwrap(),
             conts: HashMap::new()
         };
-        if let Some(t) = res.convert_step(expr, None, Some(cont), temp_counter, label_counter) {
-            res.insert(label_counter.next().unwrap(), Cont {
-                param: None,
-                expr: t,
-                next: cont
-            });
-        }
+        let _ = res.convert_nontrivially(expr, Some(cont), None, temp_counter, label_counter);
         res
     }
 
-    fn insert(&mut self, label: usize, cont: Cont) {
-        self.conts.insert(label, cont);
+    fn insert(&mut self, label_counter: &mut Peekable<IndexSrc>, tempname: Option<Name>,
+              expr: Expr, cont: Option<ContRef>)
+    {
+        let label = label_counter.next().unwrap();
+        let ki = *label_counter.peek().unwrap();
+        self.conts.insert(label, Cont {
+            param: tempname,
+            expr: expr,
+            next: cont.unwrap_or(ContRef::Local(ki))
+        });
     }
 
-    /// Conversion step. Converts `expr` and returns the converted version if it is trivial or
-    /// pushes continuations to self and returns `None` if it was not. `tempname` is the name that
-    /// was given to the previous nontrivial expression (if required) and `cont` the tail
-    /// continuation (`ContRef::Ret` or `ContRef::Halt`) if we are in tail position.
     fn convert_step(&mut self, expr: flatten::Expr, mut tempname: Option<Name>,
         cont: Option<ContRef>, temp_counter: &mut IndexSrc, label_counter: &mut Peekable<IndexSrc>)
-        -> Option<Expr>
+        -> Either<(Expr, Option<Name>), bool>
     {
+        use util::Either::*;
         match expr {
             flatten::Expr::Block(flatten::Block { pos, mut stmts }) => {
                 // TODO: Declare variables at start of block.
@@ -162,98 +161,92 @@ impl ContMap {
                     for stmt in stmts.drain(0..lasti) {
                         match stmt {
                             ast::Stmt::Def { name, val } => { // Nontail definition:
-                                self.convert_nontrivially(val, None, &mut tempname, temp_counter,
-                                                          label_counter);
+                                let _ = self.convert_nontrivially(val, None, tempname,
+                                                                  temp_counter, label_counter);
                                 tempname = Some(name);
                             },
                             ast::Stmt::Expr(expr) => // Nontail expression:
-                                if self.convert_step(expr, tempname.clone(), None, temp_counter,
-                                                          label_counter).is_none() {
-                                    tempname = None;
+                                tempname = match self.convert_step(expr, tempname, None,
+                                                                   temp_counter, label_counter)
+                                {
+                                    Left((_, n)) => n, // treat as dead code
+                                    Right(_) => None
                                 }
                         }
                     }
                     // TODO: What to do with `Stmt::Def`:s as last statements?
-                    self.convert_nontrivially(stmts.pop().unwrap().into_expr(), cont,
-                                              &mut tempname, temp_counter, label_counter);
-                    None
+                    Right(self.convert_nontrivially(stmts.pop().unwrap().into_expr(), cont,
+                                                    tempname, temp_counter, label_counter))
                 } else { // Empty block:
-                    Some(Expr::Const(Const {
+                    Left((Expr::Const(Const {
                         pos: pos,
                         val: ConstVal::Bool(false), // TODO: Return `()`
-                    }))
+                    }), tempname))
                 }
             },
             flatten::Expr::App(flatten::App { pos, box op, args }) => {
-                let cop = self.convert_subexpr(op, &mut tempname, temp_counter, label_counter);
-                let cargs = args.into_iter()
-                                .map(|arg|
-                                    self.convert_subexpr(
-                                        arg, &mut tempname, temp_counter, label_counter))
-                                .collect();
+                let (cop, mut tempname) = self.convert_subexpr(op, tempname, temp_counter,
+                                                               label_counter);
+                let mut cargs = Vec::new();
+                for arg in args {
+                    let (carg, tn) = self.convert_subexpr(arg, tempname.take(), temp_counter,
+                                                          label_counter);
+                    tempname = tn;
+                    cargs.push(carg);
+                }
 
-                let label = label_counter.next().unwrap();
-                let ki = *label_counter.peek().unwrap();
-                self.insert(label, Cont {
-                    param: tempname,
-                    expr: Expr::App(App {
-                        pos: pos,
-                        op: Box::new(cop),
-                        args: cargs
-                    }),
-                    next: cont.unwrap_or(ContRef::Local(ki))
-                });
-
-                None
+                self.insert(label_counter, tempname, Expr::App(App {
+                    pos: pos,
+                    op: Box::new(cop),
+                    args: cargs
+                }), cont);
+                Right(true)
             },
             flatten::Expr::Closure(cl) => {
-                let label = label_counter.next().unwrap();
-                let ki = *label_counter.peek().unwrap();
-                self.insert(label, Cont {
-                    param: tempname,
-                    expr: Expr::Closure(cl),
-                    next: cont.unwrap_or(ContRef::Local(ki))
-                });
-
-                None
+                self.insert(label_counter, tempname, Expr::Closure(cl), cont);
+                Right(true)
             },
-            flatten::Expr::Var(v) => Some(Expr::Var(v)),
-            flatten::Expr::Const(c) => Some(Expr::Const(c))
+            flatten::Expr::Var(v) => Left((Expr::Var(v), tempname)),
+            flatten::Expr::Const(c) => Left((Expr::Const(c), tempname))
         }
     }
 
     /// Like `convert_step` but always returns a trivial term even if `expr` was serious.
-    fn convert_subexpr(&mut self, expr: flatten::Expr, tempname: &mut Option<Name>,
+    fn convert_subexpr(&mut self, expr: flatten::Expr, tempname: Option<Name>,
         temp_counter: &mut IndexSrc, label_counter: &mut Peekable<IndexSrc>)
-        -> Expr
+        -> (Expr, Option<Name>)
     {
+        use util::Either::*;
         let pos = expr.pos();
-        match self.convert_step(expr, tempname.clone(), None, temp_counter, label_counter) {
-            Some(t) => t,
-            None => {
-                *tempname = Some(Name::unique(String::from("v"), temp_counter));
-                Expr::Var(Var {
-                    pos: pos,
-                    name: VarRef::Local(tempname.clone().unwrap())
-                })
-            }
+        match self.convert_step(expr, tempname, None, temp_counter, label_counter) {
+            Left(tn) => tn,
+            Right(true) => {
+                let name = Name::unique(String::from("v"), temp_counter);
+                (Expr::Var(Var {
+                     pos: pos,
+                     name: VarRef::Local(name.clone()),
+                 }), Some(name))
+            },
+            Right(false) =>
+                (Expr::Const(Const {
+                     pos: pos,
+                     val: ConstVal::Bool(false) // TODO: return `()`
+                 }), None)
         }
     }
 
     /// Like `convert_step` but force pushing of `Cont` instead of returning trivial term.
     fn convert_nontrivially(&mut self, expr: flatten::Expr, cont: Option<ContRef>,
-        tempname: &mut Option<Name>, temp_counter: &mut IndexSrc,
-        label_counter: &mut Peekable<IndexSrc>)
+        tempname: Option<Name>, temp_counter: &mut IndexSrc,
+        label_counter: &mut Peekable<IndexSrc>) -> bool
     {
-        if let Some(t) = self.convert_step(expr, tempname.clone(), cont, temp_counter,
-                                           label_counter) {
-            let label = label_counter.next().unwrap();
-            let ki = *label_counter.peek().unwrap();
-            self.insert(label, Cont {
-                param: tempname.clone(),
-                expr: t,
-                next: cont.unwrap_or(ContRef::Local(ki))
-            });
+        use util::Either::*;
+        match self.convert_step(expr, tempname, cont, temp_counter, label_counter) {
+            Left((t, n)) => {
+                self.insert(label_counter, n, t, cont);
+                true
+            }
+            Right(b) => b
         }
     }
 }
