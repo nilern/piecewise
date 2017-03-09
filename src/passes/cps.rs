@@ -6,8 +6,8 @@ use std::iter::Peekable;
 use util::{Sourced, Name, SrcPos, IndexSrc};
 use ast;
 use ast::{Var, VarRef, Const, ConstVal};
-use flatten;
-use flatten::{FAST, Closure};
+use passes::flatten;
+use passes::flatten::{FAST, Closure};
 
 // TODO: Differentiate trivial/serious exprs on the type level.
 
@@ -33,7 +33,10 @@ impl CPS {
 
 impl Display for CPS {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        for (name, p) in self.procs.iter() {
+        let mut procvec: Vec<(&Name, &Fun)> = self.procs.iter().collect();
+        procvec.sort_by_key(|&(n, _)| n);
+        
+        for (name, p) in procvec {
             write!(f, "{} {}\n\n", name, p)?;
         }
         write!(f, "{}", self.body)
@@ -92,7 +95,7 @@ impl Display for Cont {
         for param in self.param.iter() {
             write!(f, "{} ", param)?;
         }
-        write!(f, "{} -> {}", self.expr, self.next)
+        write!(f, "= {} -> {}", self.expr, self.next)
     }
 }
 
@@ -108,21 +111,27 @@ impl Display for ContRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &ContRef::Local(i) => write!(f, "k[{}]", i),
-            &ContRef::Ret => write!(f, "%ret"),
-            &ContRef::Halt => write!(f, "%halt")
+            &ContRef::Ret => write!(f, "ret"),
+            &ContRef::Halt => write!(f, "halt")
         }
     }
 }
 
 /// A mapping from labels to continuations.
 #[derive(Debug)]
-pub struct ContMap(HashMap<usize, Cont>);
+pub struct ContMap {
+    entry: usize,
+    conts: HashMap<usize, Cont>
+}
 
 impl ContMap {
     fn new(expr: flatten::Expr, cont: ContRef, temp_counter: &mut IndexSrc,
         label_counter: &mut Peekable<IndexSrc>) -> ContMap
     {
-        let mut res = ContMap(HashMap::new());
+        let mut res = ContMap {
+            entry: *label_counter.peek().unwrap(),
+            conts: HashMap::new()
+        };
         if let Some(t) = res.convert_step(expr, None, Some(cont), temp_counter, label_counter) {
             res.insert(label_counter.next().unwrap(), Cont {
                 param: None,
@@ -134,7 +143,7 @@ impl ContMap {
     }
 
     fn insert(&mut self, label: usize, cont: Cont) {
-        self.0.insert(label, cont);
+        self.conts.insert(label, cont);
     }
 
     /// Conversion step. Converts `expr` and returns the converted version if it is trivial or
@@ -251,8 +260,11 @@ impl ContMap {
 
 impl Display for ContMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        for (label, cont) in self.0.iter() {
-            writeln!(f, "{}: {}", label, cont)?;
+        let mut contv: Vec<(&usize, &Cont)> = self.conts.iter().collect();
+        contv.sort_by_key(|&(&l, _)| l);
+
+        for (label, cont) in contv {
+            writeln!(f, "k[{}] {}", label, cont)?;
         }
         Ok(())
     }

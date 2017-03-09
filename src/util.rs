@@ -4,7 +4,7 @@ use std::ops::RangeFrom;
 
 use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
-use expand::ExpansionError;
+use passes::expand::ExpansionError;
 //use resolve::ResolveError;
 use value::{TypeError, BoundsError};
 
@@ -38,7 +38,7 @@ impl Display for SrcPos {
 pub type IndexSrc = RangeFrom<usize>;
 
 /// An identifier/symbol type for use in ASTs
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum Name {
     Simple(String),
     Unique(String, usize)

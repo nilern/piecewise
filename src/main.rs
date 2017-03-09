@@ -14,9 +14,7 @@ pub mod value;
 pub mod ast;
 pub mod lexer;
 pub mod parser;
-pub mod expand;
-pub mod flatten;
-pub mod cps;
+pub mod passes;
 pub mod bytecode;
 pub mod vm;
 
