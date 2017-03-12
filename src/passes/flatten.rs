@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::ops;
 
-use util::{Sourced, SrcPos, Name, IndexSrc};
+use util::{Sourced, SrcPos, Name};
 use ast;
 use ast::{AST, Var, VarRef, Const, CtxMapping};
 
@@ -167,24 +167,22 @@ impl Env {
 // ------------------------------------------------------------------------------------------------
 
 struct Flatten {
-    counter: IndexSrc,
     procs: HashMap<Name, Fn>
 }
 
 impl Flatten {
-    fn new(counter: IndexSrc) -> Flatten {
+    fn new() -> Flatten {
         Flatten {
-            counter: counter,
             procs: HashMap::new()
         }
     }
 
     fn rename(&mut self, name: &Name) -> Name {
-        name.as_unique(&mut self.counter)
+        name.as_unique()
     }
 
     fn add_proc(&mut self, fun: Fn) -> Name {
-        let name = Name::unique(String::from("f"), &mut self.counter);
+        let name = Name::fresh(String::from("f"));
         self.procs.insert(name.clone(), fun);
         name
     }
@@ -348,8 +346,8 @@ impl CtxMapping for Flatten {
 // ------------------------------------------------------------------------------------------------
 
 impl AST {
-    pub fn flatten(self, counter: IndexSrc) -> FAST {
-        let mut flattener = Flatten::new(counter);
+    pub fn flatten(self) -> FAST {
+        let mut flattener = Flatten::new();
         let (expr, _) = self.accept_ctx(&mut flattener, None);
         FAST::new(flattener.procs, expr)
     }

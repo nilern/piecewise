@@ -2,6 +2,8 @@
 
 extern crate rustyline;
 extern crate lalrpop_util as __lalrpop_util;
+#[macro_use]
+extern crate lazy_static;
 
 use std::fs::File;
 use std::io::Read;
@@ -21,14 +23,10 @@ pub mod vm;
 use util::ProffError;
 use lexer::Lexer;
 
-/// FIXME: use the temp_counter for flatten also
-
 fn main() {
     let mut args = std::env::args();
     match args.len() {
         1 => {
-            let mut temp_counter = 0..;
-            let mut label_counter = (0..).peekable();
             let mut rl = Editor::<()>::new();
             loop {
                 let readline = rl.readline("prf> ");
@@ -45,8 +43,7 @@ fn main() {
                         let ast = parser::parse_Expr(Lexer::new(&line).with_ws_stx())
                             .map_err(ProffError::from)
                             .and_then(|ast| ast.expand().map_err(ProffError::from))
-                            .map(|ast|
-                                ast.flatten(0..).to_cps(&mut temp_counter, &mut label_counter));
+                            .map(|ast| ast.flatten().to_cps());
                         match ast {
                             Ok(ast) => println!("{}", ast),
                             Err(err) => println!("Error: {:?}", err)
@@ -61,8 +58,6 @@ fn main() {
             }
         },
         2 => {
-            let mut temp_counter = 0..;
-            let mut label_counter = (0..).peekable();
             let _ = args.next();
             let mut f = File::open(args.next().unwrap()).expect("unable to open file");
             let mut code = String::new();
@@ -76,7 +71,7 @@ fn main() {
             // println!("");
             match parser::parse_Exprs(Lexer::new(&code).with_ws_stx()).map_err(ProffError::from)
                         .and_then(|ast| ast.expand().map_err(ProffError::from))
-                        .map(|ast| ast.flatten(0..).to_cps(&mut temp_counter, &mut label_counter))
+                        .map(|ast| ast.flatten().to_cps())
             {
                 Ok(ast) => println!("{}", ast),
                 Err(err) => println!("{:?}", err)

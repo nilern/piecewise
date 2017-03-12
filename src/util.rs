@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fmt::Display;
 use std::ops::RangeFrom;
+use std::sync::Mutex;
 
 use lexer::{Tok, LexicalError};
 use __lalrpop_util::ParseError;
@@ -8,9 +9,54 @@ use passes::expand::ExpansionError;
 //use resolve::ResolveError;
 use value::{TypeError, BoundsError};
 
+lazy_static! {
+    static ref TEMP_IDXS: Mutex<IndexSrc> = Mutex::new(0..);
+    static ref LABELS: Mutex<Backpushable<IndexSrc>> = Mutex::new(Backpushable::from(0..));
+}
+
+pub fn fresh_label() -> usize {
+    LABELS.lock().unwrap().next().unwrap()
+}
+
+pub fn push_label(label: usize) {
+    LABELS.lock().unwrap().push(label)
+}
+
 pub enum Either<L, R> {
     Left(L),
     Right(R)
+}
+
+struct Backpushable<I> where I: Iterator {
+    iter: I,
+    stack: Vec<I::Item>
+}
+
+impl<I> Backpushable<I> where I: Iterator {
+    fn push(&mut self, item: I::Item) {
+        self.stack.push(item)
+    }
+}
+
+impl<I> Iterator for Backpushable<I> where I: Iterator {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.stack.is_empty() {
+            self.iter.next()
+        } else {
+            self.stack.pop()
+        }
+    }
+}
+
+impl<I> From<I> for Backpushable<I> where I: Iterator {
+    fn from(iter: I) -> Backpushable<I> {
+        Backpushable {
+            iter: iter,
+            stack: Vec::new()
+        }
+    }
 }
 
 /// Values that originated in source code, IR trees and suchlike.
@@ -50,14 +96,13 @@ pub enum Name {
 }
 
 impl Name {
-    /// Create unique name based on `chars` with `index_source`.
-    pub fn unique(chars: String, index_source: &mut IndexSrc) -> Name {
-        Name::Unique(chars, index_source.next().unwrap())
+    pub fn fresh(chars: String) -> Name {
+        Name::Unique(chars, TEMP_IDXS.lock().unwrap().next().unwrap())
     }
 
-    pub fn as_unique(&self, index_source: &mut IndexSrc) -> Name {
+    pub fn as_unique(&self) -> Name {
         match self {
-            &Name::Simple(ref chars) => Name::unique(chars.clone(), index_source),
+            &Name::Simple(ref chars) => Name::fresh(chars.clone()),
             u @ &Name::Unique(..) => u.clone()
         }
     }

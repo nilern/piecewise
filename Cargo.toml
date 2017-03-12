@@ -8,6 +8,7 @@ build = "build.rs"
 [dependencies]
 lalrpop-util = "0.12.4"
 rustyline = "1.0.0"
+lazy_static = "0.2"
 
 [build-dependencies.lalrpop]
 version = "0.12.4"
