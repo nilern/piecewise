@@ -124,3 +124,57 @@ global indexing as well as jump offset resolution.
     - Tagpairs `[Header, ValueRef, ValueRef]`
     - Tuples `[Header, ValueRef*]`
     - Blobs `[Header, u8*]`
+
+# VM
+
+## ISA
+
+### Arithmetic
+
+#### Binops
+
+\((a: Int_{l|c}, b: Int_{l|c}) \rightarrow \kappa(d: Int)\)
+
+    iadd d a b
+    isub d a b
+    imul d a b
+    idiv d a b
+
+\((a: Int_{l|c}, b: Int_{l|c}) \rightarrow \kappa(d: Bool)\)
+
+    ieq d a b
+    ile d a b
+    ige d a b
+    ilt d a b
+    igt d a b
+
+### Branches
+
+\(() \rightarrow \kappa()\)
+
+    br offset
+
+\((cond: Bool_{l|c}) \rightarrow \kappa_1() | \kappa_2()\)
+
+    brf cond offset
+
+#### Calls
+
+\(() \rightarrow \kappa_1()\)
+
+    call fnreg argc
+
+\(() \rightarrow \kappa_1()\)
+
+    next argc
+
+\((cond: Bool_{l|c}) \rightarrow \kappa_1() | \kappa_2()\)
+
+    nextf cond argc
+
+#### Returns
+
+\((v: Any_{l|c}) \rightarrow \kappa (Any)\)
+
+    ret v
+    halt v
