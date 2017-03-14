@@ -10,6 +10,8 @@
 
 # Flatten
 
+* [ ] Remove magic: closures should be constructed of a bunch of code object +
+      clover tuple combinations and created and accessed as such
 * [ ] Blocks should not close over variables
 * [ ] Detect access to uninitialized variables (in blocks)
     - Doing this statically simplifies register allocation since we don't need
@@ -18,10 +20,11 @@
 
 # CPS IR
 
-* [ ] Trivial vs. nontrivial expressions
+* [x] Trivial vs. nontrivial expressions
+* [x] If
 * [ ] Print conts topologically
 
 # CPS Conversion
 
+* [x] Clause condition treatment
 * [ ] Break down closure initialization and clover references
-* [ ] Clause condition treatment

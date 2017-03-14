@@ -41,25 +41,39 @@ impl Display for CPS {
 
 #[derive(Debug)]
 pub enum Expr {
-    App(App),
-    Closure(Closure),
-
-    Var(Var),
-    Const(Const)
+    App(App, ContRef),
+    If(Triv, ContRef, ContRef),
+    Closure(Closure, ContRef),
+    Triv(Triv, ContRef)
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &Expr::App(ref app) => app.fmt(f),
-            &Expr::Closure(ref cl) => cl.fmt(f),
-            &Expr::Var(ref v) => v.fmt(f),
-            &Expr::Const(ref c) => c.fmt(f)
+            &Expr::App(ref app, k) => write!(f, "{} -> {}", app, k),
+            &Expr::If(ref app, k, l) => write!(f, "{} -> {} | {}", app, k, l),
+            &Expr::Closure(ref cl, k) => write!(f, "{} -> {}", cl, k),
+            &Expr::Triv(ref t, k) => write!(f, "{} -> {}", t, k)
         }
     }
 }
 
-pub type App = ast::App<Expr>;
+#[derive(Debug)]
+pub enum Triv {
+    Var(Var),
+    Const(Const)
+}
+
+impl Display for Triv {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Triv::Var(ref v) => v.fmt(f),
+            &Triv::Const(ref c) => c.fmt(f)
+        }
+    }
+}
+
+pub type App = ast::App<Triv>;
 
 pub type Fun = flatten::Fun<Clause>;
 
@@ -67,14 +81,12 @@ pub type Fun = flatten::Fun<Clause>;
 pub struct Clause {
     pub pos: SrcPos,
     pub params: Name, // TODO: Multiple params
-    pub cond: ContMap,
     pub body: ContMap,
 }
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        writeln!(f, "{} | {} =>", self.params, self.cond)?;
-        self.body.fmt(f)
+        write!(f, "{} =>\n{}", self.params, self.body)
     }
 }
 
@@ -82,8 +94,7 @@ impl Display for Clause {
 #[derive(Debug)]
 pub struct Cont {
     pub param: Option<Name>,
-    pub expr: Expr,
-    pub next: ContRef
+    pub expr: Expr
 }
 
 impl Display for Cont {
@@ -91,7 +102,7 @@ impl Display for Cont {
         for param in self.param.iter() {
             write!(f, "{} ", param)?;
         }
-        write!(f, "= {} -> {}", self.expr, self.next)
+        write!(f, "= {}", self.expr)
     }
 }
 
@@ -131,16 +142,15 @@ impl ContMap {
         res
     }
 
-    fn insert(&mut self, label: usize, tempname: Option<Name>, expr: Expr, cont: ContRef) {
+    fn insert(&mut self, label: usize, tempname: Option<Name>, expr: Expr) {
         self.conts.insert(label, Cont {
             param: tempname,
-            expr: expr,
-            next: cont
+            expr: expr
         });
     }
 
     fn convert_step(&mut self, label: usize, mut tempname: Option<Name>, expr: flatten::Expr,
-                    cont: ContRef) -> Either<(Expr, Option<Name>), bool> {
+                    cont: ContRef) -> Either<(Triv, Option<Name>), bool> {
         use util::Either::*;
         match expr {
             flatten::Expr::Block(flatten::Block { pos, mut stmts }) => {
@@ -175,9 +185,9 @@ impl ContMap {
                     // TODO: What to do with `Stmt::Def`:s as last statements?
                     Right(self.convert_nontrivially(oldk, tempname, stmts.pop().unwrap().into_expr(), cont))
                 } else { // Empty block:
-                    Left((Expr::Const(Const {
+                    Left((Triv::Const(Const {
                         pos: pos,
-                        val: ConstVal::Bool(false), // TODO: Return `()`
+                        val: ConstVal::Bool(false) // TODO: Return `()`
                     }), tempname))
                 }
             },
@@ -209,34 +219,34 @@ impl ContMap {
                     pos: pos,
                     op: Box::new(cop),
                     args: cargs
-                }), cont);
+                }, cont));
                 Right(true)
             },
             flatten::Expr::Closure(cl) => {
-                self.insert(label, tempname, Expr::Closure(cl), cont);
+                self.insert(label, tempname, Expr::Closure(cl, cont));
                 Right(true)
             },
-            flatten::Expr::Var(v) => Left((Expr::Var(v), tempname)),
-            flatten::Expr::Const(c) => Left((Expr::Const(c), tempname))
+            flatten::Expr::Var(v) => Left((Triv::Var(v), tempname)),
+            flatten::Expr::Const(c) => Left((Triv::Const(c), tempname))
         }
     }
 
     /// Like `convert_step` but always returns a trivial term even if `expr` was serious.
     fn convert_subexpr(&mut self, label: usize, tempname: Option<Name>, expr: flatten::Expr,
-                       cont: ContRef) -> (Expr, bool, Option<Name>) {
+                       cont: ContRef) -> (Triv, bool, Option<Name>) {
         use util::Either::*;
         let pos = expr.pos();
         match self.convert_step(label, tempname, expr, cont) {
             Left((t, n)) => (t, false, n),
             Right(true) => {
                 let name = Name::fresh(String::from("v"));
-                (Expr::Var(Var {
+                (Triv::Var(Var {
                      pos: pos,
                      name: VarRef::Local(name.clone()),
                  }), true, Some(name))
             },
             Right(false) =>
-                (Expr::Const(Const {
+                (Triv::Const(Const {
                      pos: pos,
                      val: ConstVal::Bool(false) // TODO: return `()`
                  }), true, None)
@@ -249,7 +259,7 @@ impl ContMap {
         use util::Either::*;
         match self.convert_step(label, tempname, expr, cont) {
             Left((t, n)) => {
-                self.insert(label, n, t, cont);
+                self.insert(label, n, Expr::Triv(t, cont));
                 true
             }
             Right(b) => b
@@ -290,15 +300,44 @@ impl From<flatten::Fun<flatten::Clause>> for Fun {
 }
 
 impl From<flatten::Clause> for Clause {
-    fn from(clause: flatten::Clause) -> Clause {
+    fn from(flatten::Clause { pos, params, cond, body}: flatten::Clause) -> Clause {
+        let entry = fresh_label();
+        let ck = fresh_label();
+        let mut cbody = ContMap {
+            entry: entry,
+            conts: HashMap::new()
+        };
+
+        let bk = fresh_label();
+        cbody.convert_nontrivially(bk, None, flatten::Expr::Block(flatten::Block {
+            pos: body[0].pos(),
+            stmts: body
+        }), ContRef::Ret);
+
+        match cond {
+            flatten::Expr::Const(Const { val: ConstVal::Bool(true), pos: _ }) => {
+                cbody.entry = bk;
+            },
+            flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos: _ }) => {
+                unimplemented!() // FIXME: cbody.entry = else branch which goes to next method
+            },
+            _ => {
+                let (ccond, lused, tempname) =
+                    cbody.convert_subexpr(entry, None, cond, ContRef::Local(ck));
+                if !lused {
+                    push_label(entry);
+                    cbody.entry = ck;
+                }
+                cbody.insert(ck, tempname, Expr::If(ccond,
+                    ContRef::Local(bk),
+                    ContRef::Ret)); // FIXME: else branch which goes to next method
+            }
+        }
+
         Clause {
-            pos: clause.pos,
-            params: clause.params,
-            cond: ContMap::new(clause.cond, ContRef::Ret),
-            body: ContMap::new(flatten::Expr::Block(ast::Block {
-                pos: clause.body[0].pos(),
-                stmts: clause.body
-            }), ContRef::Ret)
+            pos: pos,
+            params: params,
+            body: cbody
         }
     }
 }
