@@ -286,6 +286,12 @@ impl CtxMapping for Flatten {
         (Expr::App(App { pos: pos, op: Box::new(op), args: fargs }), freevars)
     }
 
+    fn map_primapp(&mut self, p: ast::PrimApp<AST>, env: Option<Rc<Env>>)
+        -> Self::ASTRes
+    {
+        unimplemented!() // TODO
+    }
+
     fn map_var(&mut self, Var { pos, name }: Var, env: Option<Rc<Env>>) ->  Self::ASTRes {
         let vref = env.map(|env| env.resolve(&name.name())).unwrap_or(name);
         let mut freevars = HashSet::new();

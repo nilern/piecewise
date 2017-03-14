@@ -14,6 +14,9 @@ pub trait NodeMapping {
     }
     fn map_fn(&mut self, node: Fn) -> Result<AST, Self::Err> { Ok(AST::Fn(node)) }
     fn map_app(&mut self, node: App<AST>) -> Result<AST, Self::Err> { Ok(AST::App(node)) }
+    fn map_primapp(&mut self, node: PrimApp<AST>) -> Result<AST, Self::Err> {
+        Ok(AST::PrimApp(Box::new(node)))
+    }
     fn map_var(&mut self, node: Var) -> Result<AST, Self::Err> { Ok(AST::Var(node)) }
     fn map_const(&mut self, node: Const) -> Result<AST, Self::Err> { Ok(AST::Const(node)) }
 
@@ -33,6 +36,7 @@ pub trait CtxMapping {
     fn map_block(&mut self, node: Block<Stmt<AST>>, _: Self::Ctx) -> Self::ASTRes;
     fn map_fn(&mut self, node: Fn, _: Self::Ctx) -> Self::ASTRes;
     fn map_app(&mut self, node: App<AST>, _: Self::Ctx) -> Self::ASTRes;
+    fn map_primapp(&mut self, node: PrimApp<AST>, _: Self::Ctx) -> Self::ASTRes;
     fn map_var(&mut self, node: Var, _: Self::Ctx) -> Self::ASTRes;
     fn map_const(&mut self, node: Const, _: Self::Ctx) -> Self::ASTRes;
 
@@ -53,6 +57,7 @@ pub enum AST {
     Block(Block<Stmt<AST>>),
     Fn(Fn),
     App(App<AST>),
+    PrimApp(Box<PrimApp<AST>>),
 
     Var(Var),
     Const(Const)
@@ -97,6 +102,7 @@ impl AST {
             Block(block) => f.map_block(block),
             Fn(fun) => f.map_fn(fun),
             App(app) => f.map_app(app),
+            PrimApp(box p) => f.map_primapp(p),
             Var(v) => f.map_var(v),
             Const(c) => f.map_const(c)
         }
@@ -110,6 +116,7 @@ impl AST {
             Block(block) => f.map_block(block, ctx),
             Fn(fun) => f.map_fn(fun, ctx),
             App(app) => f.map_app(app, ctx),
+            PrimApp(box p) => f.map_primapp(p, ctx),
             Var(v) => f.map_var(v, ctx),
             Const(c) => f.map_const(c, ctx)
         }
@@ -129,6 +136,7 @@ impl FunctorNode for AST {
             Block(block) => block.map(f).map(|block| Block(block)),
             Fn(fun) => fun.map(f).map(|fun| Fn(fun)),
             App(app) => app.map(f).map(|app| App(app)),
+            PrimApp(box p) => p.map(f).map(|p| PrimApp(Box::new(p))),
             v @ Var(_) => Ok(v),
             c @ Const(_) => Ok(c)
         }
@@ -141,6 +149,7 @@ impl Sourced for AST {
             &AST::Block(ref block) => block.pos(),
             &AST::Fn(ref f) => f.pos(),
             &AST::App(ref app) => app.pos(),
+            &AST::PrimApp(ref p) => p.pos(),
             &AST::Var(ref v) => v.pos(),
             &AST::Const(ref c) => c.pos()
         }
@@ -153,6 +162,7 @@ impl Display for AST {
             &AST::Block(ref block) => block.fmt(f),
             &AST::Fn(ref fun) => fun.fmt(f),
             &AST::App(ref app) => app.fmt(f),
+            &AST::PrimApp(ref p) => p.fmt(f),
             &AST::Var(ref v) => v.fmt(f),
             &AST::Const(ref c) => c.fmt(f)
         }
@@ -269,6 +279,39 @@ impl FunctorNode for App<AST> {
                            .map(|arg| arg.accept(f))
                            .collect::<Result<Vec<AST>, F::Err>>()?
         })
+    }
+}
+
+/// A instruction application.
+#[derive(Debug)]
+pub enum PrimApp<E> {
+    IAdd(SrcPos, E, E)
+}
+
+impl<E> Sourced for PrimApp<E> {
+    fn pos(&self) -> SrcPos {
+        use self::PrimApp::*;
+        match self {
+            &IAdd(pos, ..) => pos
+        }
+    }
+}
+
+impl<E> Display for PrimApp<E> where E: Display {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::PrimApp::*;
+        match self {
+            &IAdd(_, ref l, ref r) => write!(f, "(__iadd {} {})", l, r)
+        }
+    }
+}
+
+impl FunctorNode for PrimApp<AST> {
+    fn map<F>(self, f: &mut F) -> Result<PrimApp<AST>, F::Err> where F: NodeMapping {
+        use self::PrimApp::*;
+        match self {
+            IAdd(pos, l, r) => Ok(IAdd(pos, l.accept(f)?, r.accept(f)?))
+        }
     }
 }
 
