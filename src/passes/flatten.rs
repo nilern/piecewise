@@ -133,34 +133,66 @@ pub type Stmt = ast::Stmt<Expr>;
 // ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-struct Env {
+struct Frame {
     bindings: HashMap<Name, Name>,
     parent: Option<Rc<Env>>
 }
 
+#[derive(Debug)]
+enum Env {
+    Fun(Frame),
+    Block(Frame)
+}
+
 impl Env {
-    fn new(parent: Option<Rc<Env>>, bindings: HashMap<Name, Name>) -> Env {
-        Env {
+    fn clause(parent: Option<Rc<Env>>, bindings: HashMap<Name, Name>) -> Env {
+        Env::Fun(Frame {
             bindings: bindings,
             parent: parent
+        })
+    }
+
+    fn block(parent: Option<Rc<Env>>, bindings: HashMap<Name, Name>) -> Env {
+        Env::Block(Frame {
+            bindings: bindings,
+            parent: parent
+        })
+    }
+
+    fn bindings(&self) -> &HashMap<Name, Name> {
+        match self {
+            &Env::Fun(Frame { ref bindings, .. }) => bindings,
+            &Env::Block(Frame { ref bindings, .. }) => bindings
         }
     }
 
+    // TODO: DRY
     fn resolve(&self, name: &Name) -> VarRef {
-        self.bindings.get(name)
-                     .map(|name| VarRef::Local(name.clone()))
-                     .or_else(||
-                         self.parent.clone()
-                                    .and_then(|parent| parent.resolve_str(name))
-                                    .map(|name| VarRef::Clover(name.clone())))
-                     .unwrap_or(VarRef::Global(name.clone()))
+        fn resolve_clover(env: &Env, name: &Name) -> VarRef {
+            env.bindings().get(name)
+                          .map(|name| VarRef::Clover(name.clone()))
+                          .or_else(|| match env {
+                              &Env::Fun(Frame { ref parent, .. }) =>
+                                  parent.clone().map(|parent| resolve_clover(&*parent, name)),
+                              &Env::Block(Frame { ref parent, .. }) =>
+                                  parent.clone().map(|parent| resolve_clover(&*parent, name))
+                          })
+                          .unwrap_or_else(|| VarRef::Global(name.clone()))
+        }
+
+        self.bindings().get(name)
+                       .map(|name| VarRef::Local(name.clone()))
+                       .or_else(|| match self {
+                           &Env::Fun(Frame { ref parent, .. }) =>
+                               parent.clone().map(|parent| resolve_clover(&*parent, name)),
+                           &Env::Block(Frame { ref parent, .. }) =>
+                               parent.clone().map(|parent| parent.resolve(name))
+                       })
+                       .unwrap_or_else(|| VarRef::Global(name.clone()))
     }
 
-    fn resolve_str(&self, name: &Name) -> Option<Name> {
-        self.bindings.get(name)
-                     .map(Clone::clone)
-                     .or_else(||
-                         self.parent.clone().and_then(|parent| parent.resolve_str(name)))
+    fn resolve_str(&self, name: &Name) -> Name {
+        self.bindings().get(name).unwrap().clone()
     }
 }
 
@@ -248,7 +280,7 @@ impl CtxMapping for Flatten {
         -> Self::ASTRes
     {
         let bindings = self.block_bindings(stmts.iter());
-        let env = Some(Rc::new(Env::new(env, bindings.clone())));
+        let env = Some(Rc::new(Env::block(env, bindings.clone())));
 
         let (fstmts, mut freevars) = self.flat_map(Flatten::map_stmt, stmts, env.clone());
 
@@ -310,7 +342,7 @@ impl CtxMapping for Flatten {
             ast::Stmt::Def { name, val } => {
                 let (expr, freevars) = val.accept_ctx(self, env.clone());
                 (ast::Stmt::Def {
-                    name: env.and_then(|env| env.resolve_str(&name)).unwrap_or(name),
+                    name: env.unwrap().resolve_str(&name),
                     val: expr
                  }, freevars)
             }
@@ -325,7 +357,7 @@ impl CtxMapping for Flatten {
                   env: Option<Rc<Env>>) -> Self::ClauseRes
     {
         let param_bindings = self.param_bindings(&params);
-        let param_env = Some(Rc::new(Env::new(env.clone(), param_bindings.clone())));
+        let param_env = Some(Rc::new(Env::clause(env.clone(), param_bindings.clone())));
 
         let (cond, mut freevars) = cond.accept_ctx(self, param_env.clone());
 
@@ -333,7 +365,7 @@ impl CtxMapping for Flatten {
 
         let mut bindings = param_bindings;
         bindings.extend(self.block_bindings(body.iter()));
-        let env = Some(Rc::new(Env::new(env.clone(), bindings.clone())));
+        let env = Some(Rc::new(Env::clause(env.clone(), bindings.clone())));
 
         let mut fstmts = Vec::new();
         self.flat_map_to(Flatten::map_stmt, body, env.clone(), &mut fstmts, &mut freevars);
@@ -342,7 +374,7 @@ impl CtxMapping for Flatten {
 
         (Clause {
             pos: pos,
-            params: param_env.and_then(|env| env.resolve_str(&params)).unwrap(), // unwrap is OK
+            params: param_env.unwrap().resolve_str(&params),
             cond: cond,
             body: fstmts
          }, freevars)

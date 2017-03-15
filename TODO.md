@@ -10,9 +10,9 @@
 
 # Flatten
 
+* [x] Blocks should not close over variables
 * [ ] Remove magic: closures should be constructed of a bunch of code object +
       clover tuple combinations and created and accessed as such
-* [ ] Blocks should not close over variables
 * [ ] Detect access to uninitialized variables (in blocks)
     - Doing this statically simplifies register allocation since we don't need
       to keep null references in registers between block start and variable
