@@ -49,7 +49,7 @@ impl<C> Display for Fun<C> where C: Display {
         for v in self.freevars.iter() {
             write!(f, "{}, ", v)?;
         }
-        try!(write!(f, "] {{"));
+        try!(write!(f, "] {{\n"));
         let mut it = self.clauses.iter();
         if let Some(arg) = it.next() {
             try!(write!(f, "{}", arg));

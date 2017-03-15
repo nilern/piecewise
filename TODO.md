@@ -23,7 +23,7 @@
 * [x] Trivial vs. nontrivial expressions
 * [x] If
 * [x] Next
-* [ ] Print conts topologically
+* [x] Print conts topologically
 
 # CPS Conversion
 

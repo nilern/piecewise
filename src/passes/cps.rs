@@ -1,6 +1,7 @@
 use std::fmt;
 use std::fmt::Display;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::iter;
 
 use util::{Sourced, Name, SrcPos, Either, fresh_label, push_label};
 use ast;
@@ -46,6 +47,19 @@ pub enum Expr {
     If(Triv, ContRef, ContRef),
     Closure(Closure, ContRef),
     Triv(Triv, ContRef)
+}
+
+impl Expr {
+    fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
+        use self::Expr::*;
+        match self {
+            &App(_, k) => Box::new(iter::once(k)),
+            &Next(_) => Box::new(iter::once(ContRef::Ret)),
+            &If(_, k, l) => Box::new(iter::once(k).chain(iter::once(l))),
+            &Closure(_, k) => Box::new(iter::once(k)),
+            &Triv(_, k) => Box::new(iter::once(k)),
+        }
+    }
 }
 
 impl Display for Expr {
@@ -97,6 +111,12 @@ impl Display for Clause {
 pub struct Cont {
     pub param: Option<Name>,
     pub expr: Expr
+}
+
+impl Cont {
+    fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
+        self.expr.descendants()
+    }
 }
 
 impl Display for Cont {
@@ -271,11 +291,28 @@ impl ContMap {
 
 impl Display for ContMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let mut contv: Vec<(&usize, &Cont)> = self.conts.iter().collect();
-        contv.sort_by_key(|&(&l, _)| l);
+        fn fmt_cont(conts: &ContMap, label: usize, cont: &Cont, seen: &mut HashSet<usize>,
+                    f: &mut fmt::Formatter) -> Result<(), fmt::Error>
+        {
+            seen.insert(label);
+            writeln!(f, "    k[{}] {}", label, cont)?;
+            for cref in cont.descendants().into_iter() {
+                match cref {
+                    ContRef::Local(label) if !seen.contains(&label) => {
+                        fmt_cont(conts, label, conts.conts.get(&label).unwrap(), seen, f)?;
+                    },
+                    _ => ()
+                }
+            }
+            Ok(())
+        };
 
-        for (label, cont) in contv {
-            writeln!(f, "k[{}] {}", label, cont)?;
+        let mut seen = HashSet::new();
+        fmt_cont(self, self.entry, self.conts.get(&self.entry).unwrap(), &mut seen, f)?;
+        for (label, cont) in self.conts.iter() {
+            if !seen.contains(&label) {
+                writeln!(f, "    k[{}] {}", label, cont)?;
+            }
         }
         Ok(())
     }
