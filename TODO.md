@@ -22,9 +22,11 @@
 
 * [x] Trivial vs. nontrivial expressions
 * [x] If
+* [x] Next
 * [ ] Print conts topologically
 
 # CPS Conversion
 
 * [x] Clause condition treatment
+    - [x] Use `Next`
 * [ ] Break down closure initialization and clover references

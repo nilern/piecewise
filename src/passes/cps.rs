@@ -42,6 +42,7 @@ impl Display for CPS {
 #[derive(Debug)]
 pub enum Expr {
     App(App, ContRef),
+    Next(App),
     If(Triv, ContRef, ContRef),
     Closure(Closure, ContRef),
     Triv(Triv, ContRef)
@@ -51,6 +52,7 @@ impl Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &Expr::App(ref app, k) => write!(f, "{} -> {}", app, k),
+            &Expr::Next(ref app) => write!(f, "{} -> ret", app),
             &Expr::If(ref app, k, l) => write!(f, "{} -> {} | {}", app, k, l),
             &Expr::Closure(ref cl, k) => write!(f, "{} -> {}", cl, k),
             &Expr::Triv(ref t, k) => write!(f, "{} -> {}", t, k)
@@ -301,36 +303,55 @@ impl From<flatten::Fun<flatten::Clause>> for Fun {
 
 impl From<flatten::Clause> for Clause {
     fn from(flatten::Clause { pos, params, cond, body}: flatten::Clause) -> Clause {
+        fn convert_body(conts: &mut ContMap, stmts: Vec<flatten::Stmt>) -> usize {
+            let bk = fresh_label();
+            conts.convert_nontrivially(bk, None, flatten::Expr::Block(flatten::Block {
+                pos: stmts[0].pos(),
+                stmts: stmts
+            }), ContRef::Ret);
+            bk
+        }
+
+        fn convert_next(conts: &mut ContMap, pos: SrcPos, params: Name) -> usize {
+            let k = fresh_label();
+            conts.insert(k, None, Expr::Next(App {
+                pos: pos,
+                op: Box::new(Triv::Var(Var {
+                    pos: pos,
+                    name: VarRef::Local(Name::fresh(String::from("self"))) // FIXME
+                })),
+                args: vec![Triv::Var(Var {
+                    pos: pos,
+                    name: VarRef::Local(params)
+                })]
+            }));
+            k
+        }
+
         let entry = fresh_label();
-        let ck = fresh_label();
         let mut cbody = ContMap {
             entry: entry,
             conts: HashMap::new()
         };
 
-        let bk = fresh_label();
-        cbody.convert_nontrivially(bk, None, flatten::Expr::Block(flatten::Block {
-            pos: body[0].pos(),
-            stmts: body
-        }), ContRef::Ret);
-
         match cond {
             flatten::Expr::Const(Const { val: ConstVal::Bool(true), pos: _ }) => {
-                cbody.entry = bk;
+                cbody.entry = convert_body(&mut cbody, body);
             },
-            flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos: _ }) => {
-                unimplemented!() // FIXME: cbody.entry = else branch which goes to next method
+            flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos }) => {
+                cbody.entry = convert_next(&mut cbody, pos, params.clone());
             },
             _ => {
+                let ck = fresh_label();
                 let (ccond, lused, tempname) =
                     cbody.convert_subexpr(entry, None, cond, ContRef::Local(ck));
                 if !lused {
                     push_label(entry);
                     cbody.entry = ck;
                 }
-                cbody.insert(ck, tempname, Expr::If(ccond,
-                    ContRef::Local(bk),
-                    ContRef::Ret)); // FIXME: else branch which goes to next method
+                let bk = convert_body(&mut cbody, body);
+                let nk = convert_next(&mut cbody, pos, params.clone());
+                cbody.insert(ck, tempname, Expr::If(ccond, ContRef::Local(bk), ContRef::Local(nk)));
             }
         }
 
