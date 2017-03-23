@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::fmt;
 use std::fmt::Display;
 use std::ops;
+use std::iter;
 
 use util::{Sourced, SrcPos, Name};
 use ast;
@@ -234,9 +235,11 @@ impl Flatten {
         bindings
     }
 
-    fn param_bindings<'a>(&mut self, params: &Name) -> HashMap<Name, Name> {
+    fn param_bindings<'a>(&mut self, params: &[Name]) -> HashMap<Name, Name> {
         let mut bindings = HashMap::new();
-        bindings.insert(params.clone(), self.rename(params));
+        for param in params {
+            bindings.insert(param.clone(), self.rename(param));
+        }
         bindings
     }
 
@@ -372,9 +375,12 @@ impl CtxMapping for Flatten {
 
         Flatten::remove_bindings(&mut freevars, &bindings);
 
+        let param_env = param_env.unwrap();
         (Clause {
             pos: pos,
-            params: param_env.unwrap().resolve_str(&params),
+            params: iter::once(Name::fresh(String::from("self")))
+                        .chain(params.iter().map(|param| param_env.resolve_str(param)))
+                        .collect(),
             cond: cond,
             body: fstmts
          }, freevars)

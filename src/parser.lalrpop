@@ -70,7 +70,7 @@ Block: AST = {
 BlockItem: BlockItem = {
     <pos: @L> <params: Name> "=>" <stmt: Stmt> => BlockItem::Clause(Clause {
         pos: pos,
-        params: Name::from(params),
+        params: vec![Name::from(params)],
         cond: AST::Const(Const { pos: pos, val: ConstVal::Bool(true) }),
         body: vec![stmt]
     }),

@@ -66,7 +66,7 @@ impl Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &Expr::App(ref app, k) => write!(f, "{} -> {}", app, k),
-            &Expr::Next(ref app) => write!(f, "{} -> ret", app),
+            &Expr::Next(ref app) => write!(f, "next {} -> ret", app),
             &Expr::If(ref app, k, l) => write!(f, "{} -> {} | {}", app, k, l),
             &Expr::Closure(ref cl, k) => write!(f, "{} -> {}", cl, k),
             &Expr::Triv(ref t, k) => write!(f, "{} -> {}", t, k)
@@ -96,13 +96,16 @@ pub type Fun = flatten::Fun<Clause>;
 #[derive(Debug)]
 pub struct Clause {
     pub pos: SrcPos,
-    pub params: Name, // TODO: Multiple params
+    pub params: Vec<Name>,
     pub body: ContMap,
 }
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{} =>\n{}", self.params, self.body)
+        for param in self.params.iter() {
+            write!(f, "{} ", param)?;
+        }
+        write!(f, "=>\n{}", self.body)
     }
 }
 
@@ -349,18 +352,18 @@ impl From<flatten::Clause> for Clause {
             bk
         }
 
-        fn convert_next(conts: &mut ContMap, pos: SrcPos, params: Name) -> usize {
+        fn convert_next(conts: &mut ContMap, pos: SrcPos, params: &[Name]) -> usize {
             let k = fresh_label();
             conts.insert(k, None, Expr::Next(App {
                 pos: pos,
                 op: Box::new(Triv::Var(Var {
                     pos: pos,
-                    name: VarRef::Local(Name::fresh(String::from("self"))) // FIXME
+                    name: VarRef::Local(params[0].clone())
                 })),
-                args: vec![Triv::Var(Var {
+                args: params.iter().skip(1).map(|param| Triv::Var(Var {
                     pos: pos,
-                    name: VarRef::Local(params)
-                })]
+                    name: VarRef::Local(param.clone())
+                })).collect()
             }));
             k
         }
@@ -376,7 +379,7 @@ impl From<flatten::Clause> for Clause {
                 cbody.entry = convert_body(&mut cbody, body);
             },
             flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos }) => {
-                cbody.entry = convert_next(&mut cbody, pos, params.clone());
+                cbody.entry = convert_next(&mut cbody, pos, &params);
             },
             _ => {
                 let ck = fresh_label();
@@ -387,7 +390,7 @@ impl From<flatten::Clause> for Clause {
                     cbody.entry = ck;
                 }
                 let bk = convert_body(&mut cbody, body);
-                let nk = convert_next(&mut cbody, pos, params.clone());
+                let nk = convert_next(&mut cbody, pos, &params);
                 cbody.insert(ck, tempname, Expr::If(ccond, ContRef::Local(bk), ContRef::Local(nk)));
             }
         }

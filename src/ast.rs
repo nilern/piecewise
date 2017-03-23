@@ -75,7 +75,7 @@ impl AST {
                 clauses: vec![
                     Clause {
                         pos: then.pos(),
-                        params: Name::from(String::from("_")), // HACK
+                        params: vec![Name::from(String::from("_"))], // HACK
                         cond: Var(self::Var {
                             pos: pos,
                             name: VarRef::Global(Name::from(String::from("_"))) // HACK
@@ -84,7 +84,7 @@ impl AST {
                     },
                     Clause {
                         pos: els.pos(),
-                        params: Name::from(String::from("_")), // HACK
+                        params: vec![Name::from(String::from("_"))], // HACK
                         cond: Const(self::Const { pos: pos, val: ConstVal::Bool(true) }),
                         body: vec![Stmt::Expr(els)]
                     }
@@ -411,7 +411,7 @@ impl FunctorNode for Stmt<AST> {
 #[derive(Debug)]
 pub struct Clause<E> {
     pub pos: SrcPos,
-    pub params: Name, // TODO: Vec<AST>
+    pub params: Vec<Name>,
     pub cond: E,
     pub body: Vec<Stmt<E>>
 }
@@ -428,7 +428,10 @@ impl<E> Sourced for Clause<E> {
 
 impl<E> Display for Clause<E> where E: Display {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        try!(write!(f, "{} | {} => ", self.params, self.cond));
+        for param in self.params.iter() {
+            write!(f, "{} ", param)?;
+        }
+        write!(f, "| {} => ", self.cond)?;
         let mut it = self.body.iter();
         if let Some(stmt) = it.next() {
             try!(write!(f, "{}", stmt));
