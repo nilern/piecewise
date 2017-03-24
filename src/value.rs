@@ -117,7 +117,7 @@ impl<H> From<*mut H> for RawRef where H: gc::Header {
 }
 
 impl TryFrom<RawRef> for isize {
-    type Err = TypeError;
+    type Error = TypeError;
 
     fn try_from(RawRef(i): RawRef) -> Result<isize, TypeError> {
         let tag = i & RawRef::MASK;

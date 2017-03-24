@@ -91,7 +91,30 @@ impl Display for Triv {
 
 pub type App = ast::App<Triv>;
 
-pub type Fun = flatten::Fun<Clause>;
+#[derive(Debug)]
+pub struct Fun {
+    pub pos: SrcPos,
+    pub freevars: Vec<Name>,
+    pub clauses: HashMap<usize, Clause>
+}
+
+impl Display for Fun {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "[")?;
+        for v in self.freevars.iter() {
+            write!(f, "{}, ", v)?;
+        }
+        try!(write!(f, "] {{\n"));
+        let mut it = self.clauses.iter();
+        if let Some((_, clause)) = it.next() {
+            try!(write!(f, "{}", clause));
+        }
+        for (_, clause) in it {
+            try!(write!(f, "; {}", clause));
+        }
+        write!(f, "}}")
+    }
+}
 
 #[derive(Debug)]
 pub struct Clause {
@@ -329,76 +352,88 @@ impl FAST {
     }
 }
 
+// FIXME: rename param uses
 impl From<flatten::Fun<flatten::Clause>> for Fun {
     fn from(fun: flatten::Fun<flatten::Clause>) -> Fun {
-        Fun {
-            pos: fun.pos,
-            freevars: fun.freevars,
-            clauses: fun.clauses.into_iter()
-                                .map(|clause| Clause::from(clause))
-                                .collect()
-        }
-    }
-}
-
-impl From<flatten::Clause> for Clause {
-    fn from(flatten::Clause { pos, params, cond, body}: flatten::Clause) -> Clause {
-        fn convert_body(conts: &mut ContMap, stmts: Vec<flatten::Stmt>) -> usize {
-            let bk = fresh_label();
-            conts.convert_nontrivially(bk, None, flatten::Expr::Block(flatten::Block {
+        fn convert_body(conts: &mut ContMap, label: usize, stmts: Vec<flatten::Stmt>) {
+            // TODO: get rid of the block construction:
+            conts.convert_nontrivially(label, None, flatten::Expr::Block(flatten::Block {
                 pos: stmts[0].pos(),
                 stmts: stmts
             }), ContRef::Ret);
-            bk
         }
 
-        fn convert_next(conts: &mut ContMap, pos: SrcPos, params: &[Name]) -> usize {
-            let k = fresh_label();
-            conts.insert(k, None, Expr::Next(App {
-                pos: pos,
-                op: Box::new(Triv::Var(Var {
-                    pos: pos,
-                    name: VarRef::Local(params[0].clone())
-                })),
-                args: params.iter().skip(1).map(|param| Triv::Var(Var {
-                    pos: pos,
-                    name: VarRef::Local(param.clone())
-                })).collect()
-            }));
-            k
-        }
+        fn convert_clause_vec(clauses: Vec<flatten::Clause>) -> Clause {
+            let pos = clauses[0].pos();
+            let mut params = None;
 
-        let entry = fresh_label();
-        let mut cbody = ContMap {
-            entry: entry,
-            conts: HashMap::new()
-        };
+            let mut entry = fresh_label();
+            let mut cbody = ContMap {
+                entry: entry,
+                conts: HashMap::new()
+            };
 
-        match cond {
-            flatten::Expr::Const(Const { val: ConstVal::Bool(true), pos: _ }) => {
-                cbody.entry = convert_body(&mut cbody, body);
-            },
-            flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos }) => {
-                cbody.entry = convert_next(&mut cbody, pos, &params);
-            },
-            _ => {
-                let ck = fresh_label();
-                let (ccond, lused, tempname) =
-                    cbody.convert_subexpr(entry, None, cond, ContRef::Local(ck));
-                if !lused {
-                    push_label(entry);
-                    cbody.entry = ck;
+            let mut irrefutable = false;
+            for flatten::Clause { pos: _, params: ps, cond, body} in clauses {
+                params = params.or(Some(ps.clone()));
+                match cond {
+                    flatten::Expr::Const(Const { val: ConstVal::Bool(true), pos: _ }) => {
+                        convert_body(&mut cbody, entry, body);
+                        irrefutable = true;
+                        break;
+                    },
+                    flatten::Expr::Const(Const { val: ConstVal::Bool(false), pos: _ }) => {
+                        continue;
+                    },
+                    _ => {
+                        let mut ck = fresh_label();
+                        let (ccond, lused, tempname) =
+                            cbody.convert_subexpr(entry, None, cond, ContRef::Local(ck));
+                        if !lused {
+                            push_label(ck);
+                            ck = entry;
+                        }
+
+                        let bk = fresh_label();
+                        let nk = fresh_label();
+                        cbody.insert(ck, tempname,
+                                     Expr::If(ccond, ContRef::Local(bk), ContRef::Local(nk)));
+                        convert_body(&mut cbody, bk, body);
+                        entry = nk;
+                    }
                 }
-                let bk = convert_body(&mut cbody, body);
-                let nk = convert_next(&mut cbody, pos, &params);
-                cbody.insert(ck, tempname, Expr::If(ccond, ContRef::Local(bk), ContRef::Local(nk)));
+            }
+
+            if !irrefutable {
+                cbody.insert(entry, None, Expr::Next(App {
+                    pos: pos,
+                    op: Box::new(Triv::Var(Var {
+                        pos: pos,
+                        name: VarRef::Local(Name::fresh(String::from("self"))) // FIXME
+                    })),
+                    args: params.clone().unwrap().into_iter().map(|param| Triv::Var(Var {
+                        pos: pos,
+                        name: VarRef::Local(param)
+                    })).collect()
+                }));
+            }
+
+            Clause {
+                pos: pos,
+                params: params.unwrap(),
+                body: cbody
             }
         }
 
-        Clause {
-            pos: pos,
-            params: params,
-            body: cbody
+        let mut cclauses = HashMap::new();
+        for (arity, clauses) in fun.clauses {
+            cclauses.insert(arity, convert_clause_vec(clauses));
+        }
+
+        Fun {
+            pos: fun.pos,
+            freevars: fun.freevars,
+            clauses: cclauses
         }
     }
 }

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 use std::rc::Rc;
 use std::fmt;
 use std::fmt::Display;
@@ -39,7 +40,7 @@ impl Display for FAST {
 pub struct Fun<C> {
     pub pos: SrcPos,
     pub freevars: Vec<Name>,
-    pub clauses: Vec<C>
+    pub clauses: HashMap<usize, Vec<C>>
 }
 
 pub type Fn = Fun<Clause>;
@@ -51,7 +52,7 @@ impl<C> Display for Fun<C> where C: Display {
             write!(f, "{}, ", v)?;
         }
         try!(write!(f, "] {{\n"));
-        let mut it = self.clauses.iter();
+        let mut it = self.clauses.iter().flat_map(|(_, clauses)| clauses.iter());
         if let Some(arg) = it.next() {
             try!(write!(f, "{}", arg));
         }
@@ -293,13 +294,21 @@ impl CtxMapping for Flatten {
     }
 
     fn map_fn(&mut self, ast::Fn { pos, clauses }: ast::Fn, env: Option<Rc<Env>>) -> Self::ASTRes {
-        let (fclauses, freevars) = self.flat_map(Flatten::map_clause, clauses, env.clone());
+        let (tclauses, freevars) = self.flat_map(Flatten::map_clause, clauses, env.clone());
+        let mut fclauses: HashMap<usize, Vec<Clause>> = HashMap::new();
+        for clause in tclauses {
+            let argc = clause.params.len();
+            match fclauses.entry(argc) {
+                Entry::Occupied(mut entry) => entry.get_mut().push(clause),
+                Entry::Vacant(entry) => { entry.insert(vec![clause]); }
+            }
+        }
 
         let freevec: Vec<Name> = freevars.iter().cloned().collect();
         let name = self.add_proc(Fn {
             pos: pos,
-            freevars:
-            freevec.clone(), clauses: fclauses
+            freevars: freevec.clone(),
+            clauses: fclauses
         });
 
         (Expr::Closure(Closure {
