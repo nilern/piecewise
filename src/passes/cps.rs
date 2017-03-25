@@ -50,12 +50,23 @@ pub enum Expr {
 }
 
 impl Expr {
+    fn uses(&self) -> Box<Iterator<Item=Name>> {
+        use self::Expr::*;
+        match self {
+            &App(ref app, _) => app.uses(),
+            &Next(ref app) => app.uses(),
+            &If(ref cond, _, _) => cond.uses(),
+            &Closure(ref c, _) => c.uses(),
+            &Triv(ref t, _) => t.uses()
+        }
+    }
+
     fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
         use self::Expr::*;
         match self {
             &App(_, k) => Box::new(iter::once(k)),
             &Next(_) => Box::new(iter::once(ContRef::Ret)),
-            &If(_, k, l) => Box::new(iter::once(k).chain(iter::once(l))),
+            &If(_, k, l) => Box::new(iter::once(l).chain(iter::once(k))),
             &Closure(_, k) => Box::new(iter::once(k)),
             &Triv(_, k) => Box::new(iter::once(k)),
         }
@@ -74,10 +85,26 @@ impl Display for Expr {
     }
 }
 
+impl Closure {
+    fn uses(&self) -> Box<Iterator<Item=Name>> {
+        let clover_uses: Vec<Name> = self.freevars.iter().cloned().collect();
+        Box::new(clover_uses.into_iter())
+    }
+}
+
 #[derive(Debug)]
 pub enum Triv {
     Var(Var),
     Const(Const)
+}
+
+impl Triv {
+    fn uses(&self) -> Box<Iterator<Item=Name>> {
+        match self {
+            &Triv::Var(ref v) => v.uses(),
+            &Triv::Const(_) => Box::new(iter::empty())
+        }
+    }
 }
 
 impl Display for Triv {
@@ -89,7 +116,23 @@ impl Display for Triv {
     }
 }
 
+impl Var {
+    fn uses(&self) -> Box<Iterator<Item=Name>> {
+        match &self.name {
+            &VarRef::Local(ref n) => Box::new(iter::once(n.clone())),
+            &VarRef::Clover(_) | &VarRef::Global(_) => Box::new(iter::empty())
+        }
+    }
+}
+
 pub type App = ast::App<Triv>;
+
+impl App {
+    fn uses(&self) -> Box<Iterator<Item=Name>> {
+        let arg_uses: Vec<Name> = self.args.iter().flat_map(|arg| arg.uses()).collect();
+        Box::new(self.op.uses().chain(arg_uses.into_iter()))
+    }
+}
 
 #[derive(Debug)]
 pub struct Fun {
@@ -140,6 +183,10 @@ pub struct Cont {
 }
 
 impl Cont {
+    fn def(&self) -> Box<Iterator<Item=Name>> {
+        Box::new(self.param.clone().into_iter())
+    }
+
     fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
         self.expr.descendants()
     }
@@ -190,11 +237,41 @@ impl ContMap {
         res
     }
 
+    fn get(&self, label: usize) -> Option<&Cont> {
+        self.conts.get(&label)
+    }
+
     fn insert(&mut self, label: usize, tempname: Option<Name>, expr: Expr) {
         self.conts.insert(label, Cont {
             param: tempname,
             expr: expr
         });
+    }
+
+    fn postwalk<F>(&self, mut f: F) where F: FnMut(usize, &Cont) -> () {
+        fn dfs<F>(conts: &ContMap, seen: &mut HashSet<usize>, f: &mut F, label: usize)
+            where F: FnMut(usize, &Cont) -> ()
+        {
+            if !seen.contains(&label) {
+                seen.insert(label);
+                let cont = conts.get(label).unwrap();
+                for cref in cont.descendants().into_iter() {
+                    if let ContRef::Local(label) = cref {
+                        dfs(conts, seen, f, label);
+                    }
+                }
+                f(label, cont)
+            }
+        }
+
+        let mut seen = HashSet::new();
+        dfs(self, &mut seen, &mut f, self.entry)
+    }
+
+    fn post_order(&self) -> Vec<usize> {
+        let mut order = Vec::new();
+        self.postwalk(|label, _| order.push(label));
+        order
     }
 
     fn convert_step(&mut self, label: usize, mut tempname: Option<Name>, expr: flatten::Expr,
@@ -313,6 +390,24 @@ impl ContMap {
             Right(b) => b
         }
     }
+
+    fn liveness(&self) -> HashMap<usize, HashSet<Name>> {
+        let mut res = HashMap::new();
+        for label in self.post_order().into_iter() {
+            let cont = self.get(label).unwrap();
+            let mut live: HashSet<Name> = cont.expr.uses().collect();
+            for succ_ref in cont.descendants() {
+                if let ContRef::Local(succ_label) = succ_ref {
+                    let succ = self.get(succ_label).unwrap();
+                    let succ_live: &HashSet<Name> = res.get(&succ_label).unwrap();
+                    live.extend(succ_live.iter().filter(|name|
+                        succ.def().find(|def_name| def_name == *name).is_none()).cloned());
+                }
+            }
+            res.insert(label, live);
+        }
+        res
+    }
 }
 
 impl Display for ContMap {
@@ -331,7 +426,7 @@ impl Display for ContMap {
                 }
             }
             Ok(())
-        };
+        }
 
         let mut seen = HashSet::new();
         fmt_cont(self, self.entry, self.conts.get(&self.entry).unwrap(), &mut seen, f)?;
