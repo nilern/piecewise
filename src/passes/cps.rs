@@ -2,6 +2,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::collections::{HashMap, HashSet};
 use std::iter;
+use std::ops::Range;
 
 use util::{Sourced, Name, SrcPos, Either, fresh_label, push_label};
 use ast;
@@ -61,14 +62,16 @@ impl Expr {
         }
     }
 
-    fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
+    fn successors(&self) -> Box<Iterator<Item=usize>> {
         use self::Expr::*;
         match self {
-            &App(_, k) => Box::new(iter::once(k)),
-            &Next(_) => Box::new(iter::once(ContRef::Ret)),
-            &If(_, k, l) => Box::new(iter::once(l).chain(iter::once(k))),
-            &Closure(_, k) => Box::new(iter::once(k)),
-            &Triv(_, k) => Box::new(iter::once(k)),
+            &App(_, ContRef::Local(k)) => Box::new(iter::once(k)),
+            &If(_, ContRef::Local(k), ContRef::Local(l)) =>
+                Box::new(iter::once(l).chain(iter::once(k))),
+            &If(_, ContRef::Local(k), _) | &If(_, _, ContRef::Local(k)) => Box::new(iter::once(k)),
+            &Closure(_, ContRef::Local(k)) => Box::new(iter::once(k)),
+            &Triv(_, ContRef::Local(k)) => Box::new(iter::once(k)),
+            _ => Box::new(iter::empty())
         }
     }
 }
@@ -168,6 +171,7 @@ pub struct Clause {
 
 impl Display for Clause {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        writeln!(f, "{:?}", self.body.ralloc_prereqs());
         for param in self.params.iter() {
             write!(f, "{} ", param)?;
         }
@@ -187,8 +191,8 @@ impl Cont {
         Box::new(self.param.clone().into_iter())
     }
 
-    fn descendants(&self) -> Box<Iterator<Item=ContRef>> {
-        self.expr.descendants()
+    fn successors(&self) -> Box<Iterator<Item=usize>> {
+        self.expr.successors()
     }
 }
 
@@ -255,10 +259,8 @@ impl ContMap {
             if !seen.contains(&label) {
                 seen.insert(label);
                 let cont = conts.get(label).unwrap();
-                for cref in cont.descendants().into_iter() {
-                    if let ContRef::Local(label) = cref {
-                        dfs(conts, seen, f, label);
-                    }
+                for label in cont.successors().into_iter() {
+                    dfs(conts, seen, f, label);
                 }
                 f(label, cont)
             }
@@ -391,22 +393,54 @@ impl ContMap {
         }
     }
 
-    fn liveness(&self) -> HashMap<usize, HashSet<Name>> {
-        let mut res = HashMap::new();
+    // TODO: scope end sets
+    fn ralloc_prereqs(&self)
+        -> (HashMap<usize, HashSet<Name>>, HashMap<usize, HashMap<Name, RegGoal>>)
+    {
+        let mut liveness = HashMap::new();
+        let mut goals = HashMap::new();
+        let mut curr_goal = HashMap::new();
         for label in self.post_order().into_iter() {
             let cont = self.get(label).unwrap();
-            let mut live: HashSet<Name> = cont.expr.uses().collect();
-            for succ_ref in cont.descendants() {
-                if let ContRef::Local(succ_label) = succ_ref {
-                    let succ = self.get(succ_label).unwrap();
-                    let succ_live: &HashSet<Name> = res.get(&succ_label).unwrap();
-                    live.extend(succ_live.iter().filter(|name|
-                        succ.def().find(|def_name| def_name == *name).is_none()).cloned());
+
+            // Live-outs (that is, continuation clovers):
+            let mut live: HashSet<Name> = HashSet::new();
+            for succ_label in cont.successors() {
+                let succ = self.get(succ_label).unwrap();
+                let succ_live: &HashSet<Name> = liveness.get(&succ_label).unwrap();
+                live.extend(succ_live.iter().filter(|name|
+                    succ.def().find(|def_name| def_name == *name).is_none()).cloned());
+            }
+
+            // At call sites the current goal is also changed:
+            if let &Expr::App(App { pos: _, box ref op, ref args}, _) = &cont.expr {
+                for succ_label in cont.successors() {
+                    goals.insert(succ_label, curr_goal.clone());
+                }
+                let prev_goal = curr_goal;
+                // FIXME: `foo(bar, bar)`
+                // Function and arguments should go above all the clovers in order:
+                curr_goal = iter::once(op).chain(args.iter())
+                    .zip(live.len()..args.len() + 1)
+                    .filter_map(|(t, r)|
+                        if let &Triv::Var(Var { name: VarRef::Local(ref n), .. }) = t {
+                            Some((n.clone(), RegGoal::singleton(r)))
+                        } else {
+                            None
+                        })
+                    .collect();
+                // Clovers should go to registers numbered below the clover count:
+                for name in live.iter() {
+                    curr_goal.insert(name.clone(), prev_goal.get(name).unwrap().re_bound(0..live.len()));
                 }
             }
-            res.insert(label, live);
+
+            // Add the uses of this Cont to the live-outs:
+            live.extend(cont.expr.uses());
+            liveness.insert(label, live);
         }
-        res
+        goals.insert(self.entry, curr_goal);
+        (liveness, goals)
     }
 }
 
@@ -417,13 +451,8 @@ impl Display for ContMap {
         {
             seen.insert(label);
             writeln!(f, "    k[{}] {}", label, cont)?;
-            for cref in cont.descendants().into_iter() {
-                match cref {
-                    ContRef::Local(label) if !seen.contains(&label) => {
-                        fmt_cont(conts, label, conts.conts.get(&label).unwrap(), seen, f)?;
-                    },
-                    _ => ()
-                }
+            for label in cont.successors().into_iter() {
+                fmt_cont(conts, label, conts.conts.get(&label).unwrap(), seen, f)?;
             }
             Ok(())
         }
@@ -436,6 +465,25 @@ impl Display for ContMap {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RegGoal(Vec<usize>);
+
+impl RegGoal {
+    fn singleton(reg: usize) -> RegGoal {
+        RegGoal(vec![reg])
+    }
+
+    fn re_bound(&self, bounds: Range<usize>) -> RegGoal {
+        let mut regs: Vec<usize> = bounds.collect();
+        regs.sort_by_key(|&reg| self.priority_of(reg).unwrap_or(self.0.len()));
+        RegGoal(regs)
+    }
+
+    fn priority_of(&self, reg: usize) -> Option<usize> {
+        self.0.iter().position(|&r| r == reg)
     }
 }
 
