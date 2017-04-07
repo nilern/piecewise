@@ -1,7 +1,6 @@
 module Main where
-
-import Lib
-import Parser
+import Lexer (lexer)
+import Parser (expr)
 
 main :: IO ()
-main = getContents >>= print . calc . lexer
+main = getContents >>= print . expr . lexer
