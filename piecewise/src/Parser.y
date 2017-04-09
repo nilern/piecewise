@@ -1,25 +1,26 @@
 {
 module Parser (expr) where
-import Lexer (Token(TokenInt, TokenEq, TokenPlusEq, TokenArrow,
-                    TokenLBrace, TokenRBrace, TokenSemiColon, TokenComma))
+import Lexer (Tok(TokInt, TokEq, TokPlusEq, TokArrow,
+                    TokDelim, TokSemiColon, TokComma),
+              Delimiter(Brace), Side(L, R))
 import AST (Exp(Fn, Block, Int, Set),
             Stmt(Def, AugDef, Expr),
             BlockItem(Clause, Stmt))
 }
 
 %name expr
-%tokentype { Token }
+%tokentype { Tok }
 %error { parseError }
 
 %token
-      int  { TokenInt $$ }
-      "=>" { TokenArrow }
-      '='  { TokenEq }
-      "+=" { TokenPlusEq }
-      '{'  { TokenLBrace }
-      '}'  { TokenRBrace }
-      ';'  { TokenSemiColon }
-      ','  { TokenComma }
+      int  { TokInt $$ }
+      "=>" { TokArrow }
+      '='  { TokEq }
+      "+=" { TokPlusEq }
+      '{'  { TokDelim Brace L }
+      '}'  { TokDelim Brace R }
+      ';'  { TokSemiColon }
+      ','  { TokComma }
 
 %%
 
@@ -50,7 +51,7 @@ Datum : int              { Int $1 }
 --          | CommaSep ',' Exp { $3 : $1 }
 
 {
-parseError :: [Token] -> a
+parseError :: [Tok] -> a
 parseError _ = error "Parse error"
 
 parseBlock :: [BlockItem] -> Exp

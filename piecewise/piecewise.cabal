@@ -18,7 +18,7 @@ library
   exposed-modules:     AST, Lexer, Parser
   other-modules:       Util
   build-depends:       base >= 4.7 && < 5, array >= 0.4 && < 0.6
-  build-tools:         happy
+  build-tools:         alex, happy
   default-language:    Haskell2010
 
 executable piecewise-exe
