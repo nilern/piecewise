@@ -35,12 +35,12 @@ Block : '{' BlockItemList '}' { parseBlock (reverse $2) }
 BlockItemList : BlockItem                   { [$1] }
               | BlockItemList ';' BlockItem { $3 : $1 }
 
-BlockItem : Formals "=>" Stmt { Clause (reverse $1) $3 }
-          | Stmt              { Stmt $1 }
+BlockItem : App "=>" Stmt { Clause (reverse $1) $3 }
+          | Stmt          { Stmt $1 }
 
-Stmt : Pattern '=' Infix1  { Def $1 $3 }
-     | Pattern "+=" Infix1 { AugDef $1 $3 }
-     | Infix1              { Expr $1 }
+Stmt : Simple '=' Infix1  { Def $1 $3 }
+     | Simple "+=" Infix1 { AugDef $1 $3 }
+     | Infix1             { Expr $1 }
 
 Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
        | Infix2            { $1 }
@@ -60,18 +60,16 @@ Infix5 : Infix5 op5 Infix6 { Call (Var $2) [$1, $3] }
 Infix6 : Infix6 op6 Infix7 { Call (Var $2) [$1, $3] }
        | Infix7            { $1 }
 
-Infix7 : Infix7 op7 Simple { Call (Var $2) [$1, $3] }
-       | Simple            { $1 }
+Infix7 : Infix7 op7 App { Call (Var $2) [$1, parseApp (reverse $3)] }
+       | App            { parseApp (reverse $1) }
 
-Formals : Pattern         { [$1] }
-        | Formals Pattern { $2 : $1 }
-
-Pattern : Simple { $1 }
+App : Simple     { [$1] }
+    | App Simple { $2 : $1 }
 
 Simple : ident { Var $1 }
        | Datum { $1 }
 
-Datum : int              { Int $1 }
+Datum : int { Int $1 }
       -- | '{' CommaSep '}' { Set (reverse $2) }
 
 -- CommaSep : {- empty -}      { [] }
@@ -94,4 +92,8 @@ parseBlock items @ ((Clause _ _):_) = Fn $ clauses items
 parseBlock items @ ((Stmt _):_) = Block $ parseStmts items
     where parseStmts ((Stmt stmt):stmts) = stmt : parseStmts stmts
           parseStmts [] = []
+
+parseApp :: [Exp] -> Exp
+parseApp [e] = e
+parseApp (f:args) = Call f args
 }
