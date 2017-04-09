@@ -14,11 +14,14 @@ tokens :-
     "=>"     { const TokArrow }
     "+="     { const TokPlusEq }
     "="      { const TokEq }
+    "->"     { const TokArrow_ }
     $digit+  { TokInt . read }
     $idchar+ { TokId }
     $opchar+ { \s -> TokOp s (precedence s) }
     "("      { const $ TokDelim Paren L }
     ")"      { const $ TokDelim Paren R }
+    "["      { const $ TokDelim Bracket L }
+    "]"      { const $ TokDelim Bracket R }
     "{"      { const $ TokDelim Brace L }
     "}"      { const $ TokDelim Brace R }
     ";"      { const TokSemiColon }
@@ -38,6 +41,7 @@ data Tok = TokId String
          | TokEq
          | TokPlusEq
          | TokArrow
+         | TokArrow_
          | TokDelim Delimiter Side
          | TokSemiColon
          | TokComma

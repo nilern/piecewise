@@ -5,6 +5,9 @@ data Exp = Fn [([Exp], [Stmt])]
          | Call Exp [Exp]
          | Var String
          | Int Int
+         | Tuple [Exp]
+         | Array [Exp]
+         | Map [(Exp, Exp)]
          | Set [Exp]
          deriving Show
 

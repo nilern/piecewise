@@ -21,8 +21,11 @@ import AST (Exp(..), Stmt(..), BlockItem(..))
       "=>"  { TokArrow }
       '='   { TokEq }
       "+="  { TokPlusEq }
+      "->"  { TokArrow_ }
       '('   { TokDelim Paren L }
       ')'   { TokDelim Paren R }
+      '['   { TokDelim Bracket L }
+      ']'   { TokDelim Bracket R }
       '{'   { TokDelim Brace L }
       '}'   { TokDelim Brace R }
       ';'   { TokSemiColon }
@@ -79,11 +82,25 @@ Simple : '(' Exp ')' { $2 }
        | Datum       { $1 }
 
 Datum : int { Int $1 }
-      -- | '{' CommaSep '}' { Set (reverse $2) }
+      | '(' CommaTerm ')' { Tuple (reverse $2) }
+      | '[' CommaSep ']'  { Array (reverse $2) }
+      | '{' CommaTerm '}' { Set (reverse $2) }
+      | '{' MapPairs '}'  { Map (reverse $2) }
 
--- CommaSep : {- empty -}      { [] }
---          | Exp              { [$1] }
---          | CommaSep ',' Exp { $3 : $1 }
+CommaSep : {- empty -}      { [] }
+         | Exp              { [$1] }
+         | CommaSep ',' Exp { $3 : $1 }
+
+CommaTerm : {- empty -}   { [] }
+          | Exp ','       { [$1] }
+          | CommaSepMulti { $1 }
+
+CommaSepMulti : Exp ',' Exp           { [$3, $1] }
+              | CommaSepMulti ',' Exp { $3 : $1 }
+
+MapPairs : "->"                      { [] }
+         | Exp "->" Exp              { [($1, $3)] }
+         | MapPairs ',' Exp "->" Exp { ($3, $5) : $1 }
 
 {
 parseError :: [Tok] -> a
