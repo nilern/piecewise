@@ -21,6 +21,8 @@ import AST (Exp(..), Stmt(..), BlockItem(..))
       "=>"  { TokArrow }
       '='   { TokEq }
       "+="  { TokPlusEq }
+      '('   { TokDelim Paren L }
+      ')'   { TokDelim Paren R }
       '{'   { TokDelim Brace L }
       '}'   { TokDelim Brace R }
       ';'   { TokSemiColon }
@@ -28,7 +30,12 @@ import AST (Exp(..), Stmt(..), BlockItem(..))
 
 %%
 
-Exp : Block { $1 }
+Program : StmtList { reverse $1 }
+
+StmtList : Stmt              { [$1] }
+         | StmtList ';' Stmt { $3 : $1 }
+
+Exp : Infix1 { $1 }
 
 Block : '{' BlockItemList '}' { parseBlock (reverse $2) }
 
@@ -38,9 +45,9 @@ BlockItemList : BlockItem                   { [$1] }
 BlockItem : App "=>" Stmt { Clause (reverse $1) $3 }
           | Stmt          { Stmt $1 }
 
-Stmt : Simple '=' Infix1  { Def $1 $3 }
-     | Simple "+=" Infix1 { AugDef $1 $3 }
-     | Infix1             { Expr $1 }
+Stmt : Simple '=' Exp  { Def $1 $3 }
+     | Simple "+=" Exp { AugDef $1 $3 }
+     | Exp             { Expr $1 }
 
 Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
        | Infix2            { $1 }
@@ -66,8 +73,10 @@ Infix7 : Infix7 op7 App { Call (Var $2) [$1, parseApp (reverse $3)] }
 App : Simple     { [$1] }
     | App Simple { $2 : $1 }
 
-Simple : ident { Var $1 }
-       | Datum { $1 }
+Simple : '(' Exp ')' { $2 }
+       | Block       { $1 }
+       | ident       { Var $1 }
+       | Datum       { $1 }
 
 Datum : int { Int $1 }
       -- | '{' CommaSep '}' { Set (reverse $2) }

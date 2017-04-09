@@ -17,6 +17,8 @@ tokens :-
     $digit+  { TokInt . read }
     $idchar+ { TokId }
     $opchar+ { \s -> TokOp s (precedence s) }
+    "("      { const $ TokDelim Paren L }
+    ")"      { const $ TokDelim Paren R }
     "{"      { const $ TokDelim Brace L }
     "}"      { const $ TokDelim Brace R }
     ";"      { const TokSemiColon }
