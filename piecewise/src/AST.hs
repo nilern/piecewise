@@ -1,9 +1,9 @@
-module AST (Exp(Fn, Block, Int, Set),
-            Stmt(Def, AugDef, Expr),
-            BlockItem(Clause, Stmt)) where
+module AST (Exp(..), Stmt(..), BlockItem(..)) where
 
 data Exp = Fn [([Exp], [Stmt])]
          | Block [Stmt]
+         | Call Exp [Exp]
+         | Var String
          | Int Int
          | Set [Exp]
          deriving Show

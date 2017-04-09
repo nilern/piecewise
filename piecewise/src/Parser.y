@@ -1,11 +1,7 @@
 {
 module Parser (expr) where
-import Lexer (Tok(TokInt, TokEq, TokPlusEq, TokArrow,
-                    TokDelim, TokSemiColon, TokComma),
-              Delimiter(Brace), Side(L, R))
-import AST (Exp(Fn, Block, Int, Set),
-            Stmt(Def, AugDef, Expr),
-            BlockItem(Clause, Stmt))
+import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..))
+import AST (Exp(..), Stmt(..), BlockItem(..))
 }
 
 %name expr
@@ -13,14 +9,22 @@ import AST (Exp(Fn, Block, Int, Set),
 %error { parseError }
 
 %token
-      int  { TokInt $$ }
-      "=>" { TokArrow }
-      '='  { TokEq }
-      "+=" { TokPlusEq }
-      '{'  { TokDelim Brace L }
-      '}'  { TokDelim Brace R }
-      ';'  { TokSemiColon }
-      ','  { TokComma }
+      int   { TokInt $$ }
+      ident { TokId $$ }
+      op1   { TokOp $$ One }
+      op2   { TokOp $$ Two }
+      op3   { TokOp $$ Three }
+      op4   { TokOp $$ Four }
+      op5   { TokOp $$ Five }
+      op6   { TokOp $$ Six }
+      op7   { TokOp $$ Seven }
+      "=>"  { TokArrow }
+      '='   { TokEq }
+      "+="  { TokPlusEq }
+      '{'   { TokDelim Brace L }
+      '}'   { TokDelim Brace R }
+      ';'   { TokSemiColon }
+      ','   { TokComma }
 
 %%
 
@@ -34,14 +38,38 @@ BlockItemList : BlockItem                   { [$1] }
 BlockItem : Formals "=>" Stmt { Clause (reverse $1) $3 }
           | Stmt              { Stmt $1 }
 
-Stmt : Pattern '=' Datum  { Def $1 $3 }
-     | Pattern "+=" Datum { AugDef $1 $3 }
-     | Datum              { Expr $1 }
+Stmt : Pattern '=' Infix1  { Def $1 $3 }
+     | Pattern "+=" Infix1 { AugDef $1 $3 }
+     | Infix1              { Expr $1 }
+
+Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
+       | Infix2            { $1 }
+
+Infix2 : Infix2 op2 Infix3 { Call (Var $2) [$1, $3] }
+       | Infix3            { $1 }
+
+Infix3 : Infix3 op3 Infix4 { Call (Var $2) [$1, $3] }
+       | Infix4            { $1 }
+
+Infix4 : Infix4 op4 Infix5 { Call (Var $2) [$1, $3] }
+       | Infix5            { $1 }
+
+Infix5 : Infix5 op5 Infix6 { Call (Var $2) [$1, $3] }
+       | Infix6            { $1 }
+
+Infix6 : Infix6 op6 Infix7 { Call (Var $2) [$1, $3] }
+       | Infix7            { $1 }
+
+Infix7 : Infix7 op7 Simple { Call (Var $2) [$1, $3] }
+       | Simple            { $1 }
 
 Formals : Pattern         { [$1] }
         | Formals Pattern { $2 : $1 }
 
-Pattern : Datum { $1 }
+Pattern : Simple { $1 }
+
+Simple : ident { Var $1 }
+       | Datum { $1 }
 
 Datum : int              { Int $1 }
       -- | '{' CommaSep '}' { Set (reverse $2) }
