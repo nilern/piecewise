@@ -9,27 +9,29 @@ import AST (Exp(..), Stmt(..), BlockItem(..))
 %error { parseError }
 
 %token
-      int   { TokInt $$ }
-      ident { TokId $$ }
-      op1   { TokOp $$ One }
-      op2   { TokOp $$ Two }
-      op3   { TokOp $$ Three }
-      op4   { TokOp $$ Four }
-      op5   { TokOp $$ Five }
-      op6   { TokOp $$ Six }
-      op7   { TokOp $$ Seven }
-      "=>"  { TokArrow }
-      '='   { TokEq }
-      "+="  { TokPlusEq }
-      "->"  { TokArrow_ }
-      '('   { TokDelim Paren L }
-      ')'   { TokDelim Paren R }
-      '['   { TokDelim Bracket L }
-      ']'   { TokDelim Bracket R }
-      '{'   { TokDelim Brace L }
-      '}'   { TokDelim Brace R }
-      ';'   { TokSemiColon }
-      ','   { TokComma }
+      int    { TokInt $$ }
+      ident  { TokId $$ }
+      string { TokString $$ }
+      char   { TokChar $$ }
+      op1    { TokOp $$ One }
+      op2    { TokOp $$ Two }
+      op3    { TokOp $$ Three }
+      op4    { TokOp $$ Four }
+      op5    { TokOp $$ Five }
+      op6    { TokOp $$ Six }
+      op7    { TokOp $$ Seven }
+      "=>"   { TokArrow }
+      '='    { TokEq }
+      "+="   { TokPlusEq }
+      "->"   { TokArrow_ }
+      '('    { TokDelim Paren L }
+      ')'    { TokDelim Paren R }
+      '['    { TokDelim Bracket L }
+      ']'    { TokDelim Bracket R }
+      '{'    { TokDelim Brace L }
+      '}'    { TokDelim Brace R }
+      ';'    { TokSemiColon }
+      ','    { TokComma }
 
 %%
 
@@ -81,7 +83,9 @@ Simple : '(' Exp ')' { $2 }
        | ident       { Var $1 }
        | Datum       { $1 }
 
-Datum : int { Int $1 }
+Datum : int               { Int $1 }
+      | string            { String $1}
+      | char              { Char $1}
       | '(' CommaTerm ')' { Tuple (reverse $2) }
       | '[' CommaSep ']'  { Array (reverse $2) }
       | '{' CommaTerm '}' { Set (reverse $2) }

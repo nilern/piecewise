@@ -10,22 +10,24 @@ $idchar = [a-zA-Z\$@_]
 $opchar = [!\%&\*\+\-\/\<=>\?\\\^\|\~]
 
 tokens :-
-    $white+  ;
-    "=>"     { const TokArrow }
-    "+="     { const TokPlusEq }
-    "="      { const TokEq }
-    "->"     { const TokArrow_ }
-    $digit+  { TokInt . read }
-    $idchar+ { TokId }
-    $opchar+ { \s -> TokOp s (precedence s) }
-    "("      { const $ TokDelim Paren L }
-    ")"      { const $ TokDelim Paren R }
-    "["      { const $ TokDelim Bracket L }
-    "]"      { const $ TokDelim Bracket R }
-    "{"      { const $ TokDelim Brace L }
-    "}"      { const $ TokDelim Brace R }
-    ";"      { const TokSemiColon }
-    ","      { const TokComma }
+    $white+         ;
+    "=>"         { const TokArrow }
+    "+="         { const TokPlusEq }
+    "="          { const TokEq }
+    "->"         { const TokArrow_ }
+    $digit+      { TokInt . read }
+    $idchar+     { TokId }
+    $opchar+     { \s -> TokOp s (precedence s) }
+    \" [^\"]* \" { TokString . init . tail }
+    \' [^\']* \' { TokChar . init . tail }
+    "("          { const $ TokDelim Paren L }
+    ")"          { const $ TokDelim Paren R }
+    "["          { const $ TokDelim Bracket L }
+    "]"          { const $ TokDelim Bracket R }
+    "{"          { const $ TokDelim Brace L }
+    "}"          { const $ TokDelim Brace R }
+    ";"          { const TokSemiColon }
+    ","          { const TokComma }
 
 {
 data Delimiter = Paren | Bracket | Brace deriving Show
@@ -38,6 +40,8 @@ data Precedence = Zero | One | Two | Three | Four | Five | Six | Seven
 data Tok = TokId String
          | TokOp String Precedence
          | TokInt Int
+         | TokString String
+         | TokChar String
          | TokEq
          | TokPlusEq
          | TokArrow
