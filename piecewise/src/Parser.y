@@ -50,9 +50,9 @@ BlockItemList : BlockItem                   { [$1] }
 BlockItem : App "=>" Stmt { Clause (reverse $1) $3 }
           | Stmt          { Stmt $1 }
 
-Stmt : Simple '=' Exp  { Def $1 $3 }
-     | Simple "+=" Exp { AugDef $1 $3 }
-     | Exp             { Expr $1 }
+Stmt : App '=' Exp  { parseDef Def (reverse $1) $3 }
+     | App "+=" Exp { parseDef AugDef (reverse $1) $3 }
+     | Exp          { Expr $1 }
 
 Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
        | Infix2            { $1 }
@@ -123,4 +123,8 @@ parseBlock items @ ((Stmt _):_) = Block $ parseStmts items
 parseApp :: [Exp] -> Exp
 parseApp [e] = e
 parseApp (f:args) = Call f args
+
+parseDef :: (Exp -> Exp -> Stmt) -> [Exp] -> Exp -> Stmt
+parseDef make [pat] expr = make pat expr
+parseDef make (pat:formals) expr = make pat $ Fn [(formals, [Expr expr])]
 }
