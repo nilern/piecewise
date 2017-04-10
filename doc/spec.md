@@ -7,41 +7,68 @@
 
     NUMBER = [\d] @CONSTITUENT*
     ID = [\p{Alphabetic}_@] @CONSTITUENT*
-    OP = [^\d\p{Alphabetic}_@@TERMINATOR] @CONSTITUENT*
+    OP<precedence> = [^\d\p{Alphabetic}_@@TERMINATOR] @CONSTITUENT*
     CHAR = ' [^']+ '
     STRING = " [^"]* "
 
 # Context-Free Syntax
 
-    stmts = (<stmt> ';')* <stmt>
+    program = stmtList
 
-    expr = <stmt>
+    stmtList = stmt
+             | stmtList ';' stmt
 
-    stmt = <pmtz>
-         | <def>
-         | <infix>
+    stmt = formals '=' stmt
+         | formals '+=' stmt
+         | expr
 
-    pmtz = <infix> '=>' <infix>
+    expr = infix<1>
 
-    def = <infix> '=' <infix>
+    infix<7> = app
+             | infix<7> OP<7> app
+    
+    infix<n> = infix<n + 1>
+             | infix<n> OP<n> infix<n + 1>
 
-    infix = <infix> OP <app>
-          | <app>
+    app = simple
+        | app simple
 
-    app = <simple> <simple>+
+    simple = '(' expr ')'
+           | '{' blockItemList '}'
+           | '[' stmtList ']'
+           | ID
+           | datum
 
-    simple = '{' <stmts> '}'
-           | '(' <expr> ')'
-           | <coll>
-           | <atom>
+    datum = NUMBER
+          | STRING
+          | CHAR
+          | '(' exprList ')'
+          | '[' exprList ']'
+          | '{' exprList '}'
+          | '{' mapPairs '}'
 
-    coll = '(' (<expr> ',')* <expr> ')'
-         | '[' (<expr> ',')* <expr> ']'
-         | '{' (<expr> ',')* <expr> '}'
-         | '{' (<expr> ':' <expr> ',')* <expr> ':' <expr> '}'
+    formals = pattern
+            | formals pattern
 
-    atom = ID
-         | NUMBER
+    pattern = ID
+            | datum
+
+    blockItemList = blockItem
+                  | blockItemList ';' blockItem
+
+    blockItem = formals '=>' stmt
+              | stmt
+
+    mapPairs = '->'
+             | expr '->' expr
+             | mapPairs ',' expr '->' expr
+
+    exprList = empty
+             | expr ','
+             | exprListTwoPlus
+
+    exprListTwoPlus = expr ',' expr
+                    | exprListTwoPlus ',' expr
 
 # IRs
 
