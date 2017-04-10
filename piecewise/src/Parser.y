@@ -78,22 +78,19 @@ Infix7 : Infix7 op7 App { Call (Var $2) [$1, parseApp (reverse $3)] }
 App : Simple     { [$1] }
     | App Simple { $2 : $1 }
 
-Simple : '(' Exp ')' { $2 }
-       | Block       { $1 }
-       | ident       { Var $1 }
-       | Datum       { $1 }
+Simple : '(' Exp ')'      { $2 }
+       | Block            { $1 }
+       | '[' StmtList ']' { Fn [([Tuple []], reverse $2)] }
+       | ident            { Var $1 }
+       | Datum            { $1 }
 
 Datum : int               { Int $1 }
       | string            { String $1}
       | char              { Char $1}
       | '(' CommaTerm ')' { Tuple (reverse $2) }
-      | '[' CommaSep ']'  { Array (reverse $2) }
+      | '[' CommaTerm ']' { Array (reverse $2) }
       | '{' CommaTerm '}' { Set (reverse $2) }
       | '{' MapPairs '}'  { Map (reverse $2) }
-
-CommaSep : {- empty -}      { [] }
-         | Exp              { [$1] }
-         | CommaSep ',' Exp { $3 : $1 }
 
 CommaTerm : {- empty -}   { [] }
           | Exp ','       { [$1] }
