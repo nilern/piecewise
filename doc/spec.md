@@ -87,6 +87,60 @@
     patternListTwoPlus = pattern ',' pattern
                        | patternListTwoPlus ',' pattern
 
+## Combinating
+
+    program = semicolonList stmt
+
+    stmt = formals EQ stmt
+         <|> formals PLUSEQ stmt
+         <|> expr
+
+    expr = infix 1
+
+    infix 7 = app
+            <|> infix 7 <*> OP 7 <*> app
+    infix n = infix (n - 1)
+            <|> infix n <*> OP n <*> infix (n - 1)
+
+    app = many1 simple
+
+    simple = LPAREN *> expr <*> RPAREN
+           <|> LBRACKET *> semicolonList stmt <*> RBRACKET
+           <|> LBRACE *> semicolonList blockItem <*> RBRACE
+
+    datum = prim
+          <|> compound expr
+
+    prim = NUMBER
+         <|> STRING
+         <|> CHAR
+
+    compound p = LPAREN *> commaList p <*> RPAREN
+               <|> LBRACKET *> commaList p <*> RBRACKET
+               <|> LBRACE *> commaList p <*> RBRACE
+               <|> LBRACE *> mapList p <*> RBRACE
+
+    formals = many1 pattern
+
+    pattern = prim
+            <|> compound pattern
+
+    blockItem = formals <* DARROW <*> stmt
+              <|> stmt
+
+    semicolonList p = sepBy1 SEMICOLON p
+
+    commaList p = pure []
+                <|> p <* COMMA
+                <|> commaList2 p
+
+    commaList2 p = p <* COMMA<*> p
+                 <|> commaList2 p <* COMMA <*> p
+
+    mapList p = SARROW
+              <|> p <* SARROW <*> p
+              <|> mapList p <* COMMA <*> p <* SARROW <*> p
+
 # IRs
 
     Const = Int isize
