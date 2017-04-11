@@ -1,7 +1,7 @@
 {
 module Parser (expr) where
 import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..))
-import AST (Exp(..), Stmt(..), BlockItem(..))
+import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
 }
 
 %name expr
@@ -72,7 +72,7 @@ App : Simple     { [$1] }
 
 Simple : '(' Expr ')'          { $2 }
        | '{' BlockItemList '}' { extractBlock (reverse $2) }
-       | '[' StmtList ']'      { Fn [([Tuple []], reverse $2)] }
+       | '[' StmtList ']'      { Fn [([PTuple []], reverse $2)] }
        | ident                 { Var $1 }
        | Datum                 { $1 }
 
@@ -108,7 +108,8 @@ parseError _ = error "Parse error"
 extractBlock :: [BlockItem] -> Exp
 extractBlock items @ ((Clause _ _):_) = Fn $ clauses items
     where clauses ((Clause formals stmt):items) =
-              (formals, stmt : map unwrap stmts) : clauses items'
+              (map exprPattern formals, stmt : map unwrap stmts)
+              : clauses items'
               where (stmts, items') = span isStmt items
                     isStmt (Stmt _) = True
                     isStmt (Clause _ _) = False
@@ -122,7 +123,8 @@ extractApp :: [Exp] -> Exp
 extractApp [e] = e
 extractApp (f:args) = Call f args
 
-extractDef :: (Exp -> Exp -> Stmt) -> [Exp] -> Exp -> Stmt
-extractDef make [pat] expr = make pat expr
-extractDef make (pat:formals) expr = make pat $ Fn [(formals, [Expr expr])]
+extractDef :: (Pattern -> Exp -> Stmt) -> [Exp] -> Exp -> Stmt
+extractDef make [pat] expr = make (exprPattern pat) expr
+extractDef make (pat:formals) expr =
+    extractDef make [pat] $ Fn [(map exprPattern formals, [Expr expr])]
 }

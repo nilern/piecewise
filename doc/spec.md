@@ -26,7 +26,7 @@
 
     infix<7> = app
              | infix<7> OP<7> app
-    
+
     infix<n> = infix<n + 1>
              | infix<n> OP<n> infix<n + 1>
 
@@ -51,7 +51,13 @@
             | formals pattern
 
     pattern = ID
-            | datum
+            | NUMBER
+            | STRING
+            | CHAR
+            | '(' patternList ')'
+            | '[' patternList ']'
+            | '{' patternList '}'
+            | '{' mapPatternPairs '}'
 
     blockItemList = blockItem
                   | blockItemList ';' blockItem
@@ -69,6 +75,17 @@
 
     exprListTwoPlus = expr ',' expr
                     | exprListTwoPlus ',' expr
+
+    mapPatternPairs = '->'
+                    | pattern '->' pattern
+                    | mapPatternPairs ',' pattern '->' pattern
+
+    patternList = empty
+                | pattern ','
+                | patternListTwoPlus
+
+    patternListTwoPlus = pattern ',' pattern
+                       | patternListTwoPlus ',' pattern
 
 # IRs
 
