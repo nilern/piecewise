@@ -39,13 +39,17 @@
            | ID
            | datum
 
-    datum = NUMBER
-          | STRING
-          | CHAR
-          | '(' exprList ')'
-          | '[' exprList ']'
-          | '{' exprList '}'
-          | '{' mapPairs '}'
+    datum = prim
+          | compound
+
+    prim = NUMBER
+         | STRING
+         | CHAR
+
+    compound = '(' exprList ')'
+             | '[' exprList ']'
+             | '{' exprList '}'
+             | '{' mapPairs '}'
 
     formals = pattern
             | formals pattern

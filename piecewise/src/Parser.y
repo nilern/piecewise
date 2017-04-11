@@ -35,10 +35,7 @@ import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
 
 %%
 
-Program : StmtList { reverse $1 }
-
-StmtList : Stmt              { [$1] }
-         | StmtList ';' Stmt { $3 : $1 }
+Program : SemiColonList(Stmt) { reverse $1 }
 
 Stmt : App '=' Expr  { extractDef Def (reverse $1) $3 }
      | App "+=" Expr { extractDef AugDef (reverse $1) $3 }
@@ -70,22 +67,26 @@ Infix7 : Infix7 op7 App { Call (Var $2) [$1, extractApp (reverse $3)] }
 App : Simple     { [$1] }
     | App Simple { $2 : $1 }
 
-Simple : '(' Expr ')'          { $2 }
-       | '{' BlockItemList '}' { extractBlock (reverse $2) }
-       | '[' StmtList ']'      { Fn [([PTuple []], reverse $2)] }
-       | ident                 { Var $1 }
-       | Datum                 { $1 }
+Simple : '(' Expr ')'                     { $2 }
+       | '{' SemiColonList(BlockItem) '}' { extractBlock (reverse $2) }
+       | '[' SemiColonList(Stmt) ']'      { Fn [([PTuple []], reverse $2)] }
+       | ident                            { Var $1 }
+       | Datum                            { $1 }
 
-Datum : int              { Int $1 }
-      | string           { String $1}
-      | char             { Char $1}
-      | '(' ExprList ')' { Tuple (reverse $2) }
-      | '[' ExprList ']' { Array (reverse $2) }
-      | '{' ExprList '}' { Set (reverse $2) }
-      | '{' MapPairs '}' { Map (reverse $2) }
+Datum : Prim     { $1 }
+      | Compound { $1 }
 
-BlockItemList : BlockItem                   { [$1] }
-              | BlockItemList ';' BlockItem { $3 : $1 }
+Prim : int    { Int $1 }
+     | string { String $1}
+     | char   { Char $1}
+
+Compound : '(' ExprList ')' { Tuple (reverse $2) }
+         | '[' ExprList ']' { Array (reverse $2) }
+         | '{' ExprList '}' { Set (reverse $2) }
+         | '{' MapPairs '}' { Map (reverse $2) }
+
+SemiColonList(p) : p                      { [$1] }
+                 | SemiColonList(p) ';' p { $3 : $1 }
 
 BlockItem : App "=>" Stmt { Clause (reverse $1) $3 }
           | Stmt          { Stmt $1 }
