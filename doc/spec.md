@@ -1,5 +1,9 @@
 # Lexical Syntax
 
+TODO: peculiar identifiers (_, $..., @...), comments (with #)
+
+QUESTION: what about ``?
+
     @DELIMITER = ['"()[]{}]
     @SEPARATOR = [,;]
     @TERMINATOR = \s | @DELIMITER | @SEPARATOR
@@ -13,14 +17,19 @@
 
 # Context-Free Syntax
 
-    program = stmtList
+## Top Level
 
-    stmtList = stmt
-             | stmtList ';' stmt
+    program = semicolonList<stmt>
 
-    stmt = formals '=' stmt
-         | formals '+=' stmt
+## Statements and Cases
+
+    stmt = many1<pattern> '=' stmt
+         | many1<pattern> '+=' stmt
          | expr
+
+    case = many1<pattern> '=>' semicolonList<stmt>
+
+## Expressions
 
     expr = infix<1>
 
@@ -30,68 +39,59 @@
     infix<n> = infix<n + 1>
              | infix<n> OP<n> infix<n + 1>
 
-    app = simple
-        | app simple
+    app = many1<simple>
 
     simple = '(' expr ')'
-           | '{' blockItemList '}'
-           | '[' stmtList ']'
+           | '{' semicolonList<stmt> '}'
+           | '{' semicolonList<case> '}'
+           | '[' semicolonList<stmt> ']'
            | ID
            | datum
 
+## Data
+
     datum = prim
-          | compound
+          | collection
 
     prim = NUMBER
          | STRING
          | CHAR
 
-    compound = '(' exprList ')'
-             | '[' exprList ']'
-             | '{' exprList '}'
-             | '{' mapPairs '}'
+    collection = compound<expr>
 
-    formals = pattern
-            | formals pattern
+## Patterns
 
     pattern = ID
-            | NUMBER
-            | STRING
-            | CHAR
-            | '(' patternList ')'
-            | '[' patternList ']'
-            | '{' patternList '}'
-            | '{' mapPatternPairs '}'
+            | prim
+            | collectionPattern
 
-    blockItemList = blockItem
-                  | blockItemList ';' blockItem
+    collectionPattern = compound<pattern>
 
-    blockItem = formals '=>' stmt
-              | stmt
+## Template Utils
 
-    mapPairs = '->'
-             | expr '->' expr
-             | mapPairs ',' expr '->' expr
+    compound<p> = '(' commaList<p> ')'
+                | '[' commaList<p> ']'
+                | '{' commaList<p> '}'
+                | '{' pairList<p> '}'
 
-    exprList = empty
-             | expr ','
-             | exprListTwoPlus
+    many1<p> = p
+             | many1<p> p
 
-    exprListTwoPlus = expr ',' expr
-                    | exprListTwoPlus ',' expr
+    pairList<p> = '->'
+                | p '->' p
+                | pairList<p> ',' p '->' p
 
-    mapPatternPairs = '->'
-                    | pattern '->' pattern
-                    | mapPatternPairs ',' pattern '->' pattern
+    semicolonList<p> = p
+                     | semicolonList<p> ';' p
 
-    patternList = empty
-                | pattern ','
-                | patternListTwoPlus
+    commaList<p> = empty
+                 | p ','
+                 | commaListTwoPlus<p>
 
-    patternListTwoPlus = pattern ',' pattern
-                       | patternListTwoPlus ',' pattern
+    commaListTwoPlus<p> = p ',' p
+                        | commaListTwoPlus<p> ',' p
 
-## Combinating
+# Combinating Syntax
 
     program = semicolonList stmt
 
