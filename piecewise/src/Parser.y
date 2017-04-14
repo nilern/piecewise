@@ -1,37 +1,39 @@
 {
 module Parser (expr) where
-import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..))
+import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Lexer, lexer)
 import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
 }
 
 %name expr
+%lexer { lexer } { TokEOF _ }
+%monad { Lexer }
 %tokentype { Tok }
 %error { parseError }
 
 %token
-      int    { TokInt $$ }
-      ident  { TokId $$ }
-      string { TokString $$ }
-      char   { TokChar $$ }
-      op1    { TokOp $$ One }
-      op2    { TokOp $$ Two }
-      op3    { TokOp $$ Three }
-      op4    { TokOp $$ Four }
-      op5    { TokOp $$ Five }
-      op6    { TokOp $$ Six }
-      op7    { TokOp $$ Seven }
-      "=>"   { TokArrow }
-      '='    { TokEq }
-      "+="   { TokPlusEq }
-      "->"   { TokArrow_ }
-      '('    { TokDelim Paren L }
-      ')'    { TokDelim Paren R }
-      '['    { TokDelim Bracket L }
-      ']'    { TokDelim Bracket R }
-      '{'    { TokDelim Brace L }
-      '}'    { TokDelim Brace R }
-      ';'    { TokSemiColon }
-      ','    { TokComma }
+      int    { TokInt _ $$ }
+      ident  { TokId _ $$ }
+      string { TokString _ $$ }
+      char   { TokChar _ $$ }
+      op1    { TokOp _ $$ One }
+      op2    { TokOp _ $$ Two }
+      op3    { TokOp _ $$ Three }
+      op4    { TokOp _ $$ Four }
+      op5    { TokOp _ $$ Five }
+      op6    { TokOp _ $$ Six }
+      op7    { TokOp _ $$ Seven }
+      "=>"   { TokArrow _ }
+      '='    { TokEq _ }
+      "+="   { TokPlusEq _ }
+      "->"   { TokArrow_ _ }
+      '('    { TokDelim _ Paren L }
+      ')'    { TokDelim _ Paren R }
+      '['    { TokDelim _ Bracket L }
+      ']'    { TokDelim _ Bracket R }
+      '{'    { TokDelim _ Brace L }
+      '}'    { TokDelim _ Brace R }
+      ';'    { TokSemiColon _ }
+      ','    { TokComma _ }
 
 %%
 
@@ -103,7 +105,7 @@ MapPairs : "->"                        { [] }
          | MapPairs ',' Expr "->" Expr { ($3, $5) : $1 }
 
 {
-parseError :: [Tok] -> a
+parseError :: Tok -> a
 parseError _ = error "Parse error"
 
 extractBlock :: [BlockItem] -> Exp

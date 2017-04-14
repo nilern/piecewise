@@ -1,9 +1,15 @@
 {
-module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), lexer) where
+module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Lexer, Pos(..),
+              Lexer.lex, lexer) where
 import Data.Char (isAlpha, isSpace, isDigit)
+import Data.Word (Word8)
+import qualified Data.ByteString as B
+import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Read (decimal)
+import Control.Monad.State
+import Control.Monad.Except
 }
-
-%wrapper "basic"
 
 $delimiter = ["'`\(\)\[\]\{\}]
 $separator = [\;\,]
@@ -15,25 +21,41 @@ $opchar = [!\%&\*\+\-\/\<=>\?\\\^\|\~]
 
 tokens :-
     $white+               ;
-    "=>"                  { const TokArrow }
-    "+="                  { const TokPlusEq }
-    "="                   { const TokEq }
-    "->"                  { const TokArrow_ }
-    $digit $constituent*  { TokInt . read }
+    "=>"                  { \pos _ -> TokArrow pos }
+    "+="                  { \pos _ -> TokPlusEq pos }
+    "="                   { \pos _ -> TokEq pos }
+    "->"                  { \pos _ -> TokArrow_ pos }
+    $digit $constituent*  { \pos cs -> TokInt pos (case (decimal cs) of
+                                                       Right (i, _) -> i) }
     $idchar $constituent* { TokId }
-    $opchar $constituent* { \s -> TokOp s (precedence s) }
-    \" [^\"]* \"          { TokString . init . tail }
-    \' [^\']+ \'          { TokChar . init . tail }
-    "("                   { const $ TokDelim Paren L }
-    ")"                   { const $ TokDelim Paren R }
-    "["                   { const $ TokDelim Bracket L }
-    "]"                   { const $ TokDelim Bracket R }
-    "{"                   { const $ TokDelim Brace L }
-    "}"                   { const $ TokDelim Brace R }
-    ";"                   { const TokSemiColon }
-    ","                   { const TokComma }
+    $opchar $constituent* { \pos s -> TokOp pos s (precedence s) }
+    \" [^\"]* \"          { \pos s -> TokString pos (T.init (T.tail s)) }
+    \' [^\']+ \'          { \pos s -> TokChar pos (T.init (T.tail s)) }
+    "("                   { \pos _ -> TokDelim pos Paren L }
+    ")"                   { \pos _ -> TokDelim pos Paren R }
+    "["                   { \pos _ -> TokDelim pos Bracket L }
+    "]"                   { \pos _ -> TokDelim pos Bracket R }
+    "{"                   { \pos _ -> TokDelim pos Brace L }
+    "}"                   { \pos _ -> TokDelim pos Brace R }
+    ";"                   { \pos _ -> TokSemiColon pos }
+    ","                   { \pos _ -> TokComma pos }
 
 {
+type AlexInput = B.ByteString
+
+alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
+alexGetByte = B.uncons
+
+alexInputPrevChar :: AlexInput -> Char
+alexInputPrevChar = undefined
+
+data Pos = Pos Int deriving Show
+
+type Lexer a = StateT (AlexInput, Pos) (Either String) a
+
+lex :: Lexer a -> (AlexInput, Pos) -> Either String a
+lex = evalStateT
+
 data Delimiter = Paren | Bracket | Brace deriving Show
 
 data Side = L | R deriving Show
@@ -41,34 +63,46 @@ data Side = L | R deriving Show
 data Precedence = Zero | One | Two | Three | Four | Five | Six | Seven
                 deriving Show
 
-data Tok = TokId String
-         | TokOp String Precedence
-         | TokInt Int
-         | TokString String
-         | TokChar String
-         | TokEq
-         | TokPlusEq
-         | TokArrow
-         | TokArrow_
-         | TokDelim Delimiter Side
-         | TokSemiColon
-         | TokComma
+data Tok = TokId Pos T.Text
+         | TokOp Pos T.Text Precedence
+         | TokInt Pos Int
+         | TokString Pos T.Text
+         | TokChar Pos T.Text
+         | TokEq Pos
+         | TokPlusEq Pos
+         | TokArrow Pos
+         | TokArrow_ Pos
+         | TokDelim Pos Delimiter Side
+         | TokSemiColon Pos
+         | TokComma Pos
+         | TokEOF Pos
          deriving Show
 
-precedence :: String -> Precedence
-precedence ('|':cs) = One
-precedence ('^':cs) = Two
-precedence ('&':cs) = Three
-precedence ('=':cs) = Four
-precedence ('!':cs) = Four
-precedence ('<':cs) = Five
-precedence ('>':cs) = Five
-precedence ('+':cs) = Six
-precedence ('-':cs) = Six
-precedence ('*':cs) = Seven
-precedence ('/':cs) = Seven
-precedence ('%':cs) = Seven
+precedence :: T.Text -> Precedence
+precedence cs | T.head cs == '|' = One
+              | T.head cs == '^' = Two
+              | T.head cs == '&' = Three
+              | T.head cs == '=' = Four
+              | T.head cs == '!' = Four
+              | T.head cs == '<' = Five
+              | T.head cs == '>' = Five
+              | T.head cs == '+' = Six
+              | T.head cs == '-' = Six
+              | T.head cs == '*' = Seven
+              | T.head cs == '/' = Seven
+              | T.head cs == '%' = Seven
 
-lexer :: String -> [Tok]
-lexer = alexScanTokens
+readToken :: Lexer Tok
+readToken = do (input, Pos pos) <- get
+               case alexScan input 0 of
+                   AlexEOF -> return $ TokEOF $ Pos pos
+                   AlexError _ -> throwError "LexicalError"
+                   AlexSkip input' n ->
+                       put (input', Pos $ pos + n) >> readToken
+                   AlexToken input' n action ->
+                       do put (input', Pos $ pos + n)
+                          return $ action (Pos pos) (decodeUtf8 $B.take n input)
+
+lexer :: (Tok -> Lexer a) -> Lexer a
+lexer = (readToken >>=)
 }

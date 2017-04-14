@@ -1,12 +1,13 @@
 module AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern) where
+import qualified Data.Text as T
 
 data Exp = Fn [([Pattern], [Stmt])]
          | Block [Stmt]
          | Call Exp [Exp]
-         | Var String
+         | Var T.Text
          | Int Int
-         | String String
-         | Char String
+         | String T.Text
+         | Char T.Text
          | Tuple [Exp]
          | Array [Exp]
          | Map [(Exp, Exp)]
@@ -22,10 +23,10 @@ data BlockItem = Clause [Exp] Stmt
                | Stmt Stmt
                deriving Show
 
-data Pattern = PVar String
+data Pattern = PVar T.Text
              | PInt Int
-             | PString String
-             | PChar String
+             | PString T.Text
+             | PChar T.Text
              | PTuple [Pattern]
              | PArray [Pattern]
              | PMap [(Pattern, Pattern)]

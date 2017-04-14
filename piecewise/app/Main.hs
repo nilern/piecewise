@@ -1,6 +1,8 @@
 module Main where
-import Lexer (lexer)
+import qualified Data.ByteString as B
 import Parser (expr)
+import qualified Lexer
 
 main :: IO ()
-main = getContents >>= print . expr . lexer
+main = do input <- B.getContents
+          print $ Lexer.lex expr (input, Lexer.Pos 0)
