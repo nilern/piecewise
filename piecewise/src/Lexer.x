@@ -5,29 +5,33 @@ import Data.Char (isAlpha, isSpace, isDigit)
 
 %wrapper "basic"
 
+$delimiter = ["'`\(\)\[\]\{\}]
+$separator = [\;\,]
+$terminator = [$white $delimiter $separator]
+$constituent = ~$terminator
 $digit = 0-9
 $idchar = [a-zA-Z\$@_]
 $opchar = [!\%&\*\+\-\/\<=>\?\\\^\|\~]
 
 tokens :-
-    $white+         ;
-    "=>"         { const TokArrow }
-    "+="         { const TokPlusEq }
-    "="          { const TokEq }
-    "->"         { const TokArrow_ }
-    $digit+      { TokInt . read }
-    $idchar+     { TokId }
-    $opchar+     { \s -> TokOp s (precedence s) }
-    \" [^\"]* \" { TokString . init . tail }
-    \' [^\']* \' { TokChar . init . tail }
-    "("          { const $ TokDelim Paren L }
-    ")"          { const $ TokDelim Paren R }
-    "["          { const $ TokDelim Bracket L }
-    "]"          { const $ TokDelim Bracket R }
-    "{"          { const $ TokDelim Brace L }
-    "}"          { const $ TokDelim Brace R }
-    ";"          { const TokSemiColon }
-    ","          { const TokComma }
+    $white+               ;
+    "=>"                  { const TokArrow }
+    "+="                  { const TokPlusEq }
+    "="                   { const TokEq }
+    "->"                  { const TokArrow_ }
+    $digit $constituent*  { TokInt . read }
+    $idchar $constituent* { TokId }
+    $opchar $constituent* { \s -> TokOp s (precedence s) }
+    \" [^\"]* \"          { TokString . init . tail }
+    \' [^\']+ \'          { TokChar . init . tail }
+    "("                   { const $ TokDelim Paren L }
+    ")"                   { const $ TokDelim Paren R }
+    "["                   { const $ TokDelim Bracket L }
+    "]"                   { const $ TokDelim Bracket R }
+    "{"                   { const $ TokDelim Brace L }
+    "}"                   { const $ TokDelim Brace R }
+    ";"                   { const TokSemiColon }
+    ","                   { const TokComma }
 
 {
 data Delimiter = Paren | Bracket | Brace deriving Show

@@ -4,7 +4,7 @@ TODO: peculiar identifiers (_, $..., @...), comments (with #)
 
 QUESTION: what about ``?
 
-    @DELIMITER = ['"()[]{}]
+    @DELIMITER = ['"`()[]{}]
     @SEPARATOR = [,;]
     @TERMINATOR = \s | @DELIMITER | @SEPARATOR
     @CONSTITUENT = [^@TERMINATOR]
