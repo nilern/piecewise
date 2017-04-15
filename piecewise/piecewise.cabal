@@ -15,13 +15,15 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     AST, Lexer, Parser
+  exposed-modules:     AST, Lexer, Indentation, Parser
   other-modules:       Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
                        , mtl >= 2.2.0
                        , bytestring >= 0.10
                        , text >= 1.2.0
+                       , containers >= 0.5.7
+                       , data-default >= 0.7.0
   build-tools:         alex, happy
   default-language:    Haskell2010
   ghc-options:         -Wall
@@ -33,6 +35,7 @@ executable piecewise-exe
   build-depends:       base
                      , piecewise
                      , bytestring >= 0.10
+                     , data-default >= 0.7.0
   default-language:    Haskell2010
   ghc-options:         -Wall
 

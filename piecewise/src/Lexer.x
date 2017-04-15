@@ -1,6 +1,7 @@
 {
-module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Lexer, Pos(..),
-              Lexer.lex, lexer) where
+module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Pos(..),
+              AlexInput, PlainLexer, Lexer.lex, readToken,
+              LexicalError(..)) where
 import Data.Word (Word8)
 import qualified Data.ByteString as B
 import qualified Data.Text as T
@@ -56,14 +57,15 @@ data Pos = Pos Int deriving Show
 data LexicalError = MalformedNumber T.Text
                   | UnprecedentedOp T.Text
                   | UnexpectedInput T.Text
+                  | UnmatchedDelims (Maybe Delimiter) Delimiter
                   deriving Show
 
-type Lexer a = StateT (AlexInput, Pos) (Either LexicalError) a
+type PlainLexer = StateT (AlexInput, Pos) (Either LexicalError)
 
-lex :: Lexer a -> (AlexInput, Pos) -> Either LexicalError a
+lex :: PlainLexer a -> (AlexInput, Pos) -> Either LexicalError a
 lex = evalStateT
 
-data Delimiter = Paren | Bracket | Brace deriving Show
+data Delimiter = Paren | Bracket | Brace deriving (Show, Eq)
 
 data Side = L | R deriving Show
 
@@ -85,7 +87,7 @@ data Tok = TokId Pos T.Text
          | TokEOF Pos
          deriving Show
 
-precedence :: T.Text -> Lexer Precedence
+precedence :: T.Text -> PlainLexer Precedence
 precedence cs | T.head cs == '|' = return Zero
               | T.head cs == '^' = return One
               | T.head cs == '&' = return Two
@@ -101,7 +103,7 @@ precedence cs | T.head cs == '|' = return Zero
               | T.head cs == '.' = return Seven
               | otherwise = throwError $ UnprecedentedOp cs
 
-readToken :: Lexer Tok
+readToken :: PlainLexer Tok
 readToken = do (input, Pos pos) <- get
                case alexScan input 0 of
                    AlexEOF -> return $ TokEOF (Pos pos)
@@ -112,7 +114,4 @@ readToken = do (input, Pos pos) <- get
                    AlexToken input' n action ->
                        do put (input', Pos $ pos + n)
                           action (Pos pos) (decodeUtf8 $ B.take n input)
-
-lexer :: (Tok -> Lexer a) -> Lexer a
-lexer = (readToken >>=)
 }

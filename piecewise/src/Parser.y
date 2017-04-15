@@ -1,12 +1,13 @@
 {
 module Parser (expr) where
-import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Lexer, lexer)
+import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), PlainLexer)
+import Indentation (WSLexer, readToken)
 import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
 }
 
 %name expr
-%lexer { lexer } { TokEOF _ }
-%monad { Lexer }
+%lexer { (readToken >>=) } { TokEOF _ }
+%monad { WSLexer }
 %tokentype { Tok }
 %error { parseError }
 
