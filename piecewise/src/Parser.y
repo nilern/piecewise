@@ -15,6 +15,7 @@ import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
       ident  { TokId _ $$ }
       string { TokString _ $$ }
       char   { TokChar _ $$ }
+      op0    { TokOp _ $$ Zero }
       op1    { TokOp _ $$ One }
       op2    { TokOp _ $$ Two }
       op3    { TokOp _ $$ Three }
@@ -43,7 +44,10 @@ Stmt : App '=' Expr  { extractDef Def (reverse $1) $3 }
      | App "+=" Expr { extractDef AugDef (reverse $1) $3 }
      | Expr          { Expr $1 }
 
-Expr : Infix1 { $1 }
+Expr : Infix0 { $1 }
+
+Infix0 : Infix0 op0 Infix1 { Call (Var $2) [$1, $3] }
+       | Infix1            { $1 }
 
 Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
        | Infix2            { $1 }

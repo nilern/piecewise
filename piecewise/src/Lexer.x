@@ -16,7 +16,7 @@ $terminator = [$white $delimiter $separator]
 $constituent = ~$terminator
 $digit = 0-9
 $idchar = [a-zA-Z\$@_]
-$opchar = [!\%&\*\+\-\/\<=>\?\\\^\|\~]
+$opchar = [\.!\%&\*\+\-\/\<=>\?\\\^\|\~]
 
 tokens :-
     $white+               ;
@@ -86,18 +86,19 @@ data Tok = TokId Pos T.Text
          deriving Show
 
 precedence :: T.Text -> Lexer Precedence
-precedence cs | T.head cs == '|' = return One
-              | T.head cs == '^' = return Two
-              | T.head cs == '&' = return Three
-              | T.head cs == '=' = return Four
-              | T.head cs == '!' = return Four
-              | T.head cs == '<' = return Five
-              | T.head cs == '>' = return Five
-              | T.head cs == '+' = return Six
-              | T.head cs == '-' = return Six
-              | T.head cs == '*' = return Seven
-              | T.head cs == '/' = return Seven
-              | T.head cs == '%' = return Seven
+precedence cs | T.head cs == '|' = return Zero
+              | T.head cs == '^' = return One
+              | T.head cs == '&' = return Two
+              | T.head cs == '=' = return Three
+              | T.head cs == '!' = return Three
+              | T.head cs == '<' = return Four
+              | T.head cs == '>' = return Four
+              | T.head cs == '+' = return Five
+              | T.head cs == '-' = return Five
+              | T.head cs == '*' = return Six
+              | T.head cs == '/' = return Six
+              | T.head cs == '%' = return Six
+              | T.head cs == '.' = return Seven
               | otherwise = throwError $ UnprecedentedOp cs
 
 readToken :: Lexer Tok
