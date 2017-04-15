@@ -24,6 +24,7 @@ library
                        , text >= 1.2.0
   build-tools:         alex, happy
   default-language:    Haskell2010
+  ghc-options:         -Wall
 
 executable piecewise-exe
   hs-source-dirs:      app
@@ -33,6 +34,7 @@ executable piecewise-exe
                      , piecewise
                      , bytestring >= 0.10
   default-language:    Haskell2010
+  ghc-options:         -Wall
 
 test-suite piecewise-test
   type:                exitcode-stdio-1.0
