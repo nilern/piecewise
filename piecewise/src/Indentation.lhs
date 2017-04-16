@@ -20,8 +20,7 @@ As usual we need a runner function to actually do the lexing and extract a
 useful result. Here we just have an error monad inside two nested state monads
 and we get the final value or a lexical error out.
 
-> runWSLexer :: WSLexer a -> WSState -> (AlexInput, Pos)
->            -> Either LexicalError a
+> runWSLexer :: WSLexer a -> WSState -> AlexInput -> Either LexicalError a
 > runWSLexer lexer wss s = Lexer.lex (evalStateT lexer wss) s
 
 The Additional State

@@ -1,9 +1,13 @@
 {
+{-# LANGUAGE NamedFieldPuns, RecordWildCards #-}
+
 module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Pos(..),
-              AlexInput, PlainLexer, Lexer.lex, readToken,
+              AlexInput, alexInput, PlainLexer, Lexer.lex, readToken,
               LexicalError(..)) where
 import Data.Word (Word8)
+import Data.Default
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Internal as B (w2c)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.Read (decimal)
@@ -44,15 +48,34 @@ tokens :-
     ","                   { \pos _ -> return $ TokComma pos }
 
 {
-type AlexInput = B.ByteString
+data AlexInput = AlexInput { charPos :: Pos, inputStr :: B.ByteString }
+
+alexInput :: B.ByteString -> AlexInput
+alexInput s = AlexInput { charPos = def, inputStr = s }
 
 alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
-alexGetByte = B.uncons
+alexGetByte AlexInput { charPos = p, inputStr = cs } =
+    case B.uncons cs of
+        Nothing -> Nothing
+        Just (b, cs') ->
+            let c  = B.w2c b
+                p' = alexMove p c
+            in p' `seq` cs' `seq`
+               Just (b, AlexInput { charPos = p', inputStr = cs' })
+
+alexMove :: Pos -> Char -> Pos
+alexMove (Pos a l c) '\t' =
+    Pos (a+1) l (((c+alex_tab_size-1) `div` alex_tab_size)*alex_tab_size+1)
+alexMove (Pos a l _) '\n' = Pos (a+1) (l+1) 1
+alexMove (Pos a l c) _    = Pos (a+1) l (c+1)
 
 alexInputPrevChar :: AlexInput -> Char
 alexInputPrevChar = undefined
 
-data Pos = Pos Int deriving Show
+data Pos = Pos !Int !Int !Int deriving Show
+
+instance Default Pos where
+    def = Pos 0 1 1
 
 data LexicalError = MalformedNumber T.Text
                   | UnprecedentedOp T.Text
@@ -60,9 +83,9 @@ data LexicalError = MalformedNumber T.Text
                   | UnmatchedDelims (Maybe Delimiter) Delimiter
                   deriving Show
 
-type PlainLexer = StateT (AlexInput, Pos) (Either LexicalError)
+type PlainLexer = StateT AlexInput (Either LexicalError)
 
-lex :: PlainLexer a -> (AlexInput, Pos) -> Either LexicalError a
+lex :: PlainLexer a -> AlexInput -> Either LexicalError a
 lex = evalStateT
 
 data Delimiter = Paren | Bracket | Brace deriving (Show, Eq)
@@ -104,14 +127,15 @@ precedence cs | T.head cs == '|' = return Zero
               | otherwise = throwError $ UnprecedentedOp cs
 
 readToken :: PlainLexer Tok
-readToken = do (input, Pos pos) <- get
-               case alexScan input 0 of
-                   AlexEOF -> return $ TokEOF (Pos pos)
-                   AlexError input' ->
-                       throwError $ UnexpectedInput (decodeUtf8 input')
-                   AlexSkip input' n ->
-                       put (input', Pos $ pos + n) >> readToken
-                   AlexToken input' n action ->
-                       do put (input', Pos $ pos + n)
-                          action (Pos pos) (decodeUtf8 $ B.take n input)
+readToken =
+    do input @ AlexInput { charPos = pos, inputStr = _ } <- get
+       case alexScan input def of
+           AlexEOF -> return $ TokEOF pos
+           AlexError input' ->
+               throwError $ UnexpectedInput $ decodeUtf8 (inputStr input')
+           AlexSkip input' _ ->
+               put input' >> readToken
+           AlexToken input' n action ->
+               do put input'
+                  action pos $ decodeUtf8 $ B.take n (inputStr input)
 }
