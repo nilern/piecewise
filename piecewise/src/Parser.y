@@ -1,8 +1,11 @@
 {
 module Parser (expr) where
-import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), PlainLexer)
+import Control.Monad.Except
+import Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), PlainLexer,
+              LexicalError(..), Pos, startPos)
 import Indentation (WSLexer, readToken)
-import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
+import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..),
+            position, exprPattern)
 }
 
 %name expr
@@ -12,18 +15,18 @@ import AST (Exp(..), Stmt(..), BlockItem(..), Pattern(..), exprPattern)
 %error { parseError }
 
 %token
-      int    { TokInt _ $$ }
-      ident  { TokId _ $$ }
-      string { TokString _ $$ }
-      char   { TokChar _ $$ }
-      op0    { TokOp _ $$ Zero }
-      op1    { TokOp _ $$ One }
-      op2    { TokOp _ $$ Two }
-      op3    { TokOp _ $$ Three }
-      op4    { TokOp _ $$ Four }
-      op5    { TokOp _ $$ Five }
-      op6    { TokOp _ $$ Six }
-      op7    { TokOp _ $$ Seven }
+      int    { TokInt _ _ }
+      ident  { TokId _ _ }
+      string { TokString _ _ }
+      char   { TokChar _ _ }
+      op0    { TokOp _ _ Zero }
+      op1    { TokOp _ _ One }
+      op2    { TokOp _ _ Two }
+      op3    { TokOp _ _ Three }
+      op4    { TokOp _ _ Four }
+      op5    { TokOp _ _ Five }
+      op6    { TokOp _ _ Six }
+      op7    { TokOp _ _ Seven }
       "=>"   { TokArrow _ }
       '='    { TokEq _ }
       "+="   { TokPlusEq _ }
@@ -47,50 +50,46 @@ Stmt : App '=' Expr  { extractDef Def (reverse $1) $3 }
 
 Expr : Infix0 { $1 }
 
-Infix0 : Infix0 op0 Infix1 { Call (Var $2) [$1, $3] }
-       | Infix1            { $1 }
-
-Infix1 : Infix1 op1 Infix2 { Call (Var $2) [$1, $3] }
-       | Infix2            { $1 }
-
-Infix2 : Infix2 op2 Infix3 { Call (Var $2) [$1, $3] }
-       | Infix3            { $1 }
-
-Infix3 : Infix3 op3 Infix4 { Call (Var $2) [$1, $3] }
-       | Infix4            { $1 }
-
-Infix4 : Infix4 op4 Infix5 { Call (Var $2) [$1, $3] }
-       | Infix5            { $1 }
-
-Infix5 : Infix5 op5 Infix6 { Call (Var $2) [$1, $3] }
-       | Infix6            { $1 }
-
-Infix6 : Infix6 op6 Infix7 { Call (Var $2) [$1, $3] }
-       | Infix7            { $1 }
-
-Infix7 : Infix7 op7 App { Call (Var $2) [$1, extractApp (reverse $3)] }
-       | App            { extractApp (reverse $1) }
+Infix0 : Infix(Infix0, op0, Infix1) { $1 }
+Infix1 : Infix(Infix1, op1, Infix2) { $1 }
+Infix2 : Infix(Infix2, op2, Infix3) { $1 }
+Infix3 : Infix(Infix3, op3, Infix4) { $1 }
+Infix4 : Infix(Infix4, op4, Infix5) { $1 }
+Infix5 : Infix(Infix5, op5, Infix6) { $1 }
+Infix6 : Infix(Infix6, op6, Infix7) { $1 }
+Infix7 : Infix7 op7 App             { let TokOp pos name _ = $2
+                                      in Call (position $1)
+                                              (Var pos name)
+                                              [$1, extractApp (reverse $3)] }
+       | App                        { extractApp (reverse $1) }
 
 App : Simple     { [$1] }
     | App Simple { $2 : $1 }
 
 Simple : '(' Expr ')'                     { $2 }
-       | '{' SemiColonList(BlockItem) '}' { extractBlock (reverse $2) }
-       | '[' SemiColonList(Stmt) ']'      { Fn [([PTuple []], reverse $2)] }
-       | ident                            { Var $1 }
+       | '{' SemiColonList(BlockItem) '}' { extractBlock (startPos $1)
+                                                         (reverse $2) }
+       | '[' SemiColonList(Stmt) ']'
+         { Fn (startPos $1) [([PTuple (startPos $1) []], reverse $2)] }
+       | ident                            { let TokId pos name = $1
+                                            in Var pos name }
        | Datum                            { $1 }
 
 Datum : Prim     { $1 }
       | Compound { $1 }
 
-Prim : int    { Int $1 }
-     | string { String $1}
-     | char   { Char $1}
+Prim : int    { let TokInt pos i = $1 in Int pos i }
+     | string { let TokString pos cs = $1 in String pos cs }
+     | char   { let TokChar pos cs = $1 in Char pos cs }
 
-Compound : '(' ExprList ')' { Tuple (reverse $2) }
-         | '[' ExprList ']' { Array (reverse $2) }
-         | '{' ExprList '}' { Set (reverse $2) }
-         | '{' MapPairs '}' { Map (reverse $2) }
+Compound : '(' ExprList ')' { Tuple (startPos $1) (reverse $2) }
+         | '[' ExprList ']' { Array (startPos $1) (reverse $2) }
+         | '{' ExprList '}' { Set (startPos $1) (reverse $2) }
+         | '{' MapPairs '}' { Map (startPos $1) (reverse $2) }
+
+Infix(l, op, r) : l op r { let TokOp pos name _ = $2
+                           in Call (position $1) (Var pos name) [$1, $3] }
+                | r      { $1 }
 
 SemiColonList(p) : p                      { [$1] }
                  | SemiColonList(p) ';' p { $3 : $1 }
@@ -110,11 +109,11 @@ MapPairs : "->"                        { [] }
          | MapPairs ',' Expr "->" Expr { ($3, $5) : $1 }
 
 {
-parseError :: Tok -> a
-parseError _ = error "Parse error"
+parseError :: Tok -> WSLexer a
+parseError tok = throwError $ ParseError (startPos tok) tok
 
-extractBlock :: [BlockItem] -> Exp
-extractBlock items @ ((Clause _ _):_) = Fn $ clauses items
+extractBlock :: Pos -> [BlockItem] -> Exp
+extractBlock pos items @ ((Clause _ _):_) = Fn pos (clauses items)
     where clauses ((Clause formals stmt):items) =
               (map exprPattern formals, stmt : map unwrap stmts)
               : clauses items'
@@ -123,16 +122,17 @@ extractBlock items @ ((Clause _ _):_) = Fn $ clauses items
                     isStmt (Clause _ _) = False
                     unwrap (Stmt stmt) = stmt
           clauses [] = []
-extractBlock items @ ((Stmt _):_) = Block $ parseStmts items
+extractBlock pos items @ ((Stmt _):_) = Block pos (parseStmts items)
     where parseStmts ((Stmt stmt):stmts) = stmt : parseStmts stmts
           parseStmts [] = []
 
 extractApp :: [Exp] -> Exp
 extractApp [e] = e
-extractApp (f:args) = Call f args
+extractApp (f:args) = Call (position f) f args
 
 extractDef :: (Pattern -> Exp -> Stmt) -> [Exp] -> Exp -> Stmt
 extractDef make [pat] expr = make (exprPattern pat) expr
 extractDef make (pat:formals) expr =
-    extractDef make [pat] $ Fn [(map exprPattern formals, [Expr expr])]
+    extractDef make [pat] $
+        Fn (position pat) [(map exprPattern formals, [Expr expr])]
 }

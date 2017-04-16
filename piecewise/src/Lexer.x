@@ -2,7 +2,7 @@
 {-# LANGUAGE NamedFieldPuns, RecordWildCards #-}
 
 module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Pos(..),
-              AlexInput, alexInput, PlainLexer, Lexer.lex, readToken,
+              AlexInput, alexInput, PlainLexer, Lexer.lex, readToken, startPos,
               LexicalError(..)) where
 import Data.Word (Word8)
 import Data.Default
@@ -81,6 +81,7 @@ data LexicalError = MalformedNumber T.Text
                   | UnprecedentedOp T.Text
                   | UnexpectedInput T.Text
                   | UnmatchedDelims (Maybe Delimiter) Delimiter
+                  | ParseError Pos Tok
                   deriving Show
 
 type PlainLexer = StateT AlexInput (Either LexicalError)
@@ -109,6 +110,21 @@ data Tok = TokId Pos T.Text
          | TokComma Pos
          | TokEOF Pos
          deriving Show
+
+startPos :: Tok -> Pos
+startPos (TokId pos _) = pos
+startPos (TokOp pos _ _) = pos
+startPos (TokInt pos _) = pos
+startPos (TokString pos _) = pos
+startPos (TokChar pos _) = pos
+startPos (TokEq pos) = pos
+startPos (TokPlusEq pos) = pos
+startPos (TokArrow pos) = pos
+startPos (TokArrow_ pos) = pos
+startPos (TokDelim pos _ _) = pos
+startPos (TokSemiColon pos) = pos
+startPos (TokComma pos) = pos
+startPos (TokEOF pos) = pos
 
 precedence :: T.Text -> PlainLexer Precedence
 precedence cs | T.head cs == '|' = return Zero

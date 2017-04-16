@@ -8,7 +8,7 @@
 > import Data.Sequence (ViewL(..), (|>))
 > import Data.Default
 > import qualified Lexer
-> import Lexer (PlainLexer, AlexInput, Pos, Tok, LexicalError(..),
+> import Lexer (PlainLexer, AlexInput, Tok, LexicalError(..),
 >               Delimiter, Side(..))
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional

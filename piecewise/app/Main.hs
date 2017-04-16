@@ -2,7 +2,7 @@ module Main where
 import Data.Default (def)
 import qualified Data.ByteString as B
 import Parser (expr)
-import Lexer (Pos(..), alexInput)
+import Lexer (alexInput)
 import Indentation (runWSLexer)
 
 main :: IO ()
