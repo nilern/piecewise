@@ -31,12 +31,15 @@ The Additional State
 ====================
 
 > data WSState = WSState { tokQueue :: Seq.Seq Tok
+>                        , prevEnd :: Maybe Pos
 >                        , indentStack :: [Int]
->                        , delimStack :: [Delimiter]
->                        }
+>                        , delimStack :: [Delimiter] }
 
 > instance Default WSState where
->     def = WSState { tokQueue = def, indentStack = def, delimStack = def }
+>     def = WSState { tokQueue = def
+>                   , prevEnd = def
+>                   , indentStack = def
+>                   , delimStack = def }
 
 The Token Buffer
 ----------------
@@ -56,9 +59,6 @@ The Token Buffer
 > push :: Tok -> WSLexer ()
 > push tok = modify $ mapTokQueue (|> tok)
 
-> shift :: WSLexer ()
-> shift = lift Lexer.readToken >>= push
-
 The Indent Stack
 ----------------
 
@@ -71,6 +71,9 @@ The Indent Stack
 > currIndent :: WSState -> Int
 > currIndent WSState { indentStack = i : _ } = i
 > currIndent WSState { indentStack = [] } = 1
+
+> newline :: Pos -> Pos -> WSLexer ()
+> newline start end = push $ Tok TokSemiColon ";" start end
 
 > indent :: Pos -> Pos -> WSLexer ()
 > indent start @ (Pos _ _ startCol) end =
@@ -98,6 +101,9 @@ The Delimiter Stack
 > mapDelimStack :: ([Delimiter] -> [Delimiter]) -> WSState -> WSState
 > mapDelimStack f s = assocDelimStack s (f (delimStack s))
 
+> sigIndents :: WSLexer Bool
+> sigIndents = gets $ null . delimStack
+
 > popDelim :: WSLexer (Maybe Delimiter)
 > popDelim = do delims <- gets delimStack
 >               case uncons delims of
@@ -113,11 +119,40 @@ The Delimiter Stack
 >                         Just ld | ld == rd -> return ()
 >                         _ -> throwError $ UnmatchedDelims ldelim rd
 
-> sigIndents :: WSLexer Bool
-> sigIndents = gets $ null . delimStack
+> delimiter :: Tok -> WSLexer ()
+> delimiter (Tok (TokDelim delim side) _ _ _) = pushDelim delim side
+> delimiter _ = return ()
 
 Reading a Token
 ===============
+
+> enqueueWsTokens :: Pos -> WSLexer ()
+> enqueueWsTokens start @ (Pos _ line col) =
+>     do doIt <- sigIndents
+>        if doIt
+>        then do st <- get
+>                case prevEnd st of
+>                    Just (pEnd @ (Pos _ pLine _)) ->
+>                        if line > pLine
+>                        then case compare col (currIndent st) of
+>                                 EQ -> newline pEnd start
+>                                 GT -> indent pEnd start
+>                                 LT -> do dedentDownTo col pEnd start
+>                                          newline pEnd start
+>                                          return ()
+>                        else return ()
+>                    Nothing -> return ()
+>        else return ()
+
+> shift :: WSLexer ()
+> shift = do tok <- lift Lexer.readToken
+>            push tok
+>            case tok of
+>                Tok TokEOF _ _ _ -> do pEnd <- gets (maybe def id . prevEnd)
+>                                       dedentDownTo 1 pEnd pEnd
+>                Tok _ _ start _ -> do enqueueWsTokens start
+>                                      delimiter tok
+>                                      push tok
 
 To read a token we first try to pop a token from the token buffer. If the buffer
 turns out to be empty we replenish it using `shift` and try again.
