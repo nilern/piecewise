@@ -7,20 +7,20 @@
 > import qualified Data.Sequence as Seq
 > import Data.Sequence (ViewL(..), (|>))
 > import Data.Default
+> import Util (ParseError(..))
 > import qualified Lexer
-> import Lexer (PlainLexer, AlexInput, Tok, LexicalError(..),
->               Delimiter, Side(..))
+> import Lexer (Lexer, Input, Tok, Delimiter, Side(..), LexicalError)
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional
 state.
 
-> type WSLexer a = StateT WSState PlainLexer a
+> type WSLexer a = StateT WSState Lexer a
 
 As usual we need a runner function to actually do the lexing and extract a
 useful result. Here we just have an error monad inside two nested state monads
 and we get the final value or a lexical error out.
 
-> runWSLexer :: WSLexer a -> WSState -> AlexInput -> Either LexicalError a
+> runWSLexer :: WSLexer a -> WSState -> Input -> Either LexicalError a
 > runWSLexer lexer wss s = Lexer.lex (evalStateT lexer wss) s
 
 The Additional State

@@ -1,9 +1,10 @@
 {
 {-# LANGUAGE NamedFieldPuns, RecordWildCards #-}
 
-module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Pos(..),
-              AlexInput, alexInput, PlainLexer, Lexer.lex, readToken, startPos,
-              LexicalError(..)) where
+module Lexer (Tok(..), Delimiter(..), Side(..), Precedence(..), Input,
+              LexicalError,
+              strToInput, Lexer, Lexer.lex, readToken, startPos) where
+import Data.Function ((&))
 import Data.Word (Word8)
 import Data.Default
 import qualified Data.ByteString as B
@@ -13,6 +14,8 @@ import Data.Text.Encoding (decodeUtf8)
 import Data.Text.Read (decimal)
 import Control.Monad.State
 import Control.Monad.Except
+import Util (Pos(..), ParseError(..))
+import AST (Expr)
 }
 
 $delimiter = ["'`\(\)\[\]\{\}]
@@ -48,45 +51,37 @@ tokens :-
     ","                   { \pos _ -> return $ TokComma pos }
 
 {
-data AlexInput = AlexInput { charPos :: Pos, inputStr :: B.ByteString }
+data Input = Input { charPos :: Pos, inputStr :: B.ByteString }
 
-alexInput :: B.ByteString -> AlexInput
-alexInput s = AlexInput { charPos = def, inputStr = s }
+type AlexInput = Input
 
-alexGetByte :: AlexInput -> Maybe (Word8, AlexInput)
-alexGetByte AlexInput { charPos = p, inputStr = cs } =
+strToInput :: B.ByteString -> Input
+strToInput s = Input { charPos = def, inputStr = s }
+
+nextPos :: Pos -> Char -> Pos
+nextPos (Pos a l c) '\t' =
+    Pos (a+1) l (((c+alex_tab_size-1) `div` alex_tab_size)*alex_tab_size+1)
+nextPos (Pos a l _) '\n' = Pos (a+1) (l+1) 1
+nextPos (Pos a l c) _    = Pos (a+1) l (c+1)
+
+alexGetByte :: Input -> Maybe (Word8, Input)
+alexGetByte Input { charPos = p, inputStr = cs } =
     case B.uncons cs of
         Nothing -> Nothing
         Just (b, cs') ->
             let c  = B.w2c b
-                p' = alexMove p c
+                p' = nextPos p c
             in p' `seq` cs' `seq`
-               Just (b, AlexInput { charPos = p', inputStr = cs' })
+               Just (b, Input { charPos = p', inputStr = cs' })
 
-alexMove :: Pos -> Char -> Pos
-alexMove (Pos a l c) '\t' =
-    Pos (a+1) l (((c+alex_tab_size-1) `div` alex_tab_size)*alex_tab_size+1)
-alexMove (Pos a l _) '\n' = Pos (a+1) (l+1) 1
-alexMove (Pos a l c) _    = Pos (a+1) l (c+1)
-
-alexInputPrevChar :: AlexInput -> Char
+alexInputPrevChar :: Input -> Char
 alexInputPrevChar = undefined
 
-data Pos = Pos !Int !Int !Int deriving Show
+type LexicalError = ParseError Tok Delimiter Expr
 
-instance Default Pos where
-    def = Pos 0 1 1
+type Lexer = StateT Input (Either LexicalError)
 
-data LexicalError = MalformedNumber T.Text
-                  | UnprecedentedOp T.Text
-                  | UnexpectedInput T.Text
-                  | UnmatchedDelims (Maybe Delimiter) Delimiter
-                  | ParseError Pos Tok
-                  deriving Show
-
-type PlainLexer = StateT AlexInput (Either LexicalError)
-
-lex :: PlainLexer a -> AlexInput -> Either LexicalError a
+lex :: Lexer a -> Input -> Either LexicalError a
 lex = evalStateT
 
 data Delimiter = Paren | Bracket | Brace deriving (Show, Eq)
@@ -126,7 +121,7 @@ startPos (TokSemiColon pos) = pos
 startPos (TokComma pos) = pos
 startPos (TokEOF pos) = pos
 
-precedence :: T.Text -> PlainLexer Precedence
+precedence :: T.Text -> Lexer Precedence
 precedence cs | T.head cs == '|' = return Zero
               | T.head cs == '^' = return One
               | T.head cs == '&' = return Two
@@ -142,13 +137,13 @@ precedence cs | T.head cs == '|' = return Zero
               | T.head cs == '.' = return Seven
               | otherwise = throwError $ UnprecedentedOp cs
 
-readToken :: PlainLexer Tok
+-- readToken :: Lexer Tok
 readToken =
-    do input @ AlexInput { charPos = pos, inputStr = _ } <- get
+    do input @ Input { charPos = pos, inputStr = _ } <- get
        case alexScan input def of
            AlexEOF -> return $ TokEOF pos
            AlexError input' ->
-               throwError $ UnexpectedInput $ decodeUtf8 (inputStr input')
+               throwError (input' & inputStr & decodeUtf8 & UnexpectedInput)
            AlexSkip input' _ ->
                put input' >> readToken
            AlexToken input' n action ->
