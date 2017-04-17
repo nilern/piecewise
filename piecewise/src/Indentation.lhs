@@ -10,12 +10,15 @@
 > import Util (Pos(..), ParseError(..))
 > import qualified Lexer
 > import Lexer (Lexer, Input, Tok(..), TokTag(..), Delimiter, Side(..),
->               Delimiter(..), LexicalError)
+>               Delimiter(..), LexicalError, charPos)
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional
 state.
 
 > type WSLexer a = StateT WSState Lexer a
+
+> getPos :: WSLexer Pos
+> getPos = lift (gets charPos)
 
 As usual we need a runner function to actually do the lexing and extract a
 useful result. Here we just have an error monad inside two nested state monads
@@ -65,6 +68,10 @@ The Indent Stack
 > mapIndentStack :: ([Int] -> [Int]) -> WSState -> WSState
 > mapIndentStack f s = assocIndentStack s (f (indentStack s))
 
+> currIndent :: WSState -> Int
+> currIndent WSState { indentStack = i : _ } = i
+> currIndent WSState { indentStack = [] } = 1
+
 > indent :: Pos -> Pos -> WSLexer ()
 > indent start @ (Pos _ _ startCol) end =
 >     do modify $ mapIndentStack (startCol :)
@@ -73,6 +80,14 @@ The Indent Stack
 > dedent :: Pos -> Pos -> WSLexer ()
 > dedent start end = do modify $ mapIndentStack tail
 >                       push $ Tok (TokDelim Brace R) "}" start end
+
+> dedentDownTo :: Int -> Pos -> Pos -> WSLexer ()
+> dedentDownTo dest start end =
+>     do curr <- gets currIndent
+>        case compare curr dest of
+>            EQ -> return ()
+>            GT -> dedent start end >> dedentDownTo dest start end
+>            LT -> getPos >>= throwError . WildDedent
 
 The Delimiter Stack
 -------------------

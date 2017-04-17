@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..), Precedence(..),
-              Input, LexicalError,
+              Input, LexicalError, charPos,
               strToInput, startPos, Lexer, Lexer.lex, readToken) where
 import Data.Function ((&))
 import Data.Word (Word8)
