@@ -1,4 +1,4 @@
-> {-# LANGUAGE FlexibleContexts, NamedFieldPuns #-}
+> {-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
 
 > module Indentation (WSLexer, runWSLexer, readToken) where
 > import Control.Monad.State
@@ -7,9 +7,10 @@
 > import qualified Data.Sequence as Seq
 > import Data.Sequence (ViewL(..), (|>))
 > import Data.Default
-> import Util (ParseError(..))
+> import Util (Pos(..), ParseError(..))
 > import qualified Lexer
-> import Lexer (Lexer, Input, Tok, Delimiter, Side(..), LexicalError)
+> import Lexer (Lexer, Input, Tok(..), TokTag(..), Delimiter, Side(..),
+>               Delimiter(..), LexicalError)
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional
 state.
@@ -27,21 +28,21 @@ The Additional State
 ====================
 
 > data WSState = WSState { tokQueue :: Seq.Seq Tok
+>                        , indentStack :: [Int]
 >                        , delimStack :: [Delimiter]
 >                        }
 
 > instance Default WSState where
->     def = WSState { tokQueue = def, delimStack = def }
+>     def = WSState { tokQueue = def, indentStack = def, delimStack = def }
 
 The Token Buffer
 ----------------
 
 > assocTokQueue :: WSState -> Seq.Seq Tok -> WSState
-> assocTokQueue WSState { tokQueue = _, delimStack } q =
->     WSState { tokQueue = q, delimStack = delimStack }
+> assocTokQueue s q = s { tokQueue = q }
 
-> mapTokQueue :: WSState -> (Seq.Seq Tok -> Seq.Seq Tok) -> WSState
-> mapTokQueue s f = assocTokQueue s (f (tokQueue s))
+> mapTokQueue :: (Seq.Seq Tok -> Seq.Seq Tok) -> WSState -> WSState
+> mapTokQueue f s = assocTokQueue s (f (tokQueue s))
 
 > pop :: WSLexer (Maybe Tok)
 > pop = do q <- gets tokQueue
@@ -50,20 +51,37 @@ The Token Buffer
 >              EmptyL -> return Nothing
 
 > push :: Tok -> WSLexer ()
-> push tok = modify $ flip mapTokQueue (|> tok)
+> push tok = modify $ mapTokQueue (|> tok)
 
 > shift :: WSLexer ()
 > shift = lift Lexer.readToken >>= push
+
+The Indent Stack
+----------------
+
+> assocIndentStack :: WSState -> [Int] -> WSState
+> assocIndentStack s is = s { indentStack = is }
+
+> mapIndentStack :: ([Int] -> [Int]) -> WSState -> WSState
+> mapIndentStack f s = assocIndentStack s (f (indentStack s))
+
+> indent :: Pos -> Pos -> WSLexer ()
+> indent start @ (Pos _ _ startCol) end =
+>     do modify $ mapIndentStack (startCol :)
+>        push $ Tok (TokDelim Brace L) "{" start end
+
+> dedent :: Pos -> Pos -> WSLexer ()
+> dedent start end = do modify $ mapIndentStack tail
+>                       push $ Tok (TokDelim Brace R) "}" start end
 
 The Delimiter Stack
 -------------------
 
 > assocDelimStack :: WSState -> [Delimiter] -> WSState
-> assocDelimStack WSState { tokQueue, delimStack = _ } s =
->     WSState { tokQueue = tokQueue, delimStack = s }
+> assocDelimStack st s = st { delimStack = s }
 
-> mapDelimStack :: WSState -> ([Delimiter] -> [Delimiter]) -> WSState
-> mapDelimStack s f = assocDelimStack s (f (delimStack s))
+> mapDelimStack :: ([Delimiter] -> [Delimiter]) -> WSState -> WSState
+> mapDelimStack f s = assocDelimStack s (f (delimStack s))
 
 > popDelim :: WSLexer (Maybe Delimiter)
 > popDelim = do delims <- gets delimStack
@@ -74,7 +92,7 @@ The Delimiter Stack
 >                   Nothing -> return Nothing
 
 > pushDelim :: Delimiter -> Side -> WSLexer ()
-> pushDelim ld L = modify $ flip mapDelimStack (ld :)
+> pushDelim ld L = modify $ mapDelimStack (ld :)
 > pushDelim rd R = do ldelim <- popDelim
 >                     case ldelim of
 >                         Just ld | ld == rd -> return ()
