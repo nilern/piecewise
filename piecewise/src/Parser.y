@@ -82,7 +82,7 @@ Datum : Prim     { Const $1 }
 
 Prim : int    {% let Tok _ cs pos _ = $1
                  in case decimal cs of
-                        Right (i, cs') | T.null cs -> return $ Int pos i
+                        Right (i, cs') | T.null cs' -> return $ Int pos i
                         _ -> throwError $ MalformedNumber cs }
      | string { let Tok _ cs pos _ = $1 in String pos cs }
      | char   { let Tok _ cs pos _  = $1 in Char pos cs }

@@ -17,9 +17,6 @@ state.
 
 > type WSLexer a = StateT WSState Lexer a
 
-> getPos :: WSLexer Pos
-> getPos = lift (gets charPos)
-
 As usual we need a runner function to actually do the lexing and extract a
 useful result. Here we just have an error monad inside two nested state monads
 and we get the final value or a lexical error out.
@@ -90,7 +87,7 @@ The Indent Stack
 >        case compare curr dest of
 >            EQ -> return ()
 >            GT -> dedent start end >> dedentDownTo dest start end
->            LT -> getPos >>= throwError . WildDedent
+>            LT -> lift (gets charPos) >>= throwError . WildDedent
 
 The Delimiter Stack
 -------------------
@@ -132,16 +129,14 @@ Reading a Token
 >        if doIt
 >        then do st <- get
 >                case prevEnd st of
->                    Just (pEnd @ (Pos _ pLine _)) ->
->                        if line > pLine
->                        then case compare col (currIndent st) of
->                                 EQ -> newline pEnd start
->                                 GT -> indent pEnd start
->                                 LT -> do dedentDownTo col pEnd start
->                                          newline pEnd start
->                                          return ()
->                        else return ()
->                    Nothing -> return ()
+>                    Just (pEnd @ (Pos _ pLine _)) | line > pLine ->
+>                        case compare col (currIndent st) of
+>                            EQ -> newline pEnd start
+>                            GT -> indent pEnd start
+>                            LT -> do dedentDownTo col pEnd start
+>                                     newline pEnd start
+>                                     return ()
+>                    _ -> return ()
 >        else return ()
 
 > shift :: WSLexer ()
@@ -152,7 +147,6 @@ Reading a Token
 >                                       dedentDownTo 1 pEnd pEnd
 >                Tok _ _ start _ -> do enqueueWsTokens start
 >                                      delimiter tok
->                                      push tok
 
 To read a token we first try to pop a token from the token buffer. If the buffer
 turns out to be empty we replenish it using `shift` and try again.
