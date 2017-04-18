@@ -91,59 +91,70 @@ QUESTION: what about ``?
     commaListTwoPlus<p> = p ',' p
                         | commaListTwoPlus<p> ',' p
 
-# Combinating Syntax
+# PEG
 
-    program = semicolonList stmt
+## Top Level
 
-    stmt = formals EQ stmt
-         <|> formals PLUSEQ stmt
-         <|> expr
+    program = semiColonList(stmt)
 
-    expr = infix 1
+## Statements and Cases
 
-    infix 7 = app
-            <|> infix 7 <*> OP 7 <*> app
-    infix n = infix (n - 1)
-            <|> infix n <*> OP n <*> infix (n - 1)
+    stmt = formals '=' stmt
+         / formals '+=' stmt
+         / expr
 
-    app = many1 simple
+    case = formals '=>' semiColonList(stmt)
 
-    simple = LPAREN *> expr <*> RPAREN
-           <|> LBRACKET *> semicolonList stmt <*> RBRACKET
-           <|> LBRACE *> semicolonList blockItem <*> RBRACE
+## Expressions
+
+    expr = infix(1)
+
+    infix(7) = app (op(7) app)*
+    infix(n) = infix(n - 1) (op(n) infix(n - 1))*
+
+    app = simple+
+
+    simple = '(' expr ')'
+           / '{' semicolonList(case) '}'
+           / '{' semicolonList(stmt) '}'
+           / '[' stmt (';' stmt)* ']'
+           / ID
+           / datum
+
+## Data
 
     datum = prim
-          <|> compound expr
+          / collection
 
     prim = NUMBER
-         <|> STRING
-         <|> CHAR
+         / STRING
+         / CHAR
 
-    compound p = LPAREN *> commaList p <*> RPAREN
-               <|> LBRACKET *> commaList p <*> RBRACKET
-               <|> LBRACE *> commaList p <*> RBRACE
-               <|> LBRACE *> mapList p <*> RBRACE
+    collection = compound(expr)
 
-    formals = many1 pattern
+## Patterns
 
-    pattern = prim
-            <|> compound pattern
+    formals = pattern+
 
-    blockItem = formals <* DARROW <*> stmt
-              <|> stmt
+    pattern = ID
+            / prim
+            / compound(pattern)
 
-    semicolonList p = sepBy1 SEMICOLON p
+## Higher Order Utils
 
-    commaList p = pure []
-                <|> p <* COMMA
-                <|> commaList2 p
+    compound(p) = '(' commaList(p) ')'
+                / '[' commaList(p) ']'
+                / '{' commaList(p) '}'
+                / '{' mapList(p) '}'
 
-    commaList2 p = p <* COMMA<*> p
-                 <|> commaList2 p <* COMMA <*> p
+    semicolonList(p) = p (';' p)*
 
-    mapList p = SARROW
-              <|> p <* SARROW <*> p
-              <|> mapList p <* COMMA <*> p <* SARROW <*> p
+    commaList(p) = p (',' p)+
+                 / p ','
+                 / epsilon
+
+    mapList(p) = p '->' p (',' p '->' p)*
+               / '->'
 
 # IRs
 
