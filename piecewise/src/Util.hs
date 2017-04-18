@@ -21,5 +21,5 @@ data ParseError t d e = MalformedNumber T.Text
                       | UnmatchedDelims (Maybe d) d
                       | ParseError Pos t
                       | InvalidPattern Pos e
-                      | WildDedent Pos
+                      | WildDedent Pos Int Int
                       deriving Show

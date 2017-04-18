@@ -38,6 +38,9 @@ The Additional State
 >                   , indentStack = def
 >                   , delimStack = def }
 
+> assocPrevEnd :: WSState -> Pos -> WSState
+> assocPrevEnd s pos = s { prevEnd = Just pos }
+
 The Token Buffer
 ----------------
 
@@ -50,7 +53,9 @@ The Token Buffer
 > pop :: WSLexer (Maybe Tok)
 > pop = do q <- gets tokQueue
 >          case Seq.viewl q of
->              tok :< q' -> modify (flip assocTokQueue q') >> return (Just tok)
+>              tok @ (Tok _ _ _ end) :< q' ->
+>                  do modify (flip assocPrevEnd end . flip assocTokQueue q')
+>                     return (Just tok)
 >              EmptyL -> return Nothing
 
 > push :: Tok -> WSLexer ()
@@ -73,8 +78,8 @@ The Indent Stack
 > newline start end = push $ Tok TokSemiColon ";" start end
 
 > indent :: Pos -> Pos -> WSLexer ()
-> indent start @ (Pos _ _ startCol) end =
->     do modify $ mapIndentStack (startCol :)
+> indent start end @ (Pos _ _ endCol) =
+>     do modify $ mapIndentStack (endCol :)
 >        push $ Tok (TokDelim Brace L) "{" start end
 
 > dedent :: Pos -> Pos -> WSLexer ()
@@ -87,7 +92,8 @@ The Indent Stack
 >        case compare curr dest of
 >            EQ -> return ()
 >            GT -> dedent start end >> dedentDownTo dest start end
->            LT -> lift (gets charPos) >>= throwError . WildDedent
+>            LT -> do pos <- lift (gets charPos)
+>                     throwError $ WildDedent pos dest curr
 
 The Delimiter Stack
 -------------------
@@ -141,12 +147,12 @@ Reading a Token
 
 > shift :: WSLexer ()
 > shift = do tok <- lift Lexer.readToken
->            push tok
 >            case tok of
 >                Tok TokEOF _ _ _ -> do pEnd <- gets (maybe def id . prevEnd)
 >                                       dedentDownTo 1 pEnd pEnd
 >                Tok _ _ start _ -> do enqueueWsTokens start
 >                                      delimiter tok
+>            push tok
 
 To read a token we first try to pop a token from the token buffer. If the buffer
 turns out to be empty we replenish it using `shift` and try again.

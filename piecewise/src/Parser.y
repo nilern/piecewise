@@ -70,7 +70,7 @@ App : Simple     { [$1] }
 
 Simple : '(' Expr ')'                     { $2 }
        | '{' SemiColonList(BlockItem) '}' {% extractBlock (startPos $1)
-                                                         (reverse $2) }
+                                                          (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
          { Fn (startPos $1) [([PTuple (startPos $1) []], reverse $2)] }
        | ident                            { let Tok _ name pos _ = $1
@@ -122,7 +122,7 @@ extractBlock pos items @ ((Clause _ _):_) = Fn pos <$> clauses items
     where clauses ((Clause formals stmt):items) =
               do pats <- traverse exprPattern formals
                  cls <- clauses items'
-                 return $ (pats, map unwrap stmts) : cls
+                 return $ (pats, stmt : map unwrap stmts) : cls
               where (stmts, items') = span isStmt items
                     isStmt (Stmt _) = True
                     isStmt (Clause _ _) = False
