@@ -46,8 +46,8 @@ import Util (Pos, position, ParseError(..))
 
 Program : SemiColonList(Stmt) { reverse $1 }
 
-Stmt : App '=' Expr  {% extractDef Def (reverse $1) $3 }
-     | App "+=" Expr {% extractDef AugDef (reverse $1) $3 }
+Stmt : App '=' Expr  { extractDef Def (reverse $1) $3 }
+     | App "+=" Expr { extractDef AugDef (reverse $1) $3 }
      | Expr          { Expr $1 }
 
 Expr : Infix0 { $1 }
@@ -69,10 +69,10 @@ App : Simple     { [$1] }
     | App Simple { $2 : $1 }
 
 Simple : '(' Expr ')'                     { $2 }
-       | '{' SemiColonList(BlockItem) '}' {% extractBlock (startPos $1)
-                                                          (reverse $2) }
+       | '{' SemiColonList(BlockItem) '}' { extractBlock (startPos $1)
+                                                         (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
-         { Fn (startPos $1) [([PTuple (startPos $1) []], reverse $2)] }
+         { Fn (startPos $1) [([Tuple (startPos $1) []], reverse $2)] }
        | ident                            { let Tok _ name pos _ = $1
                                             in Var pos name }
        | Datum                            { $1 }
@@ -117,18 +117,16 @@ MapPairs : "->"                        { [] }
 parseError :: Tok -> WSLexer a
 parseError tok = throwError $ ParseError (startPos tok) tok
 
-extractBlock :: Pos -> [BlockItem] -> WSLexer Expr
-extractBlock pos items @ ((Clause _ _):_) = Fn pos <$> clauses items
+extractBlock :: Pos -> [BlockItem] -> Expr
+extractBlock pos items @ ((Clause _ _):_) = Fn pos (clauses items)
     where clauses ((Clause formals stmt):items) =
-              do pats <- traverse exprPattern formals
-                 cls <- clauses items'
-                 return $ (pats, stmt : map unwrap stmts) : cls
+              (formals, stmt : map unwrap stmts) : clauses items'
               where (stmts, items') = span isStmt items
                     isStmt (Stmt _) = True
                     isStmt (Clause _ _) = False
                     unwrap (Stmt stmt) = stmt
-          clauses [] = return []
-extractBlock pos items @ ((Stmt _):_) = return $ Block pos (parseStmts items)
+          clauses [] = []
+extractBlock pos items @ ((Stmt _):_) = Block pos (parseStmts items)
     where parseStmts ((Stmt stmt):stmts) = stmt : parseStmts stmts
           parseStmts [] = []
 
@@ -136,21 +134,8 @@ extractApp :: [Expr] -> Expr
 extractApp [e] = e
 extractApp (f:args) = Call (position f) f args
 
-extractDef :: (Pattern -> Expr -> Stmt) -> [Expr] -> Expr -> WSLexer Stmt
-extractDef make [pat] expr = (\p -> make p expr) <$> exprPattern pat
+extractDef :: (Expr -> Expr -> Stmt) -> [Expr] -> Expr -> Stmt
+extractDef make [pat] expr = make pat expr
 extractDef make (pat:formals) expr =
-    do fpats <- traverse exprPattern formals
-       extractDef make [pat] (Fn (position pat) [(fpats, [Expr expr])])
-
-exprPattern :: Expr -> WSLexer Pattern
-exprPattern (Var pos name) = return $ PVar pos name
-exprPattern (Const (Int pos i)) = return $ PInt pos i
-exprPattern (Const (String pos s)) = return $ PString pos s
-exprPattern (Const (Char pos c)) = return $ PChar pos c
-exprPattern (Tuple pos pats) = PTuple pos <$> traverse exprPattern pats
-exprPattern (Array pos pats) = PArray pos <$> traverse exprPattern pats
-exprPattern (Map pos pats) =
-   PMap pos <$> traverse (\(p, q) -> (,) <$> exprPattern p <*> exprPattern q) pats
-exprPattern (Set pos pats) = PSet pos <$> traverse exprPattern pats
-exprPattern e = throwError $ InvalidPattern (position e) e
+    extractDef make [pat] (Fn (position pat) [(formals, [Expr expr])])
 }

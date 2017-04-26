@@ -2,7 +2,7 @@ module AST (Expr(..), Const(..), Stmt(..), BlockItem(..), Pattern(..)) where
 import qualified Data.Text as T
 import Util (Pos, Positioned(..))
 
-data Expr = Fn Pos [([Pattern], [Stmt])]
+data Expr = Fn Pos [([Expr], [Stmt])]
           | Block Pos [Stmt]
           | Call Pos Expr [Expr]
           | Var Pos T.Text
@@ -18,8 +18,8 @@ data Const = Int Pos Int
            | Char Pos T.Text
            deriving Show
 
-data Stmt = Def Pattern Expr
-          | AugDef Pattern Expr
+data Stmt = Def Expr Expr
+          | AugDef Expr Expr
           | Expr Expr
           deriving Show
 
