@@ -27,6 +27,7 @@ $opchar = [\.!\%&\*\+\-\/\<=>\?\\\^\|\~]
 
 tokens :-
     $white+               ;
+    \# [^\n]*             ;
     "=>"                  { \cs p q -> return $ Tok TokArrow cs p q }
     "+="                  { \cs p q -> return $ Tok TokPlusEq cs p q }
     "="                   { \cs p q -> return $ Tok TokEq cs p q }
