@@ -1,4 +1,5 @@
 
-quickSort coll =
+quickSort coll = {
   (left, right) = partition (peek coll < _) (pop coll)
   quickSort left |> append _ pivot |> concat _ (quickSort right)
+}

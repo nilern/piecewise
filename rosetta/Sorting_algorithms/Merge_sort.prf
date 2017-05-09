@@ -1,17 +1,18 @@
 
-merge xs ys =
+merge xs ys = {
   loop [] ys acc = concat acc ys
-  loop xs [] acc = concat acc xs
-  loop (xs && x::rxs) (ys && y::rys) acc =
-    @if x < y
-      loop rxs ys (append acc x)
-      loop xs rys (append acc y)
+  loop xs [] acc += concat acc xs
+  loop (xs && x::rxs) (ys && y::rys) acc +=
+    if (x < y)
+       [loop rxs ys (append acc x)]
+       [loop xs rys (append acc y)]
   loop xs ys []
+}
 
-mergeSort coll =
+mergeSort coll = {
   n = count coll
-  @if n < 2
-    coll
-    @do
-      (left, right) = split (n / 2) coll
-      merge (mergeSort left) (mergeSort right)
+  if (n < 2)
+     [coll]
+     [(left, right) = split (n / 2) coll
+      merge (mergeSort left) (mergeSort right)]
+}
