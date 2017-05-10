@@ -1,9 +1,14 @@
+> {-# LANGUAGE TupleSections #-}
+
 > module Interpreter (interpret) where
 > import Data.Text (Text)
 > import qualified Data.HashTable.IO as H
 > import Control.Monad.Except
 > import qualified AST (Expr(..), Const(..))
 > import AST (Expr)
+> import qualified Env
+> import Env (LexEnv, DynEnv, BindingError)
+> import qualified Util
 
 Value Representation
 ====================
@@ -14,36 +19,15 @@ Value Representation
 Errors
 ======
 
-> data ItpError = Failure
-
-Environments
-============
-
-Lexical Environment
--------------------
-
-> data LexEnv = LexEnv LexEnv (H.BasicHashTable Text Value)
->             | GlobalEnv (H.BasicHashTable Text Value)
-
-> emptyLexEnv :: IO LexEnv
-> emptyLexEnv = GlobalEnv <$> H.new
-
-Dynamic Environment
--------------------
-
-> type DynEnv = [DynEnvFrame]
-> data DynEnvFrame = DynEnvFrame (H.BasicHashTable Text Value)
-
-> emptyDynEnv :: DynEnv
-> emptyDynEnv = []
+> type ItpError = Util.ItpError (BindingError Text)
 
 Continuations
 =============
 
-> data Cont = Cont CExpr LexEnv DynEnv
+> data Cont = Cont CExpr (LexEnv Text Value) (DynEnv Text Value)
 
 > haltCont :: IO Cont
-> haltCont = Cont Halt <$> emptyLexEnv <*> pure emptyDynEnv
+> haltCont = Cont Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
 
 > data CExpr = Halt
 
@@ -55,7 +39,8 @@ Interpreter Monad
 Abstract Machine
 ================
 
-> eval :: Expr -> LexEnv -> Cont -> Interpreter Value
+> eval :: Expr -> LexEnv Text Value -> Cont -> Interpreter Value
+> eval (AST.Var _ name) env k = Env.lookup env name >>= continue k
 > eval (AST.Const c) _ k = continue k (evalConst c)
 >     where evalConst (AST.Int _ i) = Int i
 >           evalConst (AST.String _ s) = String s
@@ -65,5 +50,7 @@ Abstract Machine
 
 > -- apply :: Value -> Cont -> [Value] -> Interpreter Value
 
-> interpret :: Expr -> LexEnv -> IO (Either ItpError Value)
-> interpret expr env = runExceptT (eval expr env =<< liftIO haltCont)
+> interpret :: Expr -> LexEnv Text Value
+>                   -> IO (Either ItpError Value, LexEnv Text Value)
+> interpret expr env = do res <- runExceptT (eval expr env =<< liftIO haltCont)
+>                         return (res, env)

@@ -1,4 +1,5 @@
-module Util (Pos(..), nextPos, Positioned(..), ParseError(..)) where
+module Util (Pos(..), nextPos, Positioned(..),
+             ParseError(..), ItpError(..)) where
 import qualified Data.Text as T
 import Data.Default
 
@@ -23,3 +24,5 @@ data ParseError t d e = MalformedNumber T.Text
                       | InvalidPattern Pos e
                       | WildDedent Pos Int Int
                       deriving Show
+
+data ItpError b = BindingError b
