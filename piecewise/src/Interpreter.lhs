@@ -31,6 +31,22 @@ Continuations
 
 > data CExpr = Halt
 
+> type Prompt = Int
+> data ContDump = CDump [(Prompt, Cont)]
+
+> pushCont :: ContDump -> Prompt -> Cont -> ContDump
+> pushCont (CDump pks) p k = CDump ((p, k) : pks)
+
+> popCont :: ContDump -> Maybe (Cont, ContDump)
+> popCont (CDump ((_, k):pks)) = Just (k, CDump pks)
+> popCont (CDump []) = Nothing
+
+> splitDump :: ContDump -> Prompt -> Maybe (ContDump, ContDump)
+> splitDump (CDump pks) p =
+>     case break ((== p) . fst) pks of
+>         (_, []) -> Nothing
+>         (pks', pks'') -> Just (CDump pks', CDump pks'')
+
 Interpreter Monad
 =================
 
