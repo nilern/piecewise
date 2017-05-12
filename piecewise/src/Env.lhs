@@ -11,6 +11,7 @@ Environment Interface
 
 > data BindingError k = Unbound k
 >                     | ReAssignment k
+>                     deriving Show
 
 > class Environment e where
 >     bindings :: (Hashable k, Eq k) => e k v -> H.BasicHashTable k v

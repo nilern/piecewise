@@ -15,8 +15,9 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     AST, Lexer, Indentation, Parser, Alphatize, Interpreter
-  other-modules:       Util, Env
+  exposed-modules:     AST, Lexer, Indentation, Parser, Alphatize,
+                       Interpreter, Env
+  other-modules:       Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
                        , mtl >= 2.2.0

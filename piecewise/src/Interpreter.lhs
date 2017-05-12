@@ -1,11 +1,12 @@
 > {-# LANGUAGE TupleSections #-}
 
-> module Interpreter (interpret) where
+> module Interpreter (interpret, interpretStmt) where
+> import qualified Data.Text as T
 > import Data.Text (Text)
-> import qualified Data.HashTable.IO as H
+> import Control.Monad.State
 > import Control.Monad.Except
 > import qualified AST (Expr(..), Const(..))
-> import AST (Expr)
+> import AST (Expr, Stmt(..))
 > import qualified Env
 > import Env (LexEnv, DynEnv, BindingError)
 > import qualified Util
@@ -15,6 +16,10 @@ Value Representation
 
 > data Value = Int Int
 >            | String Text
+
+> instance Show Value where
+>     show (Int i) = show i
+>     show (String t) = T.unpack t
 
 Errors
 ======
@@ -34,6 +39,9 @@ Continuations
 > type Prompt = Int
 > data ContDump = CDump [(Prompt, Cont)]
 
+> emptyDump :: ContDump
+> emptyDump = CDump []
+
 > pushCont :: ContDump -> Prompt -> Cont -> ContDump
 > pushCont (CDump pks) p k = CDump ((p, k) : pks)
 
@@ -50,23 +58,37 @@ Continuations
 Interpreter Monad
 =================
 
-> type Interpreter a = ExceptT ItpError IO a
+> type Interpreter a = StateT (Cont, ContDump) (ExceptT ItpError IO) a
+
+> currentCont :: Interpreter Cont
+> currentCont = gets fst
+
+> currentDynEnv :: Interpreter (DynEnv Text Value)
+> currentDynEnv = gets (\(Cont _ _ dEnv, _) -> dEnv)
+
+> currentDump :: Interpreter ContDump
+> currentDump = gets snd
 
 Abstract Machine
 ================
 
-> eval :: Expr -> LexEnv Text Value -> Cont -> Interpreter Value
-> eval (AST.Var _ name) env k = Env.lookup env name >>= continue k
-> eval (AST.Const c) _ k = continue k (evalConst c)
+> eval :: Expr -> LexEnv Text Value -> Interpreter Value
+> eval (AST.Var _ name) env = lift (Env.lookup env name) >>= continue
+> eval (AST.Const c) _ = continue (evalConst c)
 >     where evalConst (AST.Int _ i) = Int i
 >           evalConst (AST.String _ s) = String s
 
-> continue :: Cont -> Value -> Interpreter Value
-> continue (Cont Halt _ _) v = return v
+> continue :: Value -> Interpreter Value
+> continue v = do k <- currentCont
+>                 case k of
+>                     Cont Halt _ _ -> return v
 
-> -- apply :: Value -> Cont -> [Value] -> Interpreter Value
+> -- apply :: Value -> [Value] -> Interpreter Value
 
-> interpret :: Expr -> LexEnv Text Value
->                   -> IO (Either ItpError Value, LexEnv Text Value)
-> interpret expr env = do res <- runExceptT (eval expr env =<< liftIO haltCont)
->                         return (res, env)
+> interpret :: LexEnv Text Value -> Expr -> IO (Either ItpError Value)
+> interpret env expr = let action = eval expr env
+>                      in do k <- haltCont
+>                            runExceptT (evalStateT action (k, emptyDump))
+
+> interpretStmt :: LexEnv Text Value -> Stmt -> IO (Either ItpError Value)
+> interpretStmt env (Expr expr) = interpret env expr
