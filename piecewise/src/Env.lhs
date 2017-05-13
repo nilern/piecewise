@@ -16,6 +16,7 @@ Environment Interface
 > class Environment e where
 >     bindings :: (Hashable k, Eq k) => e k v -> H.BasicHashTable k v
 >     parent :: (Hashable k, Eq k) => e k v -> Maybe (e k v)
+>     pushFrame :: (Hashable k, Eq k) => e k v -> IO (e k v)
 
 > lookup :: (Environment e, Hashable k, Eq k)
 >        => e k v -> k -> ExceptT (ItpError (BindingError k)) IO v
@@ -50,6 +51,7 @@ Lexical Environment
 >     bindings (GlobalEnv kvs) = kvs
 >     parent (LexEnv p _) = Just p
 >     parent (GlobalEnv _) = Nothing
+>     pushFrame p = LexEnv p <$> H.new
 
 Dynamic Environment
 -------------------
@@ -62,3 +64,4 @@ Dynamic Environment
 > instance Environment DynEnv where
 >     bindings (DynEnv _ kvs) = kvs
 >     parent (DynEnv p _) = p
+>     pushFrame p = DynEnv (Just p) <$> H.new
