@@ -8,7 +8,7 @@
 > import qualified AST (Expr(..), Const(..))
 > import AST (Expr, Stmt(..))
 > import qualified Env
-> import Env (LexEnv, DynEnv, BindingError)
+> import Env (BindingError, emptyDynEnv)
 > import qualified Util
 
 Value Representation
@@ -26,10 +26,16 @@ Errors
 
 > type ItpError = Util.ItpError (BindingError Text)
 
+Environments
+============
+
+> type LexEnv = Env.LexEnv Text Value
+> type DynEnv = Env.DynEnv Text Value
+
 Continuations
 =============
 
-> data Cont = Cont CExpr (LexEnv Text Value) (DynEnv Text Value)
+> data Cont = Cont CExpr LexEnv DynEnv
 
 > haltCont :: IO Cont
 > haltCont = Cont Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
@@ -58,31 +64,32 @@ Continuations
 Interpreter Monad
 =================
 
-> type Interpreter a = StateT (Cont, ContDump) (ExceptT ItpError IO) a
+> type Interpreter a = StateT (DynEnv, Cont, ContDump) (ExceptT ItpError IO) a
+
+> currentDynEnv :: Interpreter DynEnv
+> currentDynEnv = gets (\(e, _, _) -> e)
 
 > currentCont :: Interpreter Cont
-> currentCont = gets fst
-
-> currentDynEnv :: Interpreter (DynEnv Text Value)
-> currentDynEnv = gets (\(Cont _ _ dEnv, _) -> dEnv)
+> currentCont = gets (\(_, k, _) -> k)
 
 > currentDump :: Interpreter ContDump
-> currentDump = gets snd
+> currentDump = gets (\(_, _, pks) -> pks)
 
 > evalInterpreter :: Interpreter Value -> IO (Either ItpError Value)
 > evalInterpreter m = do k <- haltCont
->                        runExceptT (evalStateT m (k, emptyDump))
+>                        de <- emptyDynEnv
+>                        runExceptT (evalStateT m (de, k, emptyDump))
 
 Abstract Machine
 ================
 
-> eval :: Expr -> LexEnv Text Value -> Interpreter Value
+> eval :: Expr -> LexEnv -> Interpreter Value
 > eval (AST.Var _ name) env = lift (Env.lookup env name) >>= continue
 > eval (AST.Const c) _ = continue (evalConst c)
 >     where evalConst (AST.Int _ i) = Int i
 >           evalConst (AST.String _ s) = String s
 
-> evalStmt :: Stmt -> LexEnv Text Value -> Interpreter Value
+> evalStmt :: Stmt -> LexEnv -> Interpreter Value
 > evalStmt (Expr expr) env = eval expr env
 
 > continue :: Value -> Interpreter Value
@@ -93,8 +100,8 @@ Abstract Machine
 apply :: Value -> Value -> Interpreter Value
 apply (Fn ...) (Tuple args) = ...
 
-> interpret :: LexEnv Text Value -> Expr -> IO (Either ItpError Value)
+> interpret :: LexEnv -> Expr -> IO (Either ItpError Value)
 > interpret env expr = evalInterpreter (eval expr env)
 
-> interpretStmt :: LexEnv Text Value -> Stmt -> IO (Either ItpError Value)
+> interpretStmt :: LexEnv -> Stmt -> IO (Either ItpError Value)
 > interpretStmt env stmt = evalInterpreter (evalStmt stmt env)
