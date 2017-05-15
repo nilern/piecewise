@@ -2,7 +2,6 @@
 > import qualified Data.Text as T
 > import Control.Monad.State
 > import Control.Monad.Except
-> import Data.Foldable (traverse_)
 
 > import AST (Expr(..), Stmt)
 
@@ -21,10 +20,6 @@
 > bindings (Var _ name) = do uname <- rename name
 >                            modify (\(i, kvs) -> (i, (name, uname):kvs))
 > bindings (Const _) = return ()
-> bindings (Tuple _ vs) = traverse_ bindings vs
-> bindings (Array _ vs) = traverse_ bindings vs
-> bindings (Map _ kvs) = traverse_ (\(k, v) -> bindings k >> bindings v) kvs
-> bindings (Set _ vs) = traverse_ bindings vs
 > bindings e = throwError $ PatternError e
 
 > alphatize :: Expr -> Alphatization Expr

@@ -1,7 +1,6 @@
 > {-# LANGUAGE TupleSections #-}
 
 > module Interpreter (interpret, interpretStmt) where
-> import qualified Data.Text as T
 > import Data.Text (Text)
 > import Control.Monad.State
 > import Control.Monad.Except
@@ -82,7 +81,8 @@ Interpreter Monad
 >                             setCont (makeCont k)
 
 > popContFrame :: Interpreter ()
-> popContFrame = setCont =<< gets (\(_, (Cont (Just k') _ _ _), _) -> k')
+> popContFrame = do (_, (Cont (Just k) _ _ dEnv), pks) <- get
+>                   put (dEnv, k, pks)
 
 > currentDump :: Interpreter ContDump
 > currentDump = gets (\(_, _, pks) -> pks)
@@ -111,7 +111,7 @@ Abstract Machine
 > continue :: Value -> Interpreter Value
 > continue v = do k <- currentCont
 >                 case k of
->                     Cont _ (Assign name) lEnv dEnv ->
+>                     Cont _ (Assign name) lEnv _ ->
 >                         do lift (Env.insert lEnv name v)
 >                            popContFrame
 >                            continue v -- QUESTION: what to return here?

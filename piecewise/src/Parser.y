@@ -1,4 +1,6 @@
 {
+{-# LANGUAGE OverloadedStrings #-}
+
 module Parser (expr) where
 import Control.Monad.Except
 import qualified Data.Text as T
@@ -72,7 +74,8 @@ Simple : '(' Expr ')'                     { $2 }
        | '{' SemiColonList(BlockItem) '}' { extractBlock (startPos $1)
                                                          (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
-         { Fn (startPos $1) [([Tuple (startPos $1) []], reverse $2)] }
+         { let pos = startPos $1
+           in Fn pos [([Call pos (Var pos "tuple") []], reverse $2)] }
        | ident                            { let Tok _ name pos _ = $1
                                             in Var pos name }
        | Datum                            { $1 }
@@ -87,10 +90,18 @@ Prim : int    {% let Tok _ cs pos _ = $1
      | string { let Tok _ cs pos _ = $1 in String pos cs }
      | char   { let Tok _ cs pos _  = $1 in Char pos cs }
 
-Compound : '(' ExprList ')' { Tuple (startPos $1) (reverse $2) }
-         | '[' ExprList ']' { Array (startPos $1) (reverse $2) }
-         | '{' ExprList '}' { Set (startPos $1) (reverse $2) }
-         | '{' MapPairs '}' { Map (startPos $1) (reverse $2) }
+Compound : '(' ExprList ')' { let pos = (startPos $1)
+                              in Call pos (Var pos "tuple") (reverse $2) }
+         | '[' ExprList ']' { let pos = (startPos $1)
+                              in Call pos (Var pos "array") (reverse $2) }
+         | '{' ExprList '}' { let pos = (startPos $1)
+                              in Call pos (Var pos "set") (reverse $2) }
+         | '{' MapPairs '}' { let pos = startPos $1;
+                                  pair (a, b) =
+                                       let iPos = (position a)
+                                       in Call iPos (Var iPos "tuple") [a, b];
+                                  args = map pair (reverse $2)
+                              in Call pos (Var pos "map") args }
 
 Infix(l, op, r) : l op r { let Tok _ name pos _ = $2
                            in Call (position $1) (Var pos name) [$1, $3] }

@@ -7,10 +7,6 @@ data Expr = Fn Pos [([Expr], [Stmt])]
           | Call Pos Expr [Expr]
           | Var Pos T.Text
           | Const Const
-          | Tuple Pos [Expr]
-          | Array Pos [Expr]
-          | Map Pos [(Expr, Expr)]
-          | Set Pos [Expr]
           deriving Show
 
 data Const = Int Pos Int
@@ -45,7 +41,3 @@ instance Positioned Expr where
     position (Const (Int pos _)) = pos
     position (Const (String pos _)) = pos
     position (Const (Char pos _)) = pos
-    position (Tuple pos _) = pos
-    position (Array pos _) = pos
-    position (Map pos _) = pos
-    position (Set pos _) = pos
