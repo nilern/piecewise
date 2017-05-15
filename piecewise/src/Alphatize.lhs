@@ -3,7 +3,7 @@
 > import Control.Monad.State
 > import Control.Monad.Except
 
-> import AST (Expr(..), Stmt)
+> import AST (Expr(..), Stmt, Var(..))
 
 > data PatternError = PatternError Expr deriving Show
 
@@ -17,8 +17,9 @@
 >                  return $ UniqueName name i
 
 > bindings :: Expr -> Alphatization ()
-> bindings (Var _ name) = do uname <- rename name
->                            modify (\(i, kvs) -> (i, (name, uname):kvs))
+> bindings (Var (LexVar _ name)) =
+>     do uname <- rename name
+>        modify (\(i, kvs) -> (i, (name, uname):kvs))
 > bindings (Const _) = return ()
 > bindings e = throwError $ PatternError e
 

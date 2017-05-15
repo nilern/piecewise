@@ -33,7 +33,9 @@ tokens :-
     "="                   { \cs p q -> return $ Tok TokEq cs p q }
     "->"                  { \cs p q -> return $ Tok TokArrow_ cs p q }
     $digit $constituent*  { \cs p q -> return $ Tok TokInt cs p q }
-    $idchar $constituent* { \cs p q -> return $ Tok TokId cs p q }
+    \$ $constituent*
+        { \cs p q -> return $ Tok TokDynId (T.tail cs) p q :: Lexer Tok }
+    $idchar $constituent* { \cs p q -> return $ Tok TokLexId cs p q }
     $opchar $constituent*
         { \cs p q -> do { prec <- precedence cs;
                           return $ Tok (TokOp prec) cs p q } }
@@ -85,7 +87,8 @@ data Side = L | R deriving Show
 data Precedence = Zero | One | Two | Three | Four | Five | Six | Seven
                 deriving Show
 
-data TokTag = TokId
+data TokTag = TokLexId
+            | TokDynId
             | TokOp Precedence
             | TokInt
             | TokString

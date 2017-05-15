@@ -5,7 +5,7 @@
 > import Control.Monad.State
 > import Control.Monad.Except
 > import qualified AST (Expr(..), Const(..))
-> import AST (Expr, Stmt(..))
+> import AST (Expr, Stmt(..), Var(..))
 > import qualified Env
 > import Env (BindingError, emptyDynEnv)
 > import qualified Util
@@ -39,7 +39,8 @@ Continuations
 > haltCont :: IO Cont
 > haltCont = Cont Nothing Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
 
-> data CExpr = Assign Text
+> data CExpr = LexAssign Text
+>            | DynAssign Text
 >            | Halt
 
 > type Prompt = Int
@@ -87,32 +88,40 @@ Interpreter Monad
 > currentDump :: Interpreter ContDump
 > currentDump = gets (\(_, _, pks) -> pks)
 
-> evalInterpreter :: Interpreter Value -> IO (Either ItpError Value)
-> evalInterpreter m = do k <- haltCont
->                        de <- emptyDynEnv
->                        runExceptT (evalStateT m (de, k, emptyDump))
+> evalInterpreter :: Interpreter Value -> DynEnv -> IO (Either ItpError Value)
+> evalInterpreter m dEnv = do k <- haltCont
+>                             runExceptT (evalStateT m (dEnv, k, emptyDump))
 
 Abstract Machine
 ================
 
 > eval :: Expr -> LexEnv -> Interpreter Value
-> eval (AST.Var _ name) env = lift (Env.lookup env name) >>= continue
+> eval (AST.Var (LexVar _ name)) env = lift (Env.lookup env name) >>= continue
+> eval (AST.Var (DynVar _ name)) _ = do env <- currentDynEnv
+>                                       lift (Env.lookup env name) >>= continue
 > eval (AST.Const c) _ = continue (evalConst c)
 >     where evalConst (AST.Int _ i) = Int i
 >           evalConst (AST.String _ s) = String s
 
 > evalStmt :: Stmt -> LexEnv -> Interpreter Value
-> evalStmt (Def (AST.Var _ name) expr) env =
+> evalStmt (Def (AST.Var var) expr) env =
 >     do dEnv <- currentDynEnv
->        pushContFrame (\k -> (Cont (Just k) (Assign name) env dEnv))
+>        pushContFrame (\k -> (Cont (Just k) cexpr env dEnv))
 >        eval expr env
+>     where cexpr = case var of
+>                       LexVar _ name -> LexAssign name
+>                       DynVar _ name -> DynAssign name
 > evalStmt (Expr expr) env = eval expr env
 
 > continue :: Value -> Interpreter Value
 > continue v = do k <- currentCont
 >                 case k of
->                     Cont _ (Assign name) lEnv _ ->
+>                     Cont _ (LexAssign name) lEnv _ ->
 >                         do lift (Env.insert lEnv name v)
+>                            popContFrame
+>                            continue v -- QUESTION: what to return here?
+>                     Cont _ (DynAssign name) _ dEnv ->
+>                         do lift (Env.insert dEnv name v)
 >                            popContFrame
 >                            continue v -- QUESTION: what to return here?
 >                     Cont _ Halt _ _ -> return v
@@ -120,8 +129,8 @@ Abstract Machine
 apply :: Value -> Value -> Interpreter Value
 apply (Fn ...) (Tuple args) = ...
 
-> interpret :: LexEnv -> Expr -> IO (Either ItpError Value)
-> interpret env expr = evalInterpreter (eval expr env)
+> interpret :: LexEnv -> DynEnv -> Expr -> IO (Either ItpError Value)
+> interpret lEnv dEnv expr = evalInterpreter (eval expr lEnv) dEnv
 
-> interpretStmt :: LexEnv -> Stmt -> IO (Either ItpError Value)
-> interpretStmt env stmt = evalInterpreter (evalStmt stmt env)
+> interpretStmt :: LexEnv -> DynEnv -> Stmt -> IO (Either ItpError Value)
+> interpretStmt lEnv dEnv stmt = evalInterpreter (evalStmt stmt lEnv) dEnv

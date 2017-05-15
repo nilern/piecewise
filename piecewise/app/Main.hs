@@ -7,7 +7,7 @@ import Parser (expr)
 import Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
 import Indentation (WSLexer, runWSLexer, readToken)
 import Alphatize (PatternError)
-import Env (emptyLexEnv)
+import Env (emptyLexEnv, emptyDynEnv)
 import Interpreter (interpretStmt)
 
 data PwError = PwParseError LexicalError
@@ -27,8 +27,9 @@ main = do input <- strToInput <$> B.getContents
                   do traverse_ (putStrLn . show) (reverse tokList)
                      case Bf.first PwParseError (runWSLexer expr def input) of
                          Right asts ->
-                             do toplevel <- emptyLexEnv
-                                res <- traverse (interpretStmt toplevel) asts
+                             do lEnv <- emptyLexEnv
+                                dEnv <- emptyDynEnv
+                                res <- traverse (interpretStmt lEnv dEnv) asts
                                 print res
                          Left err ->
                              putStrLn $ "Lexical Error: " ++ show err

@@ -8,7 +8,7 @@ import Data.Text.Read (decimal)
 import Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..), Precedence(..),
               LexicalError(..), startPos)
 import Indentation (WSLexer, readToken)
-import AST (Expr(..), Const(..), Stmt(..), BlockItem(..), Pattern(..))
+import AST (Expr(..), Var(..), Const(..), Stmt(..))
 import Util (Pos, position, ParseError(..))
 }
 
@@ -19,30 +19,31 @@ import Util (Pos, position, ParseError(..))
 %error { parseError }
 
 %token
-      int    { Tok TokInt _ _ _ }
-      ident  { Tok TokId _ _ _ }
-      string { Tok TokString _ _ _ }
-      char   { Tok TokChar _ _ _ }
-      op0    { Tok (TokOp Zero) _ _ _ }
-      op1    { Tok (TokOp One) _ _ _ }
-      op2    { Tok (TokOp Two) _ _ _ }
-      op3    { Tok (TokOp Three) _ _ _ }
-      op4    { Tok (TokOp Four) _ _ _ }
-      op5    { Tok (TokOp Five) _ _ _ }
-      op6    { Tok (TokOp Six) _ _ _ }
-      op7    { Tok (TokOp Seven) _ _ _ }
-      "=>"   { Tok TokArrow _ _ _ }
-      '='    { Tok TokEq _ _ _ }
-      "+="   { Tok TokPlusEq _ _ _ }
-      "->"   { Tok TokArrow_ _ _ _ }
-      '('    { Tok (TokDelim Paren L) _ _ _ }
-      ')'    { Tok (TokDelim Paren R) _ _ _ }
-      '['    { Tok (TokDelim Bracket L) _ _ _ }
-      ']'    { Tok (TokDelim Bracket R) _ _ _ }
-      '{'    { Tok (TokDelim Brace L) _ _ _ }
-      '}'    { Tok (TokDelim Brace R) _ _ _ }
-      ';'    { Tok TokSemiColon _ _ _ }
-      ','    { Tok TokComma _ _ _ }
+      int      { Tok TokInt _ _ _ }
+      lexIdent { Tok TokLexId _ _ _ }
+      dynIdent { Tok TokDynId _ _ _ }
+      string   { Tok TokString _ _ _ }
+      char     { Tok TokChar _ _ _ }
+      op0      { Tok (TokOp Zero) _ _ _ }
+      op1      { Tok (TokOp One) _ _ _ }
+      op2      { Tok (TokOp Two) _ _ _ }
+      op3      { Tok (TokOp Three) _ _ _ }
+      op4      { Tok (TokOp Four) _ _ _ }
+      op5      { Tok (TokOp Five) _ _ _ }
+      op6      { Tok (TokOp Six) _ _ _ }
+      op7      { Tok (TokOp Seven) _ _ _ }
+      "=>"     { Tok TokArrow _ _ _ }
+      '='      { Tok TokEq _ _ _ }
+      "+="     { Tok TokPlusEq _ _ _ }
+      "->"     { Tok TokArrow_ _ _ _ }
+      '('      { Tok (TokDelim Paren L) _ _ _ }
+      ')'      { Tok (TokDelim Paren R) _ _ _ }
+      '['      { Tok (TokDelim Bracket L) _ _ _ }
+      ']'      { Tok (TokDelim Bracket R) _ _ _ }
+      '{'      { Tok (TokDelim Brace L) _ _ _ }
+      '}'      { Tok (TokDelim Brace R) _ _ _ }
+      ';'      { Tok TokSemiColon _ _ _ }
+      ','      { Tok TokComma _ _ _ }
 
 %%
 
@@ -63,7 +64,7 @@ Infix5 : Infix(Infix5, op5, Infix6) { $1 }
 Infix6 : Infix(Infix6, op6, Infix7) { $1 }
 Infix7 : Infix7 op7 App             { let Tok _ name pos _ = $2
                                       in Call (position $1)
-                                              (Var pos name)
+                                              (Var (LexVar pos name))
                                               [$1, extractApp (reverse $3)] }
        | App                        { extractApp (reverse $1) }
 
@@ -75,9 +76,11 @@ Simple : '(' Expr ')'                     { $2 }
                                                          (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
          { let pos = startPos $1
-           in Fn pos [([Call pos (Var pos "tuple") []], reverse $2)] }
-       | ident                            { let Tok _ name pos _ = $1
-                                            in Var pos name }
+           in Fn pos [([Call pos (Var (LexVar pos "tuple")) []], reverse $2)] }
+       | lexIdent                         { let Tok _ name pos _ = $1
+                                            in Var (LexVar pos name) }
+       | dynIdent                         { let Tok _ name pos _ = $1
+                                             in Var (DynVar pos name) }
        | Datum                            { $1 }
 
 Datum : Prim     { Const $1 }
@@ -91,20 +94,20 @@ Prim : int    {% let Tok _ cs pos _ = $1
      | char   { let Tok _ cs pos _  = $1 in Char pos cs }
 
 Compound : '(' ExprList ')' { let pos = (startPos $1)
-                              in Call pos (Var pos "tuple") (reverse $2) }
+                              in Call pos (Var (LexVar pos "tuple")) (reverse $2) }
          | '[' ExprList ']' { let pos = (startPos $1)
-                              in Call pos (Var pos "array") (reverse $2) }
+                              in Call pos (Var (LexVar pos "array")) (reverse $2) }
          | '{' ExprList '}' { let pos = (startPos $1)
-                              in Call pos (Var pos "set") (reverse $2) }
+                              in Call pos (Var (LexVar pos "set")) (reverse $2) }
          | '{' MapPairs '}' { let pos = startPos $1;
                                   pair (a, b) =
                                        let iPos = (position a)
-                                       in Call iPos (Var iPos "tuple") [a, b];
+                                       in Call iPos (Var (LexVar iPos "tuple")) [a, b];
                                   args = map pair (reverse $2)
-                              in Call pos (Var pos "map") args }
+                              in Call pos (Var (LexVar pos "map")) args }
 
 Infix(l, op, r) : l op r { let Tok _ name pos _ = $2
-                           in Call (position $1) (Var pos name) [$1, $3] }
+                           in Call (position $1) (Var (LexVar pos name)) [$1, $3] }
                 | r      { $1 }
 
 SemiColonList(p) : p                      { [$1] }
@@ -125,6 +128,10 @@ MapPairs : "->"                        { [] }
          | MapPairs ',' Expr "->" Expr { ($3, $5) : $1 }
 
 {
+data BlockItem = Clause [Expr] Stmt
+     | Stmt Stmt
+     deriving Show
+
 parseError :: Tok -> WSLexer a
 parseError tok = throwError $ ParseError (startPos tok) tok
 
