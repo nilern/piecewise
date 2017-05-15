@@ -7,8 +7,8 @@ import Parser (expr)
 import Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
 import Indentation (WSLexer, runWSLexer, readToken)
 import Alphatize (PatternError)
-import Env (emptyLexEnv, emptyDynEnv)
 import Interpreter (interpretStmt)
+import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
 data PwError = PwParseError LexicalError
              | PwPatternError PatternError

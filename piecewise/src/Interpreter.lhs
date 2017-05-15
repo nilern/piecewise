@@ -6,8 +6,10 @@
 > import Control.Monad.Except
 > import qualified AST (Expr(..), Const(..))
 > import AST (Expr, Stmt(..), Var(..))
-> import qualified Env
-> import Env (BindingError, emptyDynEnv)
+> import qualified Interpreter.Env as Env
+> import Interpreter.Env (BindingError)
+> import qualified Interpreter.Cont as Cont
+> import Interpreter.Cont (emptyDump)
 > import qualified Util
 
 Value Representation
@@ -34,33 +36,8 @@ Environments
 Continuations
 =============
 
-> data Cont = Cont (Maybe Cont) CExpr LexEnv DynEnv
-
-> haltCont :: IO Cont
-> haltCont = Cont Nothing Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
-
-> data CExpr = LexAssign Text
->            | DynAssign Text
->            | Halt
-
-> type Prompt = Int
-> data ContDump = CDump [(Prompt, Cont)]
-
-> emptyDump :: ContDump
-> emptyDump = CDump []
-
-> pushCont :: ContDump -> Prompt -> Cont -> ContDump
-> pushCont (CDump pks) p k = CDump ((p, k) : pks)
-
-> popCont :: ContDump -> Maybe (Cont, ContDump)
-> popCont (CDump ((_, k):pks)) = Just (k, CDump pks)
-> popCont (CDump []) = Nothing
-
-> splitDump :: ContDump -> Prompt -> Maybe (ContDump, ContDump)
-> splitDump (CDump pks) p =
->     case break ((== p) . fst) pks of
->         (_, []) -> Nothing
->         (pks', pks'') -> Just (CDump pks', CDump pks'')
+> type Cont = Cont.Cont Text Value
+> type ContDump = Cont.ContDump Text Value
 
 Interpreter Monad
 =================
@@ -69,6 +46,10 @@ Interpreter Monad
 
 > currentDynEnv :: Interpreter DynEnv
 > currentDynEnv = gets (\(e, _, _) -> e)
+
+> setDynEnv :: DynEnv -> Interpreter ()
+> setDynEnv dEnv = do (_, k, pks) <- get
+>                     put (dEnv, k, pks)
 
 > currentCont :: Interpreter Cont
 > currentCont = gets (\(_, k, _) -> k)
@@ -81,16 +62,12 @@ Interpreter Monad
 > pushContFrame makeCont = do k <- currentCont
 >                             setCont (makeCont k)
 
-> popContFrame :: Interpreter ()
-> popContFrame = do (_, (Cont (Just k) _ _ dEnv), pks) <- get
->                   put (dEnv, k, pks)
-
 > currentDump :: Interpreter ContDump
 > currentDump = gets (\(_, _, pks) -> pks)
 
 > evalInterpreter :: Interpreter Value -> DynEnv -> IO (Either ItpError Value)
-> evalInterpreter m dEnv = do k <- haltCont
->                             runExceptT (evalStateT m (dEnv, k, emptyDump))
+> evalInterpreter m dEnv =
+>     runExceptT (evalStateT m (dEnv, Cont.Halt, emptyDump))
 
 Abstract Machine
 ================
@@ -104,27 +81,30 @@ Abstract Machine
 >           evalConst (AST.String _ s) = String s
 
 > evalStmt :: Stmt -> LexEnv -> Interpreter Value
-> evalStmt (Def (AST.Var var) expr) env =
+> evalStmt (Def (AST.Var var) expr) lEnv =
 >     do dEnv <- currentDynEnv
->        pushContFrame (\k -> (Cont (Just k) cexpr env dEnv))
->        eval expr env
->     where cexpr = case var of
->                       LexVar _ name -> LexAssign name
->                       DynVar _ name -> DynAssign name
+>        pushContFrame (case var of
+>                           LexVar _ name ->
+>                               (\k -> Cont.LexAssign k lEnv dEnv name)
+>                           DynVar _ name ->
+>                               (\k -> Cont.DynAssign k lEnv dEnv name))
+>        eval expr lEnv
 > evalStmt (Expr expr) env = eval expr env
 
 > continue :: Value -> Interpreter Value
 > continue v = do k <- currentCont
 >                 case k of
->                     Cont _ (LexAssign name) lEnv _ ->
+>                     Cont.LexAssign k' lEnv dEnv name ->
 >                         do lift (Env.insert lEnv name v)
->                            popContFrame
+>                            setCont k'
+>                            setDynEnv dEnv
 >                            continue v -- QUESTION: what to return here?
->                     Cont _ (DynAssign name) _ dEnv ->
+>                     Cont.DynAssign k' _ dEnv name ->
 >                         do lift (Env.insert dEnv name v)
->                            popContFrame
+>                            setCont k'
+>                            setDynEnv dEnv
 >                            continue v -- QUESTION: what to return here?
->                     Cont _ Halt _ _ -> return v
+>                     Cont.Halt -> return v
 
 apply :: Value -> Value -> Interpreter Value
 apply (Fn ...) (Tuple args) = ...

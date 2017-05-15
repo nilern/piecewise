@@ -1,6 +1,7 @@
-> module Env (Env.lookup, insert, BindingError(..),
->             LexEnv, emptyLexEnv,
->             DynEnv, emptyDynEnv) where
+> module Interpreter.Env (lookup, insert, BindingError(..),
+>                         LexEnv, emptyLexEnv,
+>                         DynEnv, emptyDynEnv) where
+> import Prelude hiding (lookup)
 > import qualified Data.HashTable.IO as H
 > import Data.Hashable (Hashable)
 > import Control.Monad.Except
@@ -25,7 +26,7 @@ Environment Interface
 >        case ov of
 >            Just value -> return value
 >            Nothing -> case parent env of
->                           Just p-> Env.lookup p name
+>                           Just p-> lookup p name
 >                           Nothing -> throwError (BindingError (Unbound name))
 
 > insert :: (Environment e, Hashable k, Eq k)
