@@ -35,12 +35,13 @@ Environments
 Continuations
 =============
 
-> data Cont = Cont CExpr LexEnv DynEnv
+> data Cont = Cont (Maybe Cont) CExpr LexEnv DynEnv
 
 > haltCont :: IO Cont
-> haltCont = Cont Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
+> haltCont = Cont Nothing Halt <$> Env.emptyLexEnv <*> Env.emptyDynEnv
 
-> data CExpr = Halt
+> data CExpr = Assign Text
+>            | Halt
 
 > type Prompt = Int
 > data ContDump = CDump [(Prompt, Cont)]
@@ -72,6 +73,17 @@ Interpreter Monad
 > currentCont :: Interpreter Cont
 > currentCont = gets (\(_, k, _) -> k)
 
+> setCont :: Cont -> Interpreter ()
+> setCont k = do (dEnv, _, pks) <- get
+>                put (dEnv, k, pks)
+
+> pushContFrame :: (Cont -> Cont) -> Interpreter ()
+> pushContFrame makeCont = do k <- currentCont
+>                             setCont (makeCont k)
+
+> popContFrame :: Interpreter ()
+> popContFrame = setCont =<< gets (\(_, (Cont (Just k') _ _ _), _) -> k')
+
 > currentDump :: Interpreter ContDump
 > currentDump = gets (\(_, _, pks) -> pks)
 
@@ -90,12 +102,20 @@ Abstract Machine
 >           evalConst (AST.String _ s) = String s
 
 > evalStmt :: Stmt -> LexEnv -> Interpreter Value
+> evalStmt (Def (AST.Var _ name) expr) env =
+>     do dEnv <- currentDynEnv
+>        pushContFrame (\k -> (Cont (Just k) (Assign name) env dEnv))
+>        eval expr env
 > evalStmt (Expr expr) env = eval expr env
 
 > continue :: Value -> Interpreter Value
 > continue v = do k <- currentCont
 >                 case k of
->                     Cont Halt _ _ -> return v
+>                     Cont _ (Assign name) lEnv dEnv ->
+>                         do lift (Env.insert lEnv name v)
+>                            popContFrame
+>                            continue v -- QUESTION: what to return here?
+>                     Cont _ Halt _ _ -> return v
 
 apply :: Value -> Value -> Interpreter Value
 apply (Fn ...) (Tuple args) = ...
