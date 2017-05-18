@@ -1,13 +1,13 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser (expr) where
+module Parsing.Parser (expr) where
 import Control.Monad.Except
 import qualified Data.Text as T
 import Data.Text.Read (decimal)
-import Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..), Precedence(..),
-              LexicalError(..), startPos)
-import Indentation (WSLexer, readToken)
+import Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
+                      Precedence(..), LexicalError(..), startPos)
+import Parsing.Indentation (WSLexer, readToken)
 import AST (Expr(..), Var(..), Const(..), Stmt(..))
 import Util (Pos, position, ParseError(..))
 }

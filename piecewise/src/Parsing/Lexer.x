@@ -1,9 +1,11 @@
 {
 {-# LANGUAGE OverloadedStrings #-}
 
-module Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..), Precedence(..),
-              Input, LexicalError, charPos,
-              strToInput, startPos, Lexer, Lexer.lex, readToken) where
+module Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
+                      Precedence(..),
+                      Input, LexicalError, charPos,
+                      strToInput, startPos,
+                      Lexer, Parsing.Lexer.lex, readToken) where
 import Data.Function ((&))
 import Data.Word (Word8)
 import Data.Default

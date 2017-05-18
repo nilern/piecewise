@@ -3,9 +3,9 @@ import Data.Default (def)
 import Data.Foldable (traverse_)
 import qualified Data.Bifunctor as Bf
 import qualified Data.ByteString as B
-import Parser (expr)
-import Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
-import Indentation (WSLexer, runWSLexer, readToken)
+import Parsing.Parser (expr)
+import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
+import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import Alphatize (PatternError)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)

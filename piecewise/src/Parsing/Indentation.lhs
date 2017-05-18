@@ -1,6 +1,6 @@
 > {-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
 
-> module Indentation (WSLexer, runWSLexer, readToken) where
+> module Parsing.Indentation (WSLexer, runWSLexer, readToken) where
 > import Control.Monad.State
 > import Control.Monad.Except
 > import Data.List (uncons)
@@ -8,9 +8,9 @@
 > import Data.Sequence (ViewL(..), (|>))
 > import Data.Default
 > import Util (Pos(..), ParseError(..))
-> import qualified Lexer
-> import Lexer (Lexer, Input, Tok(..), TokTag(..), Delimiter, Side(..),
->               Delimiter(..), LexicalError, charPos)
+> import qualified Parsing.Lexer as Lexer
+> import Parsing.Lexer (Lexer, Input, Tok(..), TokTag(..), Delimiter, Side(..),
+>                       Delimiter(..), LexicalError, charPos)
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional
 state.
