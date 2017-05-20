@@ -1,0 +1,13 @@
+
+Queue = {
+    empty = tag :Queue (List.empty, List.empty)
+    empty? (tag :Queue (xs, _)) = empty? xs
+    push (tag :Queue (xs, ys)) v = normalize (tag :Queue (xs, v::ys)
+    peek (tag :Queue (xs, _)) = first xs
+    pop (tag :Queue (xs, ys)) = normalize (tag :Queue (rest xs, ys))
+
+    normalize (tag :Queue ([], ys)) = tag :Queue (reverse ys, List.empty)
+    normalize (queue : :Queue) = queue
+
+    @export {:empty, :empty?, :push, :peek, :pop}
+}

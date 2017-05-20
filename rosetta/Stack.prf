@@ -1,0 +1,8 @@
+
+Stack = {
+    push (stack : :Vec) elem = conj stack elem
+    peek (stack : :Vec) = last stack
+    pop (stack : :Vec) = butlast stack
+
+    @export {:push, :peek, :pop}
+}
