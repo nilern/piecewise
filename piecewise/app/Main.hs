@@ -6,12 +6,14 @@ import qualified Data.ByteString as B
 import Parsing.Parser (expr)
 import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
+import HoistAugs (ReAssignment, hoistAugStmts)
 import Alphatize (PatternError)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
 data PwError = PwParseError LexicalError
              | PwPatternError PatternError
+             | PwHoistError ReAssignment
              deriving Show
 
 tokenize :: [Tok] -> WSLexer [Tok]
@@ -29,8 +31,13 @@ main = do input <- strToInput <$> B.getContents
                          Right asts ->
                              do lEnv <- emptyLexEnv
                                 dEnv <- emptyDynEnv
-                                res <- traverse (interpretStmt lEnv dEnv) asts
-                                print res
+                                case hoistAugStmts asts of
+                                    Right asts' ->
+                                        do res <- (traverse (interpretStmt lEnv dEnv)
+                                                            asts')
+                                           print res
+                                    Left err ->
+                                        putStrLn ("Hoist Error:" ++ show err)
                          Left err ->
                              putStrLn $ "Lexical Error: " ++ show err
               Left err ->
