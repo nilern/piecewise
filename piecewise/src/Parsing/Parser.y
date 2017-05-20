@@ -8,7 +8,7 @@ import Data.Text.Read (decimal)
 import Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
                       Precedence(..), LexicalError(..), startPos)
 import Parsing.Indentation (WSLexer, readToken)
-import AST (Expr(..), Var(..), Const(..), Stmt(..))
+import Parsing.CST (Expr(..), Var(..), Const(..), Stmt(..))
 import Util (Pos, position, ParseError(..))
 }
 
@@ -63,7 +63,7 @@ Infix4 : Infix(Infix4, op4, Infix5) { $1 }
 Infix5 : Infix(Infix5, op5, Infix6) { $1 }
 Infix6 : Infix(Infix6, op6, Infix7) { $1 }
 Infix7 : Infix7 op7 App             { let Tok _ name pos _ = $2
-                                      in Call (position $1)
+                                      in App (position $1)
                                               (Var (LexVar pos name))
                                               [$1, extractApp (reverse $3)] }
        | App                        { extractApp (reverse $1) }
@@ -76,7 +76,9 @@ Simple : '(' Expr ')'                     { $2 }
                                                          (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
          { let pos = startPos $1
-           in Fn pos [([Call pos (Var (LexVar pos "tuple")) []], reverse $2)] }
+           in Fn pos [([App pos (Var (LexVar pos "tuple")) []],
+                       Const (Keyword pos "True"),
+                       Block pos (reverse $2))] }
        | lexIdent                         { let Tok _ name pos _ = $1
                                             in Var (LexVar pos name) }
        | dynIdent                         { let Tok _ name pos _ = $1
@@ -94,20 +96,20 @@ Prim : int    {% let Tok _ cs pos _ = $1
      | char   { let Tok _ cs pos _  = $1 in Char pos cs }
 
 Compound : '(' ExprList ')' { let pos = (startPos $1)
-                              in Call pos (Var (LexVar pos "tuple")) (reverse $2) }
+                              in App pos (Var (LexVar pos "tuple")) (reverse $2) }
          | '[' ExprList ']' { let pos = (startPos $1)
-                              in Call pos (Var (LexVar pos "array")) (reverse $2) }
+                              in App pos (Var (LexVar pos "array")) (reverse $2) }
          | '{' ExprList '}' { let pos = (startPos $1)
-                              in Call pos (Var (LexVar pos "set")) (reverse $2) }
+                              in App pos (Var (LexVar pos "set")) (reverse $2) }
          | '{' MapPairs '}' { let pos = startPos $1;
                                   pair (a, b) =
                                        let iPos = (position a)
-                                       in Call iPos (Var (LexVar iPos "tuple")) [a, b];
+                                       in App iPos (Var (LexVar iPos "tuple")) [a, b];
                                   args = map pair (reverse $2)
-                              in Call pos (Var (LexVar pos "map")) args }
+                              in App pos (Var (LexVar pos "map")) args }
 
 Infix(l, op, r) : l op r { let Tok _ name pos _ = $2
-                           in Call (position $1) (Var (LexVar pos name)) [$1, $3] }
+                           in App (position $1) (Var (LexVar pos name)) [$1, $3] }
                 | r      { $1 }
 
 SemiColonList(p) : p                      { [$1] }
@@ -138,7 +140,9 @@ parseError tok = throwError $ ParseError (startPos tok) tok
 extractBlock :: Pos -> [BlockItem] -> Expr
 extractBlock pos items @ ((Clause _ _):_) = Fn pos (clauses items)
     where clauses ((Clause formals stmt):items) =
-              (formals, stmt : map unwrap stmts) : clauses items'
+              (formals, Const (Keyword pos "True"),
+               Block (position stmt) (stmt : map unwrap stmts))
+              : clauses items'
               where (stmts, items') = span isStmt items
                     isStmt (Stmt _) = True
                     isStmt (Clause _ _) = False
@@ -150,10 +154,12 @@ extractBlock pos items @ ((Stmt _):_) = Block pos (parseStmts items)
 
 extractApp :: [Expr] -> Expr
 extractApp [e] = e
-extractApp (f:args) = Call (position f) f args
+extractApp (f:args) = App (position f) f args
 
 extractDef :: (Expr -> Expr -> Stmt) -> [Expr] -> Expr -> Stmt
 extractDef make [pat] expr = make pat expr
 extractDef make (pat:formals) expr =
-    extractDef make [pat] (Fn (position pat) [(formals, [Expr expr])])
+    let pos = position pat
+    in extractDef make [pat] (Fn pos [(formals, Const (Keyword pos "True"),
+                                       expr)])
 }

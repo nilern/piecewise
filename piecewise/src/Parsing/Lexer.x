@@ -16,7 +16,7 @@ import Data.Text.Encoding (decodeUtf8)
 import Control.Monad.State
 import Control.Monad.Except
 import Util (Pos(..), nextPos, ParseError(..))
-import AST (Expr)
+import Parsing.CST (Expr)
 }
 
 $delimiter = ["'`\(\)\[\]\{\}]

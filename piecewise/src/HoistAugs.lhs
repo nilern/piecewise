@@ -41,24 +41,34 @@
 > startState :: [Stmt] -> HoistingState
 > startState stmts = HState stmts (BlockBuilder [])
 
-Find the definition of `name` in `rstmts`. We can just take the first one.
+Find the definition of `name` in `rstmts`. We can just take the first one since
+no BlockBuilder is created without first checking that one does not already
+exist.
 
 > lookupDef :: BlockBuilder -> Text -> Maybe Stmt
 > lookupDef (BlockBuilder ((def @ (Def dname _))::_)) name | dname == name =
 >     Just def
-> lookupDef (BlockBuilder (_::stmts))
+> lookupDef (BlockBuilder (_::rstmts')) = lookupDef rstmts'
 > lookupDef (BlockBuilder []) _ = Nothing
 
 Add a def for `name` to `rstmts`. If one already exists, signal an error:
 
 > assocDef :: BlockBuilder -> Text -> Expr -> Either ReAssignment [Stmt]
-> assocDef rstmts name val = Def name val : rstmts
+> assocDef rstmts name val =
+>     case lookupDef rstmts name of
+>         Nothing -> pure (Def name val : rstmts)
+>         Just _ -> throwError (ReAssignment (Def name val))
 
 Merge `method` into the definition of `name` in `rstmts`. If a definition is not
 found, it is created using `name` from a parent scope:
 
 > augmentDef :: [Stmt] -> Text -> Expr -> [Stmt]
 > augmentDef rstmts name method =
+> augmentDef (BlockBuilder ((def @ (Def dname expr))::_)) name method
+>     | dname == name = (Def dname expr)
+>     Just def
+> lookupDef (BlockBuilder (_::rstmts')) = lookupDef rstmts'
+> lookupDef (BlockBuilder []) _ = Nothing
 
 > type Hoisting a = StateT HoistingState (ExceptT ReAssignment Identity) a
 
