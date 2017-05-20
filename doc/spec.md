@@ -158,23 +158,53 @@ QUESTION: what about ``?
 
 # IRs
 
-    Const = Int isize
-          | Float fsize
-          | Char char
-          | String String
-          | Symbol Symbol
+    data Const = Int IntInf
+               | Float FloatInf
+               | Char Char
+               | String UTFString
+               | Symbol UTFString
+
+    data Var = LexVar UTFString
+             | DynVar UTFString
+
+    data AVar = GlobVar Name
+              | LexVar Name
+              | DynVar Name
+
+    data Name = Name UTFString
+              | UniqueName UTFString Int
+
+    module CST where
+        data Expr = Fn (Expr+, Expr, Expr)+
+                  | Block Stmt+
+                  | App Expr Expr+
+                  | PrimApp PrimOp Expr+
+                  | Var Var
+                  | Const Const
+
+        data Stmt = Def Expr Expr
+                  | AugDef Expr Expr
+                  | Expr Expr
+
+    module AST var where
+        data Expr = Fn [(var+, Expr, Expr)]
+                  | Block Stmt+
+                  | If Expr Expr Expr
+                  | App Expr Expr+
+                  | PrimApp PrimOp Expr+
+                  | Var var
+                  | Const Const
+
+        data Stmt = Def var Expr
+                  | Expr Expr
 
 # Compilation Pipeline
 
     Text
     -(Lexer)-> Tokens -(WSLexer)-> Tokens
-    -(parse)-> AST
-    -(Expand)-> AST
-    -(Flatten)-> FAST
-    -(CPSConvert)-> CPS
-    -(Liveness)-> CPS
-    -(RegAlloc)-> RCPS
-    -(bytecode::Assembler)-> TypedRef<CodeObject>
+    -(parse)-> CST -(hoistAugs)-> CST
+    -(expandPatterns)-> AST Var
+    -(alphatize)-> AST AVar
 
 ## Lexer
 
