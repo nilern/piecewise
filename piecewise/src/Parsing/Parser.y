@@ -9,7 +9,7 @@ import Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
                       Precedence(..), LexicalError(..), startPos)
 import Parsing.Indentation (WSLexer, readToken)
 import Parsing.CST (Expr(..), Var(..), Const(..), Stmt(..))
-import Util (Pos, position, ParseError(..))
+import Util (Name(PlainName), Pos, position, ParseError(..))
 }
 
 %name expr
@@ -64,7 +64,7 @@ Infix5 : Infix(Infix5, op5, Infix6) { $1 }
 Infix6 : Infix(Infix6, op6, Infix7) { $1 }
 Infix7 : Infix7 op7 App             { let Tok _ name pos _ = $2
                                       in App (position $1)
-                                              (Var (LexVar pos name))
+                                              (Var (LexVar pos (PlainName name)))
                                               [$1, extractApp (reverse $3)] }
        | App                        { extractApp (reverse $1) }
 
@@ -76,14 +76,14 @@ Simple : '(' Expr ')'                     { $2 }
                                                          (reverse $2) }
        | '[' SemiColonList(Stmt) ']'
          { let pos = startPos $1
-           in Fn pos [([App pos (Var (LexVar pos "tuple")) []],
+           in Fn pos [([App pos (Var (LexVar pos (PlainName "tuple"))) []],
                        Const (Keyword pos "True"),
                        Block pos (reverse $2))] }
-       | lexIdent                         { let Tok _ name pos _ = $1
-                                            in Var (LexVar pos name) }
-       | dynIdent                         { let Tok _ name pos _ = $1
-                                             in Var (DynVar pos name) }
-       | Datum                            { $1 }
+       | lexIdent { let Tok _ name pos _ = $1
+                    in Var (LexVar pos (PlainName name)) }
+       | dynIdent { let Tok _ name pos _ = $1
+                    in Var (DynVar pos (PlainName name)) }
+       | Datum    { $1 }
 
 Datum : Prim     { Const $1 }
       | Compound { $1 }
@@ -96,20 +96,20 @@ Prim : int    {% let Tok _ cs pos _ = $1
      | char   { let Tok _ cs pos _  = $1 in Char pos cs }
 
 Compound : '(' ExprList ')' { let pos = (startPos $1)
-                              in App pos (Var (LexVar pos "tuple")) (reverse $2) }
+                              in App pos (Var (LexVar pos (PlainName "tuple"))) (reverse $2) }
          | '[' ExprList ']' { let pos = (startPos $1)
-                              in App pos (Var (LexVar pos "array")) (reverse $2) }
+                              in App pos (Var (LexVar pos (PlainName "array"))) (reverse $2) }
          | '{' ExprList '}' { let pos = (startPos $1)
-                              in App pos (Var (LexVar pos "set")) (reverse $2) }
+                              in App pos (Var (LexVar pos (PlainName "set"))) (reverse $2) }
          | '{' MapPairs '}' { let pos = startPos $1;
                                   pair (a, b) =
                                        let iPos = (position a)
-                                       in App iPos (Var (LexVar iPos "tuple")) [a, b];
+                                       in App iPos (Var (LexVar iPos (PlainName "tuple"))) [a, b];
                                   args = map pair (reverse $2)
-                              in App pos (Var (LexVar pos "map")) args }
+                              in App pos (Var (LexVar pos (PlainName "map"))) args }
 
 Infix(l, op, r) : l op r { let Tok _ name pos _ = $2
-                           in App (position $1) (Var (LexVar pos name)) [$1, $3] }
+                           in App (position $1) (Var (LexVar pos (PlainName name))) [$1, $3] }
                 | r      { $1 }
 
 SemiColonList(p) : p                      { [$1] }

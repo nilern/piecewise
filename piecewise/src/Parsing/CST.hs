@@ -1,7 +1,7 @@
 module Parsing.CST (Stmt(..), Expr(..), Var(..), Const(..)) where
 import Data.Text (Text)
 import Ops (Primop)
-import Util (Pos, Positioned(..))
+import Util (Name, Pos, Positioned(..))
 
 data Stmt = Def Expr Expr
           | AugDef Expr Expr
@@ -16,8 +16,9 @@ data Expr = Fn Pos [([Expr], Expr, Expr)]
           | Const Const
           deriving Show
 
-data Var = LexVar Pos Text
-         | DynVar Pos Text
+data Var = LexVar Pos Name
+         | GlobVar Pos Name
+         | DynVar Pos Name
          deriving Show
 
 data Const = Int Pos Int

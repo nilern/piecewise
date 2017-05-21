@@ -11,6 +11,7 @@
 > import qualified Interpreter.Cont as Cont
 > import Interpreter.Cont (emptyDump)
 > import qualified Util
+> import Util (Name)
 
 Value Representation
 ====================
@@ -25,19 +26,19 @@ Value Representation
 Errors
 ======
 
-> type ItpError = Util.ItpError (BindingError Text)
+> type ItpError = Util.ItpError (BindingError Name)
 
 Environments
 ============
 
-> type LexEnv = Env.LexEnv Text Value
-> type DynEnv = Env.DynEnv Text Value
+> type LexEnv = Env.LexEnv Name Value
+> type DynEnv = Env.DynEnv Name Value
 
 Continuations
 =============
 
-> type Cont = Cont.Cont Text Value
-> type ContDump = Cont.ContDump Text Value
+> type Cont = Cont.Cont Name Value
+> type ContDump = Cont.ContDump Name Value
 
 Interpreter Monad
 =================

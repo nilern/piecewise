@@ -1,13 +1,13 @@
 > module Interpreter.Cont
 >        (Cont(..), ContDump, emptyDump, pushCont, popCont, splitDump) where
-> import Data.Text (Text)
 > import Interpreter.Env (LexEnv, DynEnv)
+> import Util (Name)
 
 Continuations
 =============
 
-> data Cont k v = LexAssign (Cont k v) (LexEnv k v) (DynEnv k v) Text
->               | DynAssign (Cont k v) (LexEnv k v) (DynEnv k v) Text
+> data Cont k v = LexAssign (Cont k v) (LexEnv k v) (DynEnv k v) Name
+>               | DynAssign (Cont k v) (LexEnv k v) (DynEnv k v) Name
 >               | Halt
 
 Dumps
