@@ -1,6 +1,6 @@
 > {-# LANGUAGE ViewPatterns #-}
 
-> module Alphatize (alphatize, alphatizeStmt, runAlphatization) where
+> module Alphatize (alphatize, alphatizeStmt, runAlphatization, AlphError) where
 > import Prelude hiding (lookup)
 > import Data.Maybe (fromMaybe)
 > import qualified Data.Map as Map

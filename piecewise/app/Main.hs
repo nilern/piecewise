@@ -1,16 +1,19 @@
 module Main where
+import Data.List (intercalate)
 import Data.Default (def)
 import Data.Foldable (traverse_)
 import qualified Data.Bifunctor as Bf
 import qualified Data.ByteString as B
 import Parsing.Parser (expr)
-import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError)
+import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError, Input)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
-import Alphatize (alphatizeStmt, runAlphatization)
+import Parsing.CST (Stmt)
+import Alphatize (alphatizeStmt, runAlphatization, AlphError)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
 data PwError = PwParseError LexicalError
+             | PwAlphError AlphError
              deriving Show
 
 tokenize :: [Tok] -> WSLexer [Tok]
@@ -19,23 +22,28 @@ tokenize toks = do tok <- readToken
                        Tok TokEOF _ _ _ -> return (tok : toks)
                        Tok _ _ _ _ -> tokenize (tok : toks)
 
+act :: Input -> Either PwError ([Stmt], [String])
+act input =
+    do tokens <- Bf.first PwParseError (runWSLexer (tokenize []) def input)
+       let tokstrs = map show (reverse tokens)
+       cstStmts <- Bf.first PwParseError (runWSLexer expr def input)
+       let c = 0
+       (aCstStmts, _) <- Bf.first PwAlphError
+                                   (runAlphatization
+                                    (traverse alphatizeStmt cstStmts) c)
+       return (aCstStmts,
+               [intercalate "\n" tokstrs,
+                intercalate "\n" (map show cstStmts),
+                intercalate "\n" (map show aCstStmts)])
+
 main :: IO ()
 main = do input <- strToInput <$> B.getContents
-          case runWSLexer (tokenize []) def input of
-              Right tokList ->
-                  do traverse_ (putStrLn . show) (reverse tokList)
-                     case Bf.first PwParseError (runWSLexer expr def input) of
-                         Right asts ->
-                            let counter = 0
-                            in case runAlphatization (traverse alphatizeStmt asts) counter of
-                                   Right asts' ->
-                                       do print asts'
-                                          lEnv <- emptyLexEnv
-                                          dEnv <- emptyDynEnv
-                                          traverse (interpretStmt lEnv dEnv) asts >>= print
-                                   Left err ->
-                                       print err
-                         Left err ->
-                             putStrLn $ "Lexical Error: " ++ show err
-              Left err ->
-                  putStrLn $ "Lexical Error: " ++ show err
+          case act input of
+              Right (stmts, output) ->
+                  do traverse_ putStrLn output
+                     print stmts
+                     lEnv <- emptyLexEnv
+                     dEnv <- emptyDynEnv
+                     value <- traverse (interpretStmt lEnv dEnv) stmts
+                     print value
+              Left err -> putStrLn ("Compilation Error: " ++ show err)
