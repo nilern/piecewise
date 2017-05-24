@@ -16,12 +16,13 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
-                       Parsing.CST, Ops, Alphatize,
+                       Parsing.CST, Ops, Alphatize, PatExpand, AST,
                        Interpreter, Interpreter.Env, Interpreter.Cont
   other-modules:       Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
                        , mtl >= 2.2.0
+                       , extensible-effects
                        , bytestring >= 0.10
                        , text >= 1.2.0
                        , containers >= 0.5.7

@@ -38,9 +38,6 @@
 
 > type Env = [Map Name Var]
 
-TODO: Parameterize the code to use either a magical (global hashtable) or
-      a consistent (regular block) toplevel.
-
 > lookup :: Pos -> Name -> Alphatization Var
 > lookup pos name = asks find
 >     where find (kvs:p) = fromMaybe (find p) (Map.lookup name kvs)

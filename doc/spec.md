@@ -202,9 +202,11 @@ QUESTION: what about ``?
 
     Text
     -(Lexer)-> Tokens -(WSLexer)-> Tokens
-    -(parse)-> CST -(hoistAugs)-> CST
-    -(expandPatterns)-> AST Var
-    -(alphatize)-> AST AVar
+    -(parse)-> CST
+    -(desugarScope)-> AST
+
+desugarScope is an alphatization pass that embeds pattern expansion and
+AugDef hoisting.
 
 ## Lexer
 

@@ -16,9 +16,9 @@ data Expr = Fn Pos [([Expr], Expr, Expr)]
           | Const Const
           deriving Show
 
-data Var = LexVar Pos Name
-         | GlobVar Pos Name
-         | DynVar Pos Name
+data Var = LexVar Pos Name  -- in lexical environment (register or closure)
+         | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
+         | DynVar Pos Name  -- in dynamic environment intertwined with stack
          deriving Show
 
 data Const = Int Pos Int
