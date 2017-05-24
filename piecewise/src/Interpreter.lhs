@@ -4,8 +4,10 @@
 > import Data.Text (Text)
 > import Control.Monad.State
 > import Control.Monad.Except
-> import qualified Parsing.CST as CST (Expr(..), Const(..))
-> import Parsing.CST (Expr, Stmt(..), Var(..))
+> import qualified Parsing.CST as CST (Const(..))
+> import Parsing.CST (Var(..))
+> import qualified AST (Expr(..))
+> import AST (Expr, Stmt(..))
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (BindingError)
 > import qualified Interpreter.Cont as Cont
@@ -74,15 +76,15 @@ Abstract Machine
 ================
 
 > eval :: Expr -> LexEnv -> Interpreter Value
-> eval (CST.Var (LexVar _ name)) env = lift (Env.lookup env name) >>= continue
-> eval (CST.Var (DynVar _ name)) _ = do env <- currentDynEnv
+> eval (AST.Var (LexVar _ name)) env = lift (Env.lookup env name) >>= continue
+> eval (AST.Var (DynVar _ name)) _ = do env <- currentDynEnv
 >                                       lift (Env.lookup env name) >>= continue
-> eval (CST.Const c) _ = continue (evalConst c)
+> eval (AST.Const c) _ = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
 >           evalConst (CST.String _ s) = String s
 
 > evalStmt :: Stmt -> LexEnv -> Interpreter Value
-> evalStmt (Def (CST.Var var) expr) lEnv =
+> evalStmt (Def var expr) lEnv =
 >     do dEnv <- currentDynEnv
 >        pushContFrame (case var of
 >                           LexVar _ name ->

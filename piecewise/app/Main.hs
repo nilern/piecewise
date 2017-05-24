@@ -12,13 +12,12 @@ import Parsing.CST (Stmt)
 import qualified AST
 import AST (Jump(..))
 import PatExpand (expandStmtList, runExpansion, PatError)
-import Alphatize (alphatizeStmt, runAlphatization, AlphError)
+import Alphatize (alphatizeStmt, runAlphatization)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
 data PwError = PwParseError LexicalError
              | PwPatError PatError
-             | PwAlphError AlphError
              deriving Show
 
 tokenize :: [Tok] -> WSLexer [Tok]
@@ -27,9 +26,7 @@ tokenize toks = do tok <- readToken
                        Tok TokEOF _ _ _ -> return (tok : toks)
                        Tok _ _ _ _ -> tokenize (tok : toks)
 
--- TODO: plug in result of pattern expansion as input to alphatize
-
-act :: Input -> Either PwError ([Stmt], [String])
+act :: Input -> Either PwError ([AST.Stmt], [String])
 act input =
     do tokens <- Bf.first PwParseError (runWSLexer (tokenize []) def input)
        let tokstrs = map show (reverse tokens)
@@ -38,14 +35,13 @@ act input =
        (c', astStmts::[AST.Stmt]) <- Bf.first PwPatError
                                   (runExpansion (expandStmtList cstStmts)
                                                 ThrowBindErr c)
-       (aCstStmts, _) <- Bf.first PwAlphError
-                                  (runAlphatization
-                                   (traverse alphatizeStmt cstStmts) c')
-       return (aCstStmts,
+       let (_, alphStmts::[AST.Stmt]) = runAlphatization
+                                            (traverse alphatizeStmt astStmts) c'
+       return (alphStmts,
                [concatMap (++ "\n") tokstrs,
                 concatMap ((++ "\n") . show) cstStmts,
                 concatMap ((++ "\n") . show) astStmts,
-                concatMap ((++ "\n") . show) aCstStmts])
+                concatMap ((++ "\n") . show) alphStmts])
 
 main :: IO ()
 main = do input <- strToInput <$> B.getContents

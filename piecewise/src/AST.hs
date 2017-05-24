@@ -9,7 +9,7 @@ data Stmt = Def Var Expr
           | Expr Expr
           deriving Show
 
-data Expr = Fn Pos [([Name], Expr)]
+data Expr = Fn Pos [([Name], Expr)] -- FIXME: Fn Pos [([Var], Expr)]
           | Block Pos [Stmt]
           | App Pos Expr [Expr]
           | PrimApp Pos Primop [Expr]

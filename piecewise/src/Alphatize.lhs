@@ -1,71 +1,66 @@
 > {-# LANGUAGE ViewPatterns #-}
+> {-# LANGUAGE RankNTypes, GADTs, FlexibleContexts #-}
 
-> module Alphatize (alphatize, alphatizeStmt, runAlphatization, AlphError) where
+> module Alphatize (alphatize, alphatizeStmt, runAlphatization) where
 > import Prelude hiding (lookup)
 > import Data.Maybe (fromMaybe)
 > import qualified Data.Map as Map
 > import Data.Map (Map)
-> import Control.Monad.State
-> import Control.Monad.Except
-> import Control.Monad.Reader
+> import Control.Eff
+> import Control.Eff.State.Lazy
+> import Control.Eff.Reader.Lazy
 
-> import Parsing.CST (Expr(..), Stmt(..), Var(..))
+> import Parsing.CST (Var(..))
+> import AST (Expr(..), Stmt(..))
 > import Util (Name(..), nameChars, Pos)
 
-> data AlphError = InvalidPattern Expr deriving Show
+> type Alphatization a =
+>     forall r . (Member (Reader Env) r, Member (State Int) r)
+>              => Eff r a
 
-> patVars :: Expr -> Either AlphError [Var]
-> patVars pat @ (Fn _ _) = throwError $ InvalidPattern pat
-> patVars pat @ (Block _ _) = throwError  $ InvalidPattern pat
-> patVars (App _ _ pats) = patListVars pats
-> patVars (PrimApp _ _ pats) = patListVars pats
-> patVars (Var var) = pure [var]
-> patVars (Const _) = pure []
+> runAlphatization :: Alphatization a -> Int -> (Int, a)
+> runAlphatization alph counter =
+>     run (runReader (runState counter alph) emptyEnv)
 
-> patListVars :: [Expr] -> Either AlphError [Var]
-> patListVars = foldM (\acc pat -> mappend acc <$> patVars pat) mempty
+> stmtListBounds :: [Stmt] -> [Name]
+> stmtListBounds stmts = stmts >>= stmtBounds
 
-> stmtListVars :: [Stmt] -> Either AlphError [Var]
-> stmtListVars = foldM (\acc stmt -> mappend acc <$> stmtVars stmt) mempty
->     where stmtVars (Def pat _) = patVars pat
->           stmtVars (AugDef pat _) = patVars pat
->           stmtVars (Expr _) = pure []
-
-> type Alphatization a = ReaderT Env (StateT Int (Either AlphError)) a
-
-> runAlphatization :: Alphatization a -> Int -> Either AlphError (a, Int)
-> runAlphatization alph counter = runStateT (runReaderT alph []) counter
+> stmtBounds :: Stmt -> [Name]
+> stmtBounds (Def (LexVar _ name) _) = [name]
+> stmtBounds (AugDef (LexVar _ name) _) = [name]
+> stmtBounds (Expr _) = []
 
 > type Env = [Map Name Var]
 
+> emptyEnv :: Env
+> emptyEnv = []
+
 > lookup :: Pos -> Name -> Alphatization Var
-> lookup pos name = asks find
+> lookup pos name = find <$> ask
 >     where find (kvs:p) = fromMaybe (find p) (Map.lookup name kvs)
 >           find [] = GlobVar pos name
 
-> pushFrame :: [Var] -> Env -> Alphatization Env
-> pushFrame names env = do kvs <- Map.fromList <$> traverse renaming names
->                          return (kvs : env)
->     where renaming (LexVar pos name) = do name' <- rename name
->                                           pure (name, LexVar pos name')
+FIXME: [Var] -> Env -> Alphatization (Env, [Name]) as soon as AST.Fn gets fixed
+
+> pushFrame :: Pos -> [Name] -> Env -> Alphatization (Env, [Name])
+> pushFrame pos names env =
+>     do names' <- traverse rename names
+>        let bindings = Map.fromList [(name, LexVar pos name) | name <- names]
+>        return (bindings : env, names')
 
 > rename :: Name -> Alphatization Name
-> rename (nameChars -> name) = do res <- gets (UniqueName name)
->                                 modify (+ 1)
+> rename (nameChars -> name) = do res <- UniqueName name <$> get
+>                                 modify (+ (1::Int))
 >                                 return res
 
 > alphatize :: Expr -> Alphatization Expr
 > alphatize (Fn pos cases) = Fn pos <$> traverse alphatizeCase cases
->     where alphatizeCase (pats, cond, body) =
->                do vars <- lift $ lift $ patListVars pats
->                   env' <- pushFrame vars =<< ask
->                   pats' <- local (const env') (traverse alphatizePat pats)
->                   cond' <- local (const env') (alphatize cond)
+>     where alphatizeCase (args, body) =
+>                do (env', args') <- pushFrame pos args =<< ask
 >                   body' <- local (const env') (alphatize body)
->                   pure (pats', cond', body)
+>                   pure (args', body')
 > alphatize (Block pos stmts) =
->     do vars <- lift $ lift $ stmtListVars stmts
->        env' <- pushFrame vars =<< ask
+>     do (env', _) <- pushFrame pos (stmtListBounds stmts) =<< ask
 >        Block pos <$> local (const env') (traverse alphatizeStmt stmts)
 > alphatize (App pos f args) =
 >     App pos <$> alphatize f <*> traverse alphatize args
@@ -74,16 +69,10 @@
 > alphatize c @ (Const _) = pure c
 
 > alphatizeStmt :: Stmt -> Alphatization Stmt
-> alphatizeStmt (Def pat val) = Def <$> alphatizePat pat <*> alphatize val
-> alphatizeStmt (AugDef pat val) = AugDef <$> alphatizePat pat <*> alphatize val
+> alphatizeStmt (Def v val) = Def <$> alphatizeVar v <*> alphatize val
+> alphatizeStmt (AugDef v val) = AugDef <$> alphatizeVar v <*> alphatize val
 > alphatizeStmt (Expr expr) = Expr <$> alphatize expr
 
-> alphatizePat :: Expr -> Alphatization Expr
-> alphatizePat pat @ (Fn _ _) = throwError  $ InvalidPattern pat
-> alphatizePat pat @ (Block _ _) = throwError  $ InvalidPattern pat
-> alphatizePat (App pos f args) =
->     App pos <$> alphatizePat f <*> traverse alphatizePat args
-> alphatizePat (PrimApp pos op args) =
->     PrimApp pos op <$> traverse alphatizePat args
-> alphatizePat (Var (LexVar pos name)) = Var <$> lookup pos name
-> alphatizePat c @ (Const _) = pure c
+> alphatizeVar :: Var -> Alphatization Var
+> alphatizeVar (LexVar pos name) = LexVar pos <$> rename name
+> alphatizeVar v = return v
