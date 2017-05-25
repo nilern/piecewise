@@ -1,11 +1,16 @@
+> {-# LANGUAGE FlexibleContexts #-}
+
 > module Interpreter.Env (lookup, insert, BindingError(..), pushFrame,
 >                         LexEnv, emptyLexEnv,
 >                         DynEnv, emptyDynEnv) where
 > import Prelude hiding (lookup)
+> import Data.Typeable (Typeable)
 > import qualified Data.HashTable.IO as H
 > import Data.Hashable (Hashable)
-> import Control.Monad.Except
-> import Util (ItpError(..))
+> import Control.Eff
+> import Control.Eff.Lift
+> import Control.Eff.Exception
+> import qualified Util
 
 Environment Interface
 =====================
@@ -14,29 +19,34 @@ Environment Interface
 >                     | ReAssignment k
 >                     deriving Show
 
+> type ItpError k = Util.ItpError (BindingError k)
+
 > class Environment e where
 >     bindings :: (Hashable k, Eq k) => e k v -> H.BasicHashTable k v
 >     parent :: (Hashable k, Eq k) => e k v -> Maybe (e k v)
 >     pushFrame :: (Hashable k, Eq k) => e k v -> IO (e k v)
 
-> lookup :: (Environment e, Hashable k, Eq k)
->        => e k v -> k -> ExceptT (ItpError (BindingError k)) IO v
+> lookup :: (Environment e, Hashable k, Eq k, Typeable k,
+>            Member (Exc (ItpError k)) r, SetMember Lift (Lift IO) r)
+>        => e k v -> k -> Eff r v
 > lookup env name =
->     do ov <- liftIO (H.lookup (bindings env) name)
+>     do ov <- lift (H.lookup (bindings env) name)
 >        case ov of
 >            Just value -> return value
 >            Nothing -> case parent env of
 >                           Just p-> lookup p name
->                           Nothing -> throwError (BindingError (Unbound name))
+>                           Nothing ->
+>                               throwExc (Util.BindingError (Unbound name))
 
-> insert :: (Environment e, Hashable k, Eq k)
->        => e k v -> k -> v -> ExceptT (ItpError (BindingError k)) IO ()
+> insert :: (Environment e, Hashable k, Eq k, Typeable k,
+>            Member (Exc (ItpError k)) r, SetMember Lift (Lift IO) r)
+>        => e k v -> k -> v -> Eff r ()
 > insert env name value =
 >     let kvs = bindings env in
->     do ov <- liftIO (H.lookup kvs name)
+>     do ov <- lift (H.lookup kvs name)
 >        case ov of
->            Nothing -> liftIO (H.insert kvs name value)
->            Just _ -> throwError (BindingError (ReAssignment name))
+>            Nothing -> lift (H.insert kvs name value)
+>            Just _ -> throwExc (Util.BindingError (ReAssignment name))
 
 Lexical Environment
 -------------------

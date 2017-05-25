@@ -1,10 +1,13 @@
-> {-# LANGUAGE TupleSections #-}
+> {-# LANGUAGE RankNTypes, GADTs #-}
+> {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections #-}
 
 > module Interpreter (interpret, interpretStmt) where
 > import Data.List (intercalate)
 > import Data.Text (Text)
-> import Control.Monad.State
-> import Control.Monad.Except
+> import Control.Eff
+> import Control.Eff.Lift
+> import Control.Eff.State.Lazy
+> import Control.Eff.Exception
 > import qualified Parsing.CST as CST (Const(..))
 > import Parsing.CST (Var(..))
 > import qualified AST (Expr(..))
@@ -56,20 +59,26 @@ Continuations
 Interpreter Monad
 =================
 
-> type Interpreter a = StateT (DynEnv, Cont, ContDump) (ExceptT ItpError IO) a
+> type Interpreter a =
+>     forall r . (Member (Exc ItpError) r,
+>                 Member (State ItpState) r,
+>                 SetMember Lift (Lift IO) r)
+>              => Eff r a
+
+> type ItpState = (DynEnv, Cont, ContDump)
 
 > currentDynEnv :: Interpreter DynEnv
-> currentDynEnv = gets (\(e, _, _) -> e)
+> currentDynEnv = (\((e, _, _)::ItpState) -> e) <$> get
 
 > setDynEnv :: DynEnv -> Interpreter ()
-> setDynEnv dEnv = do (_, k, pks) <- get
+> setDynEnv dEnv = do (_, k, pks)::ItpState <- get
 >                     put (dEnv, k, pks)
 
 > currentCont :: Interpreter Cont
-> currentCont = gets (\(_, k, _) -> k)
+> currentCont = (\((_, k, _)::ItpState) -> k) <$> get
 
 > setCont :: Cont -> Interpreter ()
-> setCont k = do (dEnv, _, pks) <- get
+> setCont k = do (dEnv, _, pks)::ItpState <- get
 >                put (dEnv, k, pks)
 
 > pushContFrame :: (Cont -> Cont) -> Interpreter ()
@@ -77,11 +86,11 @@ Interpreter Monad
 >                             setCont (makeCont k)
 
 > currentDump :: Interpreter ContDump
-> currentDump = gets (\(_, _, pks) -> pks)
+> currentDump = (\((_, _, pks)::ItpState) -> pks) <$> get
 
 > evalInterpreter :: Interpreter Value -> DynEnv -> IO (Either ItpError Value)
-> evalInterpreter m dEnv =
->     runExceptT (evalStateT m (dEnv, Cont.Halt, emptyDump))
+> evalInterpreter m dEnv = runLift (runExc (evalState st m))
+>     where st::ItpState = (dEnv, Cont.Halt, emptyDump)
 
 Abstract Machine
 ================
@@ -89,8 +98,9 @@ Abstract Machine
 > eval :: Expr -> LexEnv -> Interpreter Value
 > eval (AST.Fn _ cases) lEnv = continue $ Closure (method lEnv <$> cases)
 > eval (AST.Block _ (stmt:stmts)) lEnv =
->     do dEnv' <- liftIO . pushFrame =<< currentDynEnv
->        lEnv' <- liftIO (pushFrame lEnv)
+>     do dEnv' <- lift . pushFrame =<< currentDynEnv
+>        setDynEnv dEnv'
+>        lEnv' <- lift (pushFrame lEnv)
 >        pushContFrame (Cont.Stmt lEnv' dEnv' stmts)
 >        evalStmt stmt lEnv'
 > eval (AST.App _ f args) lEnv =
@@ -102,10 +112,10 @@ Abstract Machine
 >        pushContFrame (Cont.PrimArg lEnv dEnv op [] args)
 >        eval arg lEnv
 > eval (AST.PrimApp _ op []) _ = applyPrimop op []
-> eval (AST.Var (LexVar _ name)) env = lift (Env.lookup env name) >>= continue
-> eval (AST.Var (GlobVar _ name)) env = lift (Env.lookup env name) >>= continue
+> eval (AST.Var (LexVar _ name)) env = Env.lookup env name >>= continue
+> eval (AST.Var (GlobVar _ name)) env = Env.lookup env name >>= continue
 > eval (AST.Var (DynVar _ name)) _ = do env <- currentDynEnv
->                                       lift (Env.lookup env name) >>= continue
+>                                       Env.lookup env name >>= continue
 > eval (AST.Const c) _ = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
 >           evalConst (CST.String _ s) = String s
@@ -156,12 +166,12 @@ Abstract Machine
 >                            setDynEnv dEnv
 >                            applyPrimop op (reverse (v:vs))
 >                     Cont.LexAssign lEnv dEnv name k' ->
->                         do lift (Env.insert lEnv name v)
+>                         do Env.insert lEnv name v
 >                            setCont k'
 >                            setDynEnv dEnv
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.DynAssign _ dEnv name k' ->
->                         do lift (Env.insert dEnv name v)
+>                         do Env.insert dEnv name v
 >                            setCont k'
 >                            setDynEnv dEnv
 >                            continue v -- QUESTION: what to return here?
@@ -169,10 +179,10 @@ Abstract Machine
 
 > apply :: Value -> [Value] -> Interpreter Value
 > apply (Closure ((Method ([formal], body, lEnv)):_)) vs =
->     do dEnv' <- liftIO . pushFrame =<< currentDynEnv
+>     do dEnv' <- lift . pushFrame =<< currentDynEnv
 >        setDynEnv dEnv'
->        lEnv' <- liftIO (pushFrame lEnv)
->        lift (Env.insert lEnv' formal (Tuple vs))
+>        lEnv' <- lift (pushFrame lEnv)
+>        Env.insert lEnv' formal (Tuple vs)
 >        eval body lEnv'
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
