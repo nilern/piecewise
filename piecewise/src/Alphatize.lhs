@@ -74,5 +74,5 @@ FIXME: [Var] -> Env -> Alphatization (Env, [Name]) as soon as AST.Fn gets fixed
 > alphatizeStmt (Expr expr) = Expr <$> alphatize expr
 
 > alphatizeVar :: Var -> Alphatization Var
-> alphatizeVar (LexVar pos name) = LexVar pos <$> rename name
-> alphatizeVar v = return v
+> alphatizeVar (LexVar pos name) = lookup pos name
+> alphatizeVar v @ (DynVar _ _) = return v

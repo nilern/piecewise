@@ -8,7 +8,6 @@ import qualified Data.ByteString as B
 import Parsing.Parser (expr)
 import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError, Input)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
-import Parsing.CST (Stmt)
 import qualified AST
 import AST (Jump(..))
 import PatExpand (expandStmtList, runExpansion, PatError)

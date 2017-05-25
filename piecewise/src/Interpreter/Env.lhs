@@ -1,4 +1,4 @@
-> module Interpreter.Env (lookup, insert, BindingError(..),
+> module Interpreter.Env (lookup, insert, BindingError(..), pushFrame,
 >                         LexEnv, emptyLexEnv,
 >                         DynEnv, emptyDynEnv) where
 > import Prelude hiding (lookup)

@@ -1,13 +1,19 @@
 > module Interpreter.Cont
 >        (Cont(..), ContDump, emptyDump, pushCont, popCont, splitDump) where
+> import AST (Expr, Stmt)
+> import Ops (Primop)
 > import Interpreter.Env (LexEnv, DynEnv)
 > import Util (Name)
 
 Continuations
 =============
 
-> data Cont k v = LexAssign (Cont k v) (LexEnv k v) (DynEnv k v) Name
->               | DynAssign (Cont k v) (LexEnv k v) (DynEnv k v) Name
+> data Cont k v = Stmt (LexEnv k v) (DynEnv k v) [Stmt] (Cont k v)
+>               | Applicant (LexEnv k v) (DynEnv k v) [Expr] (Cont k v)
+>               | Arg (LexEnv k v) (DynEnv k v) v [v] [Expr] (Cont k v)
+>               | PrimArg (LexEnv k v) (DynEnv k v) Primop [v] [Expr] (Cont k v)
+>               | LexAssign (LexEnv k v) (DynEnv k v) Name (Cont k v)
+>               | DynAssign (LexEnv k v) (DynEnv k v) Name (Cont k v)
 >               | Halt
 
 Dumps
