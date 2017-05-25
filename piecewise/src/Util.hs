@@ -40,4 +40,6 @@ data ParseError t d e = MalformedNumber T.Text
                       | WildDedent Pos Int Int
                       deriving Show
 
-data ItpError b = BindingError b deriving Show
+data ItpError b = BindingError b
+                | StackUnderflow
+                deriving Show

@@ -1,5 +1,6 @@
 > module Interpreter.Cont
->        (Cont(..), ContDump, emptyDump, pushCont, popCont, splitDump) where
+>        (Cont(..), frames,
+>         ContDump, emptyDump, pushCont, popCont, splitDump) where
 > import AST (Expr, Stmt)
 > import Ops (Primop)
 > import Interpreter.Env (LexEnv, DynEnv)
@@ -8,13 +9,22 @@
 Continuations
 =============
 
-> data Cont k v = Stmt (LexEnv k v) (DynEnv k v) [Stmt] (Cont k v)
->               | Applicant (LexEnv k v) (DynEnv k v) [Expr] (Cont k v)
->               | Arg (LexEnv k v) (DynEnv k v) v [v] [Expr] (Cont k v)
->               | PrimArg (LexEnv k v) (DynEnv k v) Primop [v] [Expr] (Cont k v)
->               | LexAssign (LexEnv k v) (DynEnv k v) Name (Cont k v)
->               | DynAssign (LexEnv k v) (DynEnv k v) Name (Cont k v)
+> data Cont k v = Stmt [Stmt] (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | Applicant [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | Arg v [v] [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | PrimArg Primop [v] [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | LexAssign Name (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | DynAssign Name (LexEnv k v) (DynEnv k v) (Cont k v)
 >               | Halt
+
+> frames :: Cont k v -> Maybe (LexEnv k v, DynEnv k v, Cont k v)
+> frames (Stmt _ l d k) = Just (l, d, k)
+> frames (Applicant _ l d k) = Just (l, d, k)
+> frames (Arg _ _ _ l d k) = Just (l, d, k)
+> frames (PrimArg _ _ _ l d k) = Just (l, d, k)
+> frames (LexAssign _ l d k) = Just (l, d, k)
+> frames (DynAssign _ l d k) = Just (l, d, k)
+> frames Halt = Nothing
 
 Dumps
 =====

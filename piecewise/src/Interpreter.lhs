@@ -16,7 +16,7 @@
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame, BindingError)
 > import qualified Interpreter.Cont as Cont
-> import Interpreter.Cont (emptyDump)
+> import Interpreter.Cont (emptyDump, frames)
 > import qualified Util
 > import Util (Name)
 
@@ -35,6 +35,7 @@ Value Representation
 
 > instance Show Value where
 >     show (Closure methods) = "#<Fn (" ++ show (length methods) ++ " methods)>"
+>     show (Tuple [v]) = '(' : show v ++ ",)"
 >     show (Tuple vs) = '(' : intercalate ", " (map show vs) ++ ")"
 >     show (Int i) = show i
 >     show (String t) = show t
@@ -62,134 +63,164 @@ Interpreter Monad
 > type Interpreter a =
 >     forall r . (Member (Exc ItpError) r,
 >                 Member (State ItpState) r,
+>                 Member (State LexEnv) r,
 >                 SetMember Lift (Lift IO) r)
 >              => Eff r a
 
 > type ItpState = (DynEnv, Cont, ContDump)
 
-> currentDynEnv :: Interpreter DynEnv
-> currentDynEnv = (\((e, _, _)::ItpState) -> e) <$> get
+> evalInterpreter :: Interpreter Value -> LexEnv -> DynEnv
+>                 -> IO (Either ItpError Value)
+> evalInterpreter m lEnv dEnv =
+>     runLift (runExc (evalState lEnv (evalState st m)))
+>     where st::ItpState = (dEnv, Cont.Halt, emptyDump)
 
-> setDynEnv :: DynEnv -> Interpreter ()
-> setDynEnv dEnv = do (_, k, pks)::ItpState <- get
+> getLexEnv :: (Member (State LexEnv) r) => Eff r LexEnv
+> getLexEnv = get
+
+> putLexEnv :: (Member (State LexEnv) r) => LexEnv -> Eff r ()
+> putLexEnv = put
+
+> getDynEnv :: (Member (State ItpState) r) => Eff r DynEnv
+> getDynEnv = (\((e, _, _)::ItpState) -> e) <$> get
+
+> putDynEnv :: (Member (State ItpState) r) => DynEnv -> Eff r ()
+> putDynEnv dEnv = do (_, k, pks)::ItpState <- get
 >                     put (dEnv, k, pks)
 
-> currentCont :: Interpreter Cont
-> currentCont = (\((_, k, _)::ItpState) -> k) <$> get
+> pushScope :: (Member (Exc ItpError) r,
+>               Member (State ItpState) r, Member (State LexEnv) r,
+>               SetMember Lift (Lift IO) r)
+>           => LexEnv -> Eff r ()
+> pushScope lEnv = do dEnv' <- lift . pushFrame =<< getDynEnv
+>                     lEnv' <- lift (pushFrame lEnv)
+>                     putDynEnv dEnv'
+>                     putLexEnv lEnv'
 
-> setCont :: Cont -> Interpreter ()
-> setCont k = do (dEnv, _, pks)::ItpState <- get
+> getCont :: (Member (State ItpState) r) => Eff r Cont
+> getCont = (\((_, k, _)::ItpState) -> k) <$> get
+
+> putCont :: (Member (State ItpState) r) => Cont -> Eff r ()
+> putCont k = do (dEnv, _, pks)::ItpState <- get
 >                put (dEnv, k, pks)
 
-> pushContFrame :: (Cont -> Cont) -> Interpreter ()
-> pushContFrame makeCont = do k <- currentCont
->                             setCont (makeCont k)
+> pushContFrame :: (Member (State ItpState) r, Member (State LexEnv) r)
+>               => (LexEnv -> DynEnv -> Cont -> Cont) -> Eff r ()
+> pushContFrame makeCont = do lEnv <- getLexEnv
+>                             dEnv <- getDynEnv
+>                             k <- getCont
+>                             putCont (makeCont lEnv dEnv k)
 
-> currentDump :: Interpreter ContDump
-> currentDump = (\((_, _, pks)::ItpState) -> pks) <$> get
+> getDump :: (Member (State ItpState) r) => Eff r ContDump
+> getDump = (\((_, _, pks)::ItpState) -> pks) <$> get
 
-> evalInterpreter :: Interpreter Value -> DynEnv -> IO (Either ItpError Value)
-> evalInterpreter m dEnv = runLift (runExc (evalState st m))
->     where st::ItpState = (dEnv, Cont.Halt, emptyDump)
+> modifyTop :: (Member (Exc ItpError) r,
+>               Member (State ItpState) r, Member (State LexEnv) r)
+>           => (LexEnv -> DynEnv -> Cont -> Cont) -> Eff r ()
+> modifyTop f = do k <- getCont
+>                  case frames k of
+>                      Just (lEnv, dEnv, k') ->
+>                          do putCont (f lEnv dEnv k')
+>                             putLexEnv lEnv
+>                             putDynEnv dEnv
+>                      Nothing -> throwExc (Util.StackUnderflow::ItpError)
+
+> pop :: (Member (Exc ItpError) r,
+>         Member (State ItpState) r, Member (State LexEnv) r)
+>     => Eff r ()
+> pop = modifyTop (\_ _ k -> k)
 
 Abstract Machine
 ================
 
-> eval :: Expr -> LexEnv -> Interpreter Value
-> eval (AST.Fn _ cases) lEnv = continue $ Closure (method lEnv <$> cases)
-> eval (AST.Block _ (stmt:stmts)) lEnv =
->     do dEnv' <- lift . pushFrame =<< currentDynEnv
->        setDynEnv dEnv'
->        lEnv' <- lift (pushFrame lEnv)
->        pushContFrame (Cont.Stmt lEnv' dEnv' stmts)
->        evalStmt stmt lEnv'
-> eval (AST.App _ f args) lEnv =
->     do dEnv <- currentDynEnv
->        pushContFrame (Cont.Applicant lEnv dEnv args)
->        eval f lEnv
-> eval (AST.PrimApp _ op (arg:args)) lEnv =
->     do dEnv <- currentDynEnv
->        pushContFrame (Cont.PrimArg lEnv dEnv op [] args)
->        eval arg lEnv
-> eval (AST.PrimApp _ op []) _ = applyPrimop op []
-> eval (AST.Var (LexVar _ name)) env = Env.lookup env name >>= continue
-> eval (AST.Var (GlobVar _ name)) env = Env.lookup env name >>= continue
-> eval (AST.Var (DynVar _ name)) _ = do env <- currentDynEnv
->                                       Env.lookup env name >>= continue
-> eval (AST.Const c) _ = continue (evalConst c)
+> eval :: Expr -> Interpreter Value
+> eval (AST.Fn _ cases) =
+>     do lEnv <- getLexEnv
+>        continue $ Closure (method lEnv <$> cases)
+> eval (AST.Block _ ([stmt])) =
+>     do pushScope =<< getLexEnv
+>        evalStmt stmt
+> eval (AST.Block _ (stmt:stmts)) =
+>     do pushScope =<< getLexEnv
+>        pushContFrame (Cont.Stmt stmts)
+>        evalStmt stmt
+> eval (AST.App _ f args) =
+>     do pushContFrame (Cont.Applicant args)
+>        eval f
+> eval (AST.PrimApp _ op (arg:args)) =
+>     do pushContFrame (Cont.PrimArg op [] args)
+>        eval arg
+> eval (AST.PrimApp _ op []) = applyPrimop op []
+> eval (AST.Var (LexVar _ name)) =
+>     (flip Env.lookup name =<< getLexEnv) >>= continue
+> eval (AST.Var (GlobVar _ name)) =
+>     (flip Env.lookup name =<< getLexEnv) >>= continue
+> eval (AST.Var (DynVar _ name)) = do env <- getDynEnv
+>                                     Env.lookup env name >>= continue
+> eval (AST.Const c) = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
 >           evalConst (CST.String _ s) = String s
 
-> evalStmt :: Stmt -> LexEnv -> Interpreter Value
-> evalStmt (Def var expr) lEnv =
->     do dEnv <- currentDynEnv
->        pushContFrame (case var of
->                           GlobVar _ name -> Cont.LexAssign lEnv dEnv name
->                           LexVar _ name -> Cont.LexAssign lEnv dEnv name
->                           DynVar _ name -> Cont.DynAssign lEnv dEnv name)
->        eval expr lEnv
-> evalStmt (Expr expr) env = eval expr env
+> evalStmt :: Stmt -> Interpreter Value
+> evalStmt (Def var expr) =
+>     do pushContFrame (case var of
+>                           GlobVar _ name -> Cont.LexAssign name
+>                           LexVar _ name -> Cont.LexAssign name
+>                           DynVar _ name -> Cont.DynAssign name)
+>        eval expr
+> evalStmt (Expr expr) = eval expr
 
 > continue :: Value -> Interpreter Value
-> continue v = do k <- currentCont
+> continue v = do k <- getCont
 >                 case k of
->                     Cont.Stmt lEnv dEnv (stmt:stmts) k' ->
->                         do setCont (Cont.Stmt lEnv dEnv stmts k')
->                            setDynEnv dEnv
->                            evalStmt stmt lEnv
->                     Cont.Stmt lEnv dEnv [] k' ->
->                         do setCont k'
->                            setDynEnv dEnv
->                            continue v
->                     Cont.Applicant lEnv dEnv (arg:args) k' ->
->                         do setCont (Cont.Arg lEnv dEnv v [] args k')
->                            setDynEnv dEnv
->                            eval arg lEnv
->                     Cont.Applicant _ dEnv [] k' ->
->                         do setCont k'
->                            setDynEnv dEnv
+>                     Cont.Stmt [stmt] _ _ _ ->
+>                         do pop
+>                            evalStmt stmt
+>                     Cont.Stmt (stmt:stmts) _ _ _ ->
+>                         do modifyTop (Cont.Stmt stmts)
+>                            evalStmt stmt
+>                     Cont.Applicant (arg:args) _ _ _ ->
+>                         do modifyTop (Cont.Arg v [] args)
+>                            eval arg
+>                     Cont.Applicant [] _ _ _ ->
+>                         do pop
 >                            apply v []
->                     Cont.Arg lEnv dEnv f vs (arg:args) k' ->
->                         do setCont (Cont.Arg lEnv dEnv f (v:vs) args k')
->                            setDynEnv dEnv
->                            eval arg lEnv
->                     Cont.Arg _ dEnv f vs [] k' ->
->                         do setCont k'
->                            setDynEnv dEnv
+>                     Cont.Arg f vs (arg:args) _ _ _ ->
+>                         do modifyTop (Cont.Arg f (v:vs) args)
+>                            eval arg
+>                     Cont.Arg f vs [] lEnv dEnv k' ->
+>                         do pop
 >                            apply f (reverse (v:vs))
->                     Cont.PrimArg lEnv dEnv op vs (arg:args) k' ->
->                         do setCont (Cont.PrimArg lEnv dEnv op (v:vs) args k')
->                            setDynEnv dEnv
->                            eval arg lEnv
->                     Cont.PrimArg _ dEnv op vs [] k' ->
->                         do setCont k'
->                            setDynEnv dEnv
+>                     Cont.PrimArg op vs (arg:args) _ _ _ ->
+>                         do modifyTop (Cont.PrimArg op (v:vs) args)
+>                            eval arg
+>                     Cont.PrimArg op vs [] _ _ _ ->
+>                         do pop
 >                            applyPrimop op (reverse (v:vs))
->                     Cont.LexAssign lEnv dEnv name k' ->
->                         do Env.insert lEnv name v
->                            setCont k'
->                            setDynEnv dEnv
+>                     Cont.LexAssign name _ _ _ ->
+>                         do pop
+>                            lEnv <- getLexEnv
+>                            Env.insert lEnv name v
 >                            continue v -- QUESTION: what to return here?
->                     Cont.DynAssign _ dEnv name k' ->
->                         do Env.insert dEnv name v
->                            setCont k'
->                            setDynEnv dEnv
+>                     Cont.DynAssign name _ _ _ ->
+>                         do pop
+>                            dEnv <- getDynEnv
+>                            Env.insert dEnv name v
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.Halt -> return v
 
 > apply :: Value -> [Value] -> Interpreter Value
 > apply (Closure ((Method ([formal], body, lEnv)):_)) vs =
->     do dEnv' <- lift . pushFrame =<< currentDynEnv
->        setDynEnv dEnv'
->        lEnv' <- lift (pushFrame lEnv)
+>     do pushScope lEnv
+>        lEnv' <- getLexEnv
 >        Env.insert lEnv' formal (Tuple vs)
->        eval body lEnv'
+>        eval body
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
 > applyPrimop _ _ = return (Int 0) -- TODO...
 
 > interpret :: LexEnv -> DynEnv -> Expr -> IO (Either ItpError Value)
-> interpret lEnv dEnv expr = evalInterpreter (eval expr lEnv) dEnv
+> interpret lEnv dEnv expr = evalInterpreter (eval expr) lEnv dEnv
 
 > interpretStmt :: LexEnv -> DynEnv -> Stmt -> IO (Either ItpError Value)
-> interpretStmt lEnv dEnv stmt = evalInterpreter (evalStmt stmt lEnv) dEnv
+> interpretStmt lEnv dEnv stmt = evalInterpreter (evalStmt stmt) lEnv dEnv
