@@ -81,12 +81,36 @@ Interpreter Monad
 > putLexEnv :: (Member (State LexEnv) r) => LexEnv -> Eff r ()
 > putLexEnv = put
 
+> lookupLex :: (Member (Exc ItpError) r,
+>               Member (State LexEnv) r, SetMember Lift (Lift IO) r)
+>           => Name -> Eff r Value
+> lookupLex name = do lEnv <- getLexEnv
+>                     Env.lookup lEnv name
+
+> defLex :: (Member (Exc ItpError) r,
+>            Member (State LexEnv) r, SetMember Lift (Lift IO) r)
+>        => Name -> Value -> Eff r ()
+> defLex name val = do lEnv <- getLexEnv
+>                      Env.insert lEnv name val
+
 > getDynEnv :: (Member (State ItpState) r) => Eff r DynEnv
 > getDynEnv = (\((e, _, _)::ItpState) -> e) <$> get
 
 > putDynEnv :: (Member (State ItpState) r) => DynEnv -> Eff r ()
 > putDynEnv dEnv = do (_, k, pks)::ItpState <- get
 >                     put (dEnv, k, pks)
+
+> lookupDyn :: (Member (Exc ItpError) r,
+>               Member (State ItpState) r, SetMember Lift (Lift IO) r)
+>           => Name -> Eff r Value
+> lookupDyn name = do dEnv <- getDynEnv
+>                     Env.lookup dEnv name
+
+> defDyn :: (Member (Exc ItpError) r,
+>            Member (State ItpState) r, SetMember Lift (Lift IO) r)
+>        => Name -> Value -> Eff r ()
+> defDyn name val = do dEnv <- getDynEnv
+>                      Env.insert dEnv name val
 
 > pushScope :: (Member (Exc ItpError) r,
 >               Member (State ItpState) r, Member (State LexEnv) r,
@@ -151,12 +175,9 @@ Abstract Machine
 >     do pushContFrame (Cont.PrimArg op [] args)
 >        eval arg
 > eval (AST.PrimApp _ op []) = applyPrimop op []
-> eval (AST.Var (LexVar _ name)) =
->     (flip Env.lookup name =<< getLexEnv) >>= continue
-> eval (AST.Var (GlobVar _ name)) =
->     (flip Env.lookup name =<< getLexEnv) >>= continue
-> eval (AST.Var (DynVar _ name)) = do env <- getDynEnv
->                                     Env.lookup env name >>= continue
+> eval (AST.Var (LexVar _ name)) = continue =<< lookupLex name
+> eval (AST.Var (GlobVar _ name)) = continue =<< lookupLex name
+> eval (AST.Var (DynVar _ name)) = continue =<< lookupDyn name
 > eval (AST.Const c) = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
 >           evalConst (CST.String _ s) = String s
@@ -188,7 +209,7 @@ Abstract Machine
 >                     Cont.Arg f vs (arg:args) _ _ _ ->
 >                         do modifyTop (Cont.Arg f (v:vs) args)
 >                            eval arg
->                     Cont.Arg f vs [] lEnv dEnv k' ->
+>                     Cont.Arg f vs [] _ _ _ ->
 >                         do pop
 >                            apply f (reverse (v:vs))
 >                     Cont.PrimArg op vs (arg:args) _ _ _ ->
@@ -199,13 +220,11 @@ Abstract Machine
 >                            applyPrimop op (reverse (v:vs))
 >                     Cont.LexAssign name _ _ _ ->
 >                         do pop
->                            lEnv <- getLexEnv
->                            Env.insert lEnv name v
+>                            defLex name v
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.DynAssign name _ _ _ ->
 >                         do pop
->                            dEnv <- getDynEnv
->                            Env.insert dEnv name v
+>                            defDyn name v
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.Halt -> return v
 
