@@ -1,6 +1,7 @@
 > {-# LANGUAGE TupleSections #-}
 
 > module Interpreter (interpret, interpretStmt) where
+> import Data.List (intercalate)
 > import Data.Text (Text)
 > import Control.Monad.State
 > import Control.Monad.Except
@@ -19,11 +20,19 @@
 Value Representation
 ====================
 
-> data Value = Int Int
->            | String Text
+> data Value = Closure [Method]
 >            | Tuple [Value]
+>            | Int Int
+>            | String Text
+
+> newtype Method = Method ([Name], Expr, LexEnv)
+
+> method :: LexEnv -> ([Name], Expr) -> Method
+> method lEnv (formals, body) = Method (formals, body, lEnv)
 
 > instance Show Value where
+>     show (Closure methods) = "#<Fn (" ++ show (length methods) ++ " methods)>"
+>     show (Tuple vs) = '(' : intercalate ", " (map show vs) ++ ")"
 >     show (Int i) = show i
 >     show (String t) = show t
 
@@ -78,6 +87,7 @@ Abstract Machine
 ================
 
 > eval :: Expr -> LexEnv -> Interpreter Value
+> eval (AST.Fn _ cases) lEnv = continue $ Closure (method lEnv <$> cases)
 > eval (AST.Block _ (stmt:stmts)) lEnv =
 >     do dEnv' <- liftIO . pushFrame =<< currentDynEnv
 >        lEnv' <- liftIO (pushFrame lEnv)
@@ -136,7 +146,7 @@ Abstract Machine
 >                     Cont.Arg _ dEnv f vs [] k' ->
 >                         do setCont k'
 >                            setDynEnv dEnv
->                            apply f (reverse vs)
+>                            apply f (reverse (v:vs))
 >                     Cont.PrimArg lEnv dEnv op vs (arg:args) k' ->
 >                         do setCont (Cont.PrimArg lEnv dEnv op (v:vs) args k')
 >                            setDynEnv dEnv
@@ -144,7 +154,7 @@ Abstract Machine
 >                     Cont.PrimArg _ dEnv op vs [] k' ->
 >                         do setCont k'
 >                            setDynEnv dEnv
->                            applyPrimop op (reverse vs)
+>                            applyPrimop op (reverse (v:vs))
 >                     Cont.LexAssign lEnv dEnv name k' ->
 >                         do lift (Env.insert lEnv name v)
 >                            setCont k'
@@ -158,7 +168,12 @@ Abstract Machine
 >                     Cont.Halt -> return v
 
 > apply :: Value -> [Value] -> Interpreter Value
-> apply _ _ = return (Int 0) -- TODO...
+> apply (Closure ((Method ([formal], body, lEnv)):_)) vs =
+>     do dEnv' <- liftIO . pushFrame =<< currentDynEnv
+>        setDynEnv dEnv'
+>        lEnv' <- liftIO (pushFrame lEnv)
+>        lift (Env.insert lEnv' formal (Tuple vs))
+>        eval body lEnv'
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
 > applyPrimop _ _ = return (Int 0) -- TODO...

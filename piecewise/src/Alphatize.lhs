@@ -45,7 +45,7 @@ FIXME: [Var] -> Env -> Alphatization (Env, [Name]) as soon as AST.Fn gets fixed
 > pushFrame :: Pos -> [Name] -> Env -> Alphatization (Env, [Name])
 > pushFrame pos names env =
 >     do names' <- traverse rename names
->        let bindings = Map.fromList [(name, LexVar pos name) | name <- names]
+>        let bindings = Map.fromList $ zip names (LexVar pos <$> names')
 >        return (bindings : env, names')
 
 > rename :: Name -> Alphatization Name

@@ -33,7 +33,7 @@
 > expandExpr (CST.Fn pos cases) = Fn pos <$> traverse expandCase cases
 >     where expandCase (pats, cond, body) =
 >               local (const NextMethod)
->                   (do formals <- traverse freshArg [0..length pats]
+>                   (do formals <- traverse freshArg [0..length pats - 1]
 >                       patStmts <- expandPatList Def pats
 >                                       [CST.Var (LexVar pos formal)
 >                                        | formal <- formals]
