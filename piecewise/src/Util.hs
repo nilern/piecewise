@@ -8,7 +8,7 @@ import Data.Default
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 
-data Pos = Pos !Int !Int !Int deriving Show
+data Pos = Pos !Int !Int !Int deriving (Show, Eq)
 
 instance Default Pos where
     def = Pos 0 1 1

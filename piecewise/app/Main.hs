@@ -11,11 +11,13 @@ import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import qualified AST
 import AST (Jump(..))
 import PatExpand (expandStmtList, runExpansion, PatError)
+import HoistAugs (hoistedStmt, HoistError)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
 data PwError = PwParseError LexicalError
              | PwPatError PatError
+             | PwHoistError HoistError
              deriving Show
 
 tokenize :: [Tok] -> WSLexer [Tok]
@@ -33,10 +35,12 @@ act input =
        (_, astStmts::[AST.Stmt]) <- Bf.first PwPatError
                                   (runExpansion (expandStmtList cstStmts)
                                                 ThrowBindErr c)
+       astStmts' <- Bf.first PwHoistError (traverse hoistedStmt astStmts)
        return (astStmts,
                [concatMap (++ "\n") tokstrs,
                 concatMap ((++ "\n") . show) cstStmts,
-                concatMap ((++ "\n") . show) astStmts])
+                concatMap ((++ "\n") . show) astStmts,
+                concatMap ((++ "\n") . show) astStmts'])
 
 main :: IO ()
 main = do input <- strToInput <$> B.getContents

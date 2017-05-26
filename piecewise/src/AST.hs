@@ -12,7 +12,7 @@ data Stmt = Def Var Expr
 instance Show Stmt where
     show (Def var val) = show var ++ " = " ++ show val
     show (AugDef var val) = show var ++ " += " ++ show val
-    show (Guard cond dest) = "__guard (" ++ show cond ++ ") => " ++ show dest
+    show (Guard cond dest) = "@guard " ++ show cond ++ " => " ++ show dest
     show (Expr expr) = show expr
 
 data Expr = Fn Pos [([Var], Expr)]
@@ -23,12 +23,13 @@ data Expr = Fn Pos [([Var], Expr)]
           | Const Const
 
 instance Show Expr where
-    show (Fn _ cases) = '{' : (showCase =<< cases) ++ "}"
+    show (Fn _ cases) = '{' : intercalate ";\n" (showCase <$> cases) ++ "}"
         where showCase (vars, body) =
                   intercalate " " (show <$> vars) ++ " => " ++ show body
-    show (Block _ stmts) = '{' : intercalate "; " (show <$> stmts) ++ "}"
-    show (App _ f args) = intercalate " " (show <$> f:args)
-    show (PrimApp _ op args) = show op ++ ' ' : intercalate " " (show <$> args)
+    show (Block _ stmts) = '{' : intercalate ";\n" (show <$> stmts) ++ "}"
+    show (App _ f args) = '(' : intercalate " " (show <$> f:args) ++ ")"
+    show (PrimApp _ op args) =
+        '(' : show op ++ ' ' : intercalate " " (show <$> args) ++ ")"
     show (Var var) = show var
     show (Const c) = show c
 

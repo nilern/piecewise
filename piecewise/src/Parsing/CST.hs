@@ -21,27 +21,32 @@ data Expr = Fn Pos [([Expr], Expr, Expr)]
           | Const Const
 
 instance Show Expr where
-    show (Fn _ cases) = '{' : (showCase =<< cases) ++ "}"
+    show (Fn _ cases) = '{' : intercalate ";\n" (showCase <$> cases) ++ "}"
         where showCase (pats, cond, body) =
                   intercalate " " (show <$> pats) ++ " | " ++ show cond ++
                       " => " ++ show body
-    show (Block _ stmts) = '{' : intercalate "; " (show <$> stmts) ++ "}"
-    show (App _ f args) = intercalate " " (show <$> f:args)
-    show (PrimApp _ op args) = show op ++ ' ' : intercalate " " (show <$> args)
+    show (Block _ stmts) = '{' : intercalate ";\n" (show <$> stmts) ++ "}"
+    show (App _ f args) = '(' : intercalate " " (show <$> f:args) ++ ")"
+    show (PrimApp _ op args) =
+        '(' : show op ++ ' ' : intercalate " " (show <$> args) ++ ")"
     show (Var var) = show var
     show (Const c) = show c
 
 data Var = LexVar Pos Name  -- in lexical environment (register or closure)
+         | UpperLexVar Pos Name
          | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
          | DynVar Pos Name  -- in dynamic environment intertwined with stack
+         deriving Eq
 
 instance Show Var where
     show (LexVar _ name) = show name
+    show (UpperLexVar _ name) = show name
     show (GlobVar _ name) = show name
     show (DynVar _ name) = '$' : show name
 
 varName :: Var -> Name
 varName (LexVar _ name) = name
+varName (UpperLexVar _ name) = name
 varName (GlobVar _ name) = name
 varName (DynVar _ name) = name
 
