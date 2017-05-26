@@ -1,12 +1,17 @@
-module Parsing.CST (Stmt(..), Expr(..), Var(..), Const(..)) where
-import Data.Text (Text)
+module Parsing.CST (Stmt(..), Expr(..), Var(..), varName, Const(..)) where
+import Data.List (intercalate)
+import Data.Text (Text, unpack)
 import Ops (Primop)
 import Util (Name, Pos, Positioned(..))
 
 data Stmt = Def Expr Expr
           | AugDef Expr Expr
           | Expr Expr
-          deriving Show
+
+instance Show Stmt where
+    show (Def pat val) = show pat ++ " = " ++ show val
+    show (AugDef pat val) = show pat ++ " += " ++ show val
+    show (Expr expr) = show expr
 
 data Expr = Fn Pos [([Expr], Expr, Expr)]
           | Block Pos [Stmt]
@@ -14,18 +19,42 @@ data Expr = Fn Pos [([Expr], Expr, Expr)]
           | PrimApp Pos Primop [Expr]
           | Var Var
           | Const Const
-          deriving Show
+
+instance Show Expr where
+    show (Fn _ cases) = '{' : (showCase =<< cases) ++ "}"
+        where showCase (pats, cond, body) =
+                  intercalate " " (show <$> pats) ++ " | " ++ show cond ++
+                      " => " ++ show body
+    show (Block _ stmts) = '{' : intercalate "; " (show <$> stmts) ++ "}"
+    show (App _ f args) = intercalate " " (show <$> f:args)
+    show (PrimApp _ op args) = show op ++ ' ' : intercalate " " (show <$> args)
+    show (Var var) = show var
+    show (Const c) = show c
 
 data Var = LexVar Pos Name  -- in lexical environment (register or closure)
          | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
          | DynVar Pos Name  -- in dynamic environment intertwined with stack
-         deriving Show
+
+instance Show Var where
+    show (LexVar _ name) = show name
+    show (GlobVar _ name) = show name
+    show (DynVar _ name) = '$' : show name
+
+varName :: Var -> Name
+varName (LexVar _ name) = name
+varName (GlobVar _ name) = name
+varName (DynVar _ name) = name
 
 data Const = Int Pos Int
            | Char Pos Text
            | String Pos Text
            | Keyword Pos Text
-           deriving Show
+
+instance Show Const where
+    show (Int _ i) = show i
+    show (Char _ c) = '\'' : unpack c ++ "'"
+    show (String _ s) = unpack s
+    show (Keyword _ cs) = ':' : unpack cs
 
 instance Positioned Stmt where
     position (Def pat _) = position pat

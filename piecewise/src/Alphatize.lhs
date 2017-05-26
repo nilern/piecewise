@@ -10,7 +10,7 @@
 > import Control.Eff.State.Lazy
 > import Control.Eff.Reader.Lazy
 
-> import Parsing.CST (Var(..))
+> import Parsing.CST (Var(..), varName)
 > import AST (Expr(..), Stmt(..))
 > import Util (Name(..), nameChars, Pos)
 
@@ -22,12 +22,12 @@
 > runAlphatization alph counter =
 >     run (runReader (runState counter alph) emptyEnv)
 
-> stmtListBounds :: [Stmt] -> [Name]
+> stmtListBounds :: [Stmt] -> [Var]
 > stmtListBounds stmts = stmts >>= stmtBounds
 
-> stmtBounds :: Stmt -> [Name]
-> stmtBounds (Def (LexVar _ name) _) = [name]
-> stmtBounds (AugDef (LexVar _ name) _) = [name]
+> stmtBounds :: Stmt -> [Var]
+> stmtBounds (Def var _) = [var]
+> stmtBounds (AugDef var _) = [var]
 > stmtBounds (Expr _) = []
 
 > type Env = [Map Name Var]
@@ -56,11 +56,11 @@ FIXME: [Var] -> Env -> Alphatization (Env, [Name]) as soon as AST.Fn gets fixed
 > alphatize :: Expr -> Alphatization Expr
 > alphatize (Fn pos cases) = Fn pos <$> traverse alphatizeCase cases
 >     where alphatizeCase (args, body) =
->                do (env', args') <- pushFrame pos args =<< ask
+>                do (env', args') <- pushFrame pos (varName <$> args) =<< ask
 >                   body' <- local (const env') (alphatize body)
->                   pure (args', body')
+>                   pure (LexVar pos <$> args', body')
 > alphatize (Block pos stmts) =
->     do (env', _) <- pushFrame pos (stmtListBounds stmts) =<< ask
+>     do (env', _) <- pushFrame pos (varName <$> stmtListBounds stmts) =<< ask
 >        Block pos <$> local (const env') (traverse alphatizeStmt stmts)
 > alphatize (App pos f args) =
 >     App pos <$> alphatize f <*> traverse alphatize args

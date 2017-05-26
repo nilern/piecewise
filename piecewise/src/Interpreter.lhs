@@ -28,9 +28,9 @@ Value Representation
 >            | Int Int
 >            | String Text
 
-> newtype Method = Method ([Name], Expr, LexEnv)
+> newtype Method = Method ([Var], Expr, LexEnv)
 
-> method :: LexEnv -> ([Name], Expr) -> Method
+> method :: LexEnv -> ([Var], Expr) -> Method
 > method lEnv (formals, body) = Method (formals, body, lEnv)
 
 > instance Show Value where
@@ -111,6 +111,14 @@ Interpreter Monad
 >        => Name -> Value -> Eff r ()
 > defDyn name val = do dEnv <- getDynEnv
 >                      Env.insert dEnv name val
+
+> def :: (Member (Exc ItpError) r,
+>         Member (State ItpState) r, Member (State LexEnv) r,
+>         SetMember Lift (Lift IO) r)
+>     => Var -> Value -> Eff r ()
+> def (LexVar _ name) val = defLex name val
+> def (GlobVar _ name) val = defLex name val
+> def (DynVar _ name) val = defDyn name val
 
 > pushScope :: (Member (Exc ItpError) r,
 >               Member (State ItpState) r, Member (State LexEnv) r,
@@ -231,8 +239,7 @@ Abstract Machine
 > apply :: Value -> [Value] -> Interpreter Value
 > apply (Closure ((Method ([formal], body, lEnv)):_)) vs =
 >     do pushScope lEnv
->        lEnv' <- getLexEnv
->        Env.insert lEnv' formal (Tuple vs)
+>        def formal (Tuple vs)
 >        eval body
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value

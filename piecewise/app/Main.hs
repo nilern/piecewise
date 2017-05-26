@@ -11,7 +11,6 @@ import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import qualified AST
 import AST (Jump(..))
 import PatExpand (expandStmtList, runExpansion, PatError)
-import Alphatize (alphatizeStmt, runAlphatization)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
@@ -31,23 +30,19 @@ act input =
        let tokstrs = map show (reverse tokens)
        cstStmts <- Bf.first PwParseError (runWSLexer expr def input)
        let c = 0
-       (c', astStmts::[AST.Stmt]) <- Bf.first PwPatError
+       (_, astStmts::[AST.Stmt]) <- Bf.first PwPatError
                                   (runExpansion (expandStmtList cstStmts)
                                                 ThrowBindErr c)
-       let (_, alphStmts::[AST.Stmt]) = runAlphatization
-                                            (traverse alphatizeStmt astStmts) c'
-       return (alphStmts,
+       return (astStmts,
                [concatMap (++ "\n") tokstrs,
                 concatMap ((++ "\n") . show) cstStmts,
-                concatMap ((++ "\n") . show) astStmts,
-                concatMap ((++ "\n") . show) alphStmts])
+                concatMap ((++ "\n") . show) astStmts])
 
 main :: IO ()
 main = do input <- strToInput <$> B.getContents
           case act input of
               Right (stmts, output) ->
                   do traverse_ putStrLn output
-                     print stmts
                      lEnv <- emptyLexEnv
                      dEnv <- emptyDynEnv
                      value <- traverse (interpretStmt lEnv dEnv) stmts

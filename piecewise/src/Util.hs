@@ -23,9 +23,13 @@ class Positioned a where
 
 data Name = PlainName T.Text
           | UniqueName T.Text Int
-          deriving (Show, Eq, Ord, Generic)
+          deriving (Eq, Ord, Generic)
 
 instance Hashable Name
+
+instance Show Name where
+    show (PlainName cs) = T.unpack cs
+    show (UniqueName cs i) = T.unpack cs ++ show i
 
 nameChars :: Name -> T.Text
 nameChars (PlainName cs) = cs

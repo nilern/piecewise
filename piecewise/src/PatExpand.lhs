@@ -34,13 +34,11 @@
 >     where expandCase (pats, cond, body) =
 >               local (const NextMethod)
 >                   (do formals <- traverse freshArg [0..length pats - 1]
->                       patStmts <- expandPatList Def pats
->                                       [CST.Var (LexVar pos formal)
->                                        | formal <- formals]
+>                       patStmts <- expandPatList Def pats (CST.Var <$> formals)
 >                       cond' <- Expr <$> expandExpr cond
 >                       body' <- Expr <$> expandExpr body
 >                       return (formals, Block pos (patStmts ++ [cond', body'])))
->           freshArg i = freshName (pack ("arg" ++ show i))
+>           freshArg i = LexVar pos <$> freshName (pack ("arg" ++ show i))
 > expandExpr (CST.Block pos stmts) =
 >     local (const ThrowBindErr) (Block pos <$> expandStmtList stmts)
 > expandExpr (CST.App pos f args) =
