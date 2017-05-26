@@ -15,7 +15,7 @@ instance Show Stmt where
     show (Guard cond dest) = "@guard " ++ show cond ++ " => " ++ show dest
     show (Expr expr) = show expr
 
-data Expr = Fn Pos [([Var], Expr)]
+data Expr = Fn Pos [([Var], Expr)] -- TODO: Fn Pos [([Var], Expr, Expr)]
           | Block Pos [Stmt]
           | App Pos Expr [Expr]
           | PrimApp Pos Primop [Expr]

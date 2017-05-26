@@ -61,7 +61,24 @@ FIXME: the function-defining Expr gets lifted over guards in cases like
     f 0 = 1
     (f, g) += genFns ()
 
-obviously this should neverever happen!
+    f = {0 => 1} <|> (nth vw1 0)
+    ovw0 = genFns ()
+    @guard isJust ovw0
+    @guard (count ovw0 == 2)
+    vw1 = unwrap ovw0
+    g = nth vw1 1
+
+should generate
+
+    f = {0 => 1} <|> f2
+    ovw0 = genFns ()
+    @guard isJust ovw0
+    vw1 = unwrap ovw0
+    @guard (count vw1 == 2)
+    f2 = nth vw1 0
+    g = nth vw1 1
+
+instead (assuming we go for the 'generalized set!-conversion')
 
 > assocAugDef :: Var -> Expr -> Hoisting ()
 > assocAugDef var @ (position -> pos) val =

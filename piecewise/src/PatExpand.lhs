@@ -29,6 +29,9 @@
 >                      modify (+ (1::Int))
 >                      return res
 
+FIXME: Pack source level formal pats to tuple and generate unpacking code for it
+here.
+
 > expandExpr :: CST.Expr -> Expansion Expr
 > expandExpr (CST.Fn pos cases) = Fn pos <$> traverse expandCase cases
 >     where expandCase (pats, cond, body) =
@@ -72,6 +75,7 @@ TODO: CST.PrimApp
 >     where viewStmts view f' val' jmp =
 >               [Def view (App pos (Var unapply) [f', val']),
 >                Guard (isJust (Var view)) jmp,
+>                -- TODO: unwrap the Just/Some here!
 >                Guard (hasLen (Const (Int pos argc)) (Var view)) jmp]
 >           field v i = CST.App pos ref [v, CST.Const (Int pos i)]
 >           unapply = LexVar pos (PlainName "unapply")
