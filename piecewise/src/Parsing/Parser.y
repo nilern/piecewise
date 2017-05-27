@@ -131,8 +131,7 @@ MapPairs : "->"                        { [] }
 
 {
 data BlockItem = Clause [Expr] Stmt
-     | Stmt Stmt
-     deriving Show
+               | Stmt Stmt
 
 parseError :: Tok -> WSLexer a
 parseError tok = throwError $ ParseError (startPos tok) tok

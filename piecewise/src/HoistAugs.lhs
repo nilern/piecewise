@@ -64,8 +64,8 @@ FIXME: the function-defining Expr gets lifted over guards in cases like
     f = {0 => 1} <|> (nth vw1 0)
     ovw0 = genFns ()
     @guard isJust ovw0
-    @guard (count ovw0 == 2)
     vw1 = unwrap ovw0
+    @guard (count vw1 == 2)
     g = nth vw1 1
 
 should generate

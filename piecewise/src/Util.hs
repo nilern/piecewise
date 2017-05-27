@@ -1,12 +1,17 @@
 {-# LANGUAGE DeriveGeneric #-}
 
-module Util (Pos(..), nextPos, Positioned(..),
+module Util (showViaPretty,
+             Pos(..), nextPos, Positioned(..),
              Name(..), nameChars,
              ParseError(..), ItpError(..)) where
 import qualified Data.Text as T
+import Text.PrettyPrint.Leijen.Text (Pretty(..), renderPretty)
 import Data.Default
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+
+showViaPretty :: (Pretty a) => a -> String
+showViaPretty = show . renderPretty 1.0 80 . pretty
 
 data Pos = Pos !Int !Int !Int deriving (Show, Eq)
 

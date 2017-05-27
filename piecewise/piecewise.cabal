@@ -29,6 +29,7 @@ library
                        , hashtables >= 1.0
                        , hashable >= 1.2
                        , data-default >= 0.7.0
+                       , wl-pprint-text
   build-tools:         alex, happy
   default-language:    Haskell2010
   ghc-options:         -Wall
@@ -42,6 +43,7 @@ executable piecewise-exe
                      , mtl >= 2.2.0
                      , bytestring >= 0.10
                      , data-default >= 0.7.0
+                     , wl-pprint-text
   default-language:    Haskell2010
   ghc-options:         -Wall
 
