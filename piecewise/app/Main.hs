@@ -12,7 +12,7 @@ import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import qualified AST
 import AST (Jump(..))
 import PatExpand (expandStmtList, runExpansion, PatError)
-import HoistAugs (hoistedStmt, HoistError)
+import HoistAugs (hoistedStmt, runHoisted, HoistError)
 import Interpreter (interpretStmt)
 import Interpreter.Env (emptyLexEnv, emptyDynEnv)
 
@@ -33,10 +33,11 @@ act input =
        let tokstrs = map show (reverse tokens)
        cstStmts <- Bf.first PwParseError (runWSLexer expr def input)
        let c = 0
-       (_, astStmts::[AST.Stmt]) <- Bf.first PwPatError
+       (c', astStmts::[AST.Stmt]) <- Bf.first PwPatError
                                   (runExpansion (expandStmtList cstStmts)
                                                 ThrowBindErr c)
-       astStmts' <- Bf.first PwHoistError (traverse hoistedStmt astStmts)
+       (_, astStmts'::[AST.Stmt]) <- Bf.first PwHoistError
+                                 (runHoisted c' (traverse hoistedStmt astStmts))
        return (astStmts,
                [concatMap (++ "\n") tokstrs,
                 concatMap ((++ "\n") . show) cstStmts,

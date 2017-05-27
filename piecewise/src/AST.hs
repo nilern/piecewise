@@ -3,7 +3,6 @@
 module AST (Stmt(..), Expr(..), Jump(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
-import Data.List (intercalate)
 import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), (<+>), (</>))
 
@@ -16,6 +15,17 @@ data Stmt = Def Var Expr
           | Guard Expr Jump
           | Expr Expr
 
+data Expr = Fn Pos [([Var], Expr)] -- TODO: Fn Pos [([Var], Maybe Expr, Expr)]
+          | Block Pos [Stmt]
+          | App Pos Expr [Expr]
+          | PrimApp Pos Primop [Expr]
+          | Var Var
+          | Const Const
+
+data Jump = NextMethod
+          | ThrowBindErr
+          deriving Show
+
 instance Pretty Stmt where
     pretty (Def pat val) = pretty pat <+> P.text "=" <+> pretty val
     pretty (AugDef pat val) = pretty pat <+> P.text "+=" <+> pretty val
@@ -25,13 +35,6 @@ instance Pretty Stmt where
 
 instance Show Stmt where
     show = showViaPretty
-
-data Expr = Fn Pos [([Var], Expr)] -- TODO: Fn Pos [([Var], Expr, Expr)]
-          | Block Pos [Stmt]
-          | App Pos Expr [Expr]
-          | PrimApp Pos Primop [Expr]
-          | Var Var
-          | Const Const
 
 instance Pretty Expr where
     pretty (Fn _ cases) =
@@ -51,10 +54,6 @@ instance Pretty Expr where
 
 instance Show Expr where
     show = showViaPretty
-
-data Jump = NextMethod
-          | ThrowBindErr
-          deriving Show
 
 instance Pretty Jump where
     pretty = pretty . show

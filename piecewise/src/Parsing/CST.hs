@@ -8,11 +8,30 @@ import Data.Text (Text)
 import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), (</>), (<+>))
 import Ops (Primop)
-import Util (showViaPretty, Name, nameChars, Pos, Positioned(..))
+import Util (showViaPretty, Name, Pos, Positioned(..))
 
 data Stmt = Def Expr Expr
           | AugDef Expr Expr
           | Expr Expr
+
+-- TODO: Fn Pos [([Expr], Maybe Expr, Expr)]
+data Expr = Fn Pos [([Expr], Expr, Expr)]
+          | Block Pos [Stmt]
+          | App Pos Expr [Expr]
+          | PrimApp Pos Primop [Expr]
+          | Var Var
+          | Const Const
+
+data Var = LexVar Pos Name  -- in lexical environment (register or closure)
+         | UpperLexVar Pos Name
+         | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
+         | DynVar Pos Name  -- in dynamic environment intertwined with stack
+         deriving Eq
+
+data Const = Int Pos Int
+           | Char Pos Text
+           | String Pos Text
+           | Keyword Pos Text
 
 instance Pretty Stmt where
     pretty (Def pat val) = pretty pat <+> P.text "=" <+> pretty val
@@ -21,13 +40,6 @@ instance Pretty Stmt where
 
 instance Show Stmt where
     show = showViaPretty
-
-data Expr = Fn Pos [([Expr], Expr, Expr)]
-          | Block Pos [Stmt]
-          | App Pos Expr [Expr]
-          | PrimApp Pos Primop [Expr]
-          | Var Var
-          | Const Const
 
 instance Pretty Expr where
     pretty (Fn _ cases) =
@@ -49,17 +61,11 @@ instance Pretty Expr where
 instance Show Expr where
     show = showViaPretty
 
-data Var = LexVar Pos Name  -- in lexical environment (register or closure)
-         | UpperLexVar Pos Name
-         | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
-         | DynVar Pos Name  -- in dynamic environment intertwined with stack
-         deriving Eq
-
 instance Pretty Var where
-    pretty (LexVar _ name) = pretty (nameChars name)
-    pretty (UpperLexVar _ name) = pretty (nameChars name)
-    pretty (GlobVar _ name) = pretty (nameChars name)
-    pretty (DynVar _ name) = pretty ('$' `T.cons` nameChars name)
+    pretty (LexVar _ name) = pretty name
+    pretty (UpperLexVar _ name) = pretty name
+    pretty (GlobVar _ name) = pretty name
+    pretty (DynVar _ name) = P.text "$" <> pretty name
 
 instance Show Var where
     show = showViaPretty
@@ -69,11 +75,6 @@ varName (LexVar _ name) = name
 varName (UpperLexVar _ name) = name
 varName (GlobVar _ name) = name
 varName (DynVar _ name) = name
-
-data Const = Int Pos Int
-           | Char Pos Text
-           | String Pos Text
-           | Keyword Pos Text
 
 instance Pretty Const where
     pretty (Int _ i) = pretty i

@@ -1,33 +1,39 @@
-> {-# LANGUAGE RankNTypes, FlexibleContexts, ScopedTypeVariables #-}
+> {-# LANGUAGE RankNTypes, GADTs, FlexibleContexts, ScopedTypeVariables #-}
 > {-# LANGUAGE OverloadedStrings, ViewPatterns, TupleSections #-}
 
-> module HoistAugs (hoisted, hoistedStmt, HoistError) where
+> module HoistAugs (hoisted, hoistedStmt, runHoisted, HoistError) where
 > import Data.Foldable (traverse_)
 > import Control.Eff
 > import Control.Eff.Exception
 > import Control.Eff.State.Lazy
 > import Parsing.CST (Var(..), varName)
 > import AST (Expr(..), Stmt(..))
-> import Util (Name(..), position)
+> import Util (Name(..), freshName, position)
 
 > data HoistError = ReAssignment Var deriving Show
 
+> type Hoisted a = forall r . (Member (Exc HoistError) r, Member (State Int) r)
+>                           => Eff r a
+
+> runHoisted :: Int -> Hoisted a -> Either HoistError (Int, a)
+> runHoisted counter m = run (runExc (runState counter m))
+
 The hoisted* functions mostly just fold over the tree. The only interesting case
-is the Block case of `hoisted` which uses execHoisting to reorder statements
+is the Block case of `hoisted` which uses execState to reorder statements
 and traverses the reordered statements.
 
-> hoisted :: Expr -> Either HoistError Expr
+> hoisted :: Expr -> Hoisted Expr
 > hoisted (Fn pos cases) = Fn pos <$> (traverse hoistCase cases)
 >     where hoistCase (formals, expr) = (formals,) <$> hoisted expr
 > hoisted (Block pos stmts) =
->     do stmts' <- execHoisting (traverse_ hoistStmt stmts)
+>     do stmts' <- reverse <$> execState [] (traverse_ hoistStmt stmts)
 >        Block pos <$> (traverse hoistedStmt stmts')
 > hoisted (App pos f args) = App pos <$> hoisted f <*> traverse hoisted args
 > hoisted (PrimApp pos op args) = PrimApp pos op <$> traverse hoisted args
 > hoisted node @ (Var _) = return node
 > hoisted node @ (Const _) = return node
 
-> hoistedStmt :: Stmt -> Either HoistError Stmt
+> hoistedStmt :: Stmt -> Hoisted Stmt
 > hoistedStmt (Def var val) = Def var <$> hoisted val
 > hoistedStmt (AugDef var val) = AugDef var <$> hoisted val
 > hoistedStmt (Guard cond jmp) = Guard <$> hoisted cond <*> pure jmp
@@ -37,13 +43,11 @@ When we are actually reordering statements we need to keep track of the new
 statement sequence being built in addition to the possibility of error.
 
 > type Hoisting a =
->     forall r . (Member (Exc HoistError) r, Member (State [Stmt]) r) => Eff r a
+>     forall r . (Member (Exc HoistError) r,
+>                 Member (State Int) r, Member (State [Stmt]) r) => Eff r a
 
 Since a list is being used as a statement list builder we need to reverse it at
 the end in addition to running effects.
-
-> execHoisting :: Hoisting () -> Either HoistError [Stmt]
-> execHoisting h = reverse <$> run (runExc (execState [] h))
 
 > push :: Stmt -> Hoisting ()
 > push stmt = modify (stmt :)
@@ -56,39 +60,18 @@ the end in addition to running effects.
 >     where cond (Def var' _) | varName var == varName var' = True
 >           cond _ = False
 
-FIXME: the function-defining Expr gets lifted over guards in cases like
-
-    f 0 = 1
-    (f, g) += genFns ()
-
-    f = {0 => 1} <|> (nth vw1 0)
-    ovw0 = genFns ()
-    @guard isJust ovw0
-    vw1 = unwrap ovw0
-    @guard (count vw1 == 2)
-    g = nth vw1 1
-
-should generate
-
-    f = {0 => 1} <|> f2
-    ovw0 = genFns ()
-    @guard isJust ovw0
-    vw1 = unwrap ovw0
-    @guard (count vw1 == 2)
-    f2 = nth vw1 0
-    g = nth vw1 1
-
-instead (assuming we go for the 'generalized set!-conversion')
-
 > assocAugDef :: Var -> Expr -> Hoisting ()
 > assocAugDef var @ (position -> pos) val =
->     modify (\res -> maybe (defaultDef : res) id (assoc res))
->     where assoc ((Def var' val'):stmts) | varName var == varName var' =
->               Just (mkDef var' val' val : stmts)
->           assoc (stmt:stmts) = (stmt :) <$> assoc stmts
->           assoc [] = Nothing
+>     do tmp <- LexVar pos <$> freshName "t"
+>        push (Def tmp val)
+>        modify (\res -> maybe (defaultDef tmp : res) id (assoc (Var tmp) res))
+>     where assoc tmp ((Def var' val'):stmts) | varName var == varName var' =
+>               Just (mkDef var' val' tmp : stmts)
+>           assoc tmp (stmt:stmts) = (stmt :) <$> assoc tmp stmts
+>           assoc _ [] = Nothing
 >           mkDef v f g = Def v (mergeFns f g)
->           defaultDef = mkDef var (Var (UpperLexVar pos (varName var))) val
+>           defaultDef tmp =
+>               mkDef var (Var (UpperLexVar pos (varName var))) (Var tmp)
 >           mergeFns f g = App pos (Var (LexVar pos (PlainName "fnMerge")))
 >                              [f, g]
 

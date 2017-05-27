@@ -1,12 +1,17 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts, DeriveGeneric #-}
 
 module Util (showViaPretty,
              Pos(..), nextPos, Positioned(..),
-             Name(..), nameChars,
+             Name(..), nameChars, freshName,
              ParseError(..), ItpError(..)) where
+import Data.Semigroup ((<>))
 import qualified Data.Text as T
+import Data.Text (Text)
+import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), renderPretty)
 import Data.Default
+import Control.Eff
+import Control.Eff.State.Lazy
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 
@@ -32,6 +37,10 @@ data Name = PlainName T.Text
 
 instance Hashable Name
 
+instance Pretty Name where
+    pretty (PlainName cs) = pretty cs
+    pretty (UniqueName cs i) = pretty cs <> P.int i
+
 instance Show Name where
     show (PlainName cs) = T.unpack cs
     show (UniqueName cs i) = T.unpack cs ++ show i
@@ -39,6 +48,11 @@ instance Show Name where
 nameChars :: Name -> T.Text
 nameChars (PlainName cs) = cs
 nameChars (UniqueName cs _) = cs
+
+freshName :: (Member (State Int) r) => Text -> Eff r Name
+freshName chars = do res <- UniqueName chars <$> get
+                     modify (+ (1::Int))
+                     return res
 
 data ParseError t d e = MalformedNumber T.Text
                       | UnprecedentedOp T.Text

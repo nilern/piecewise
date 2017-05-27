@@ -12,7 +12,7 @@
 > import qualified Parsing.CST as CST
 > import Parsing.CST (Const(..), Var(..))
 > import AST (Stmt(..), Expr(..), Jump(..))
-> import Util (Name(..), position)
+> import Util (Name(..), freshName, position)
 
 > data PatError = InvalidPat CST.Expr deriving Show
 
@@ -23,11 +23,6 @@
 
 > runExpansion :: Expansion a -> Jump -> Int -> Either PatError (Int, a)
 > runExpansion m jmp counter = run (runExc (runReader (runState counter m) jmp))
-
-> freshName :: (Member (State Int) r) => Text -> Eff r Name
-> freshName chars = do res <- UniqueName chars <$> get
->                      modify (+ (1::Int))
->                      return res
 
 FIXME: Pack source level formal pats to tuple and generate unpacking code for it
 here.
@@ -68,18 +63,20 @@ TODO: CST.PrimApp
 > expandPat mkDef (CST.App pos f args) val =
 >     do f' <- expandExpr f
 >        val' <- expandExpr val
->        view <- LexVar pos <$> freshName "view"
+>        oview <- LexVar pos <$> freshName "ovw"
+>        view <- LexVar pos <$> freshName "vw"
 >        jmp <- ask
->        (viewStmts view f' val' jmp ++) <$>
+>        (viewStmts oview view f' val' jmp ++) <$>
 >            expandPatList mkDef args (map (field (CST.Var view)) [0..])
->     where viewStmts view f' val' jmp =
->               [Def view (App pos (Var unapply) [f', val']),
->                Guard (isJust (Var view)) jmp,
->                -- TODO: unwrap the Just/Some here!
+>     where viewStmts oview view f' val' jmp =
+>               [Def oview (App pos (Var unapply) [f', val']),
+>                Guard (isSome (Var oview)) jmp,
+>                Def view (App pos (Var unwrap) [Var oview]),
 >                Guard (hasLen (Const (Int pos argc)) (Var view)) jmp]
 >           field v i = CST.App pos ref [v, CST.Const (Int pos i)]
 >           unapply = LexVar pos (PlainName "unapply")
->           isJust v = App pos (Var (LexVar pos (PlainName "isJust"))) [v]
+>           unwrap = LexVar pos (PlainName "unwrap")
+>           isSome v = App pos (Var (LexVar pos (PlainName "some?"))) [v]
 >           hasLen l e = App pos eq [l, (App pos count [e])]
 >           eq = Var (LexVar pos (PlainName "=="))
 >           count = Var (LexVar pos (PlainName "count"))
