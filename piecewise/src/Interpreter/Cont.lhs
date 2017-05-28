@@ -1,10 +1,10 @@
 > module Interpreter.Cont
 >        (Cont(..), frames,
 >         ContDump, emptyDump, pushCont, popCont, splitDump) where
+> import Parsing.CST (Var)
 > import AST (Expr, Stmt)
 > import Ops (Primop)
 > import Interpreter.Env (LexEnv, DynEnv)
-> import Util (Name)
 
 Continuations
 =============
@@ -13,8 +13,7 @@ Continuations
 >               | Applicant [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
 >               | Arg v [v] [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
 >               | PrimArg Primop [v] [Expr] (LexEnv k v) (DynEnv k v) (Cont k v)
->               | LexAssign Name (LexEnv k v) (DynEnv k v) (Cont k v)
->               | DynAssign Name (LexEnv k v) (DynEnv k v) (Cont k v)
+>               | Assign Var (LexEnv k v) (DynEnv k v) (Cont k v)
 >               | Halt
 
 > frames :: Cont k v -> Maybe (LexEnv k v, DynEnv k v, Cont k v)
@@ -22,8 +21,7 @@ Continuations
 > frames (Applicant _ l d k) = Just (l, d, k)
 > frames (Arg _ _ _ l d k) = Just (l, d, k)
 > frames (PrimArg _ _ _ l d k) = Just (l, d, k)
-> frames (LexAssign _ l d k) = Just (l, d, k)
-> frames (DynAssign _ l d k) = Just (l, d, k)
+> frames (Assign _ l d k) = Just (l, d, k)
 > frames Halt = Nothing
 
 Dumps

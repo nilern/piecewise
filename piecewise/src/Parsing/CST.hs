@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parsing.CST (Stmt(..), Expr(..), Var(..), varName, Const(..)) where
+module Parsing.CST (Stmt(..), Expr(..),
+                    Var(..), varName, isLexVar, isDynVar, Const(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Data.Text as T
@@ -27,6 +28,14 @@ data Var = LexVar Pos Name  -- in lexical environment (register or closure)
          | GlobVar Pos Name -- in global hashtable (REPL) or exe .text section
          | DynVar Pos Name  -- in dynamic environment intertwined with stack
          deriving Eq
+
+isLexVar :: Var -> Bool
+isLexVar (LexVar _ _) = True
+isLexVar _ = False
+
+isDynVar :: Var -> Bool
+isDynVar (DynVar _ _) = True
+isDynVar _ = False
 
 data Const = Int Pos Int
            | Char Pos Text

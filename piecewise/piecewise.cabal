@@ -17,8 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
                        Parsing.CST, Ops, PatExpand, AST, HoistAugs,
-                       Interpreter, Interpreter.Env, Interpreter.Cont
-  other-modules:       Util
+                       Interpreter, Interpreter.Env, Interpreter.Cont, Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
                        , mtl >= 2.2.0
@@ -26,6 +25,7 @@ library
                        , bytestring >= 0.10
                        , text >= 1.2.0
                        , containers >= 0.5.7
+                       , unordered-containers
                        , hashtables >= 1.0
                        , hashable >= 1.2
                        , data-default >= 0.7.0

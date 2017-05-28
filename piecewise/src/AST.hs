@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module AST (Stmt(..), Expr(..), Jump(..)) where
+module AST (Stmt(..), stmtBinders, Expr(..), Jump(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Text.PrettyPrint.Leijen.Text as P
@@ -25,6 +25,12 @@ data Expr = Fn Pos [([Var], Expr)] -- TODO: Fn Pos [([Var], Maybe Expr, Expr)]
 data Jump = NextMethod
           | ThrowBindErr
           deriving Show
+
+stmtBinders :: Stmt -> [Var]
+stmtBinders (Def v _) = [v]
+stmtBinders (AugDef v _) = [v]
+stmtBinders (Guard _ _) = []
+stmtBinders (Expr _) = []
 
 instance Pretty Stmt where
     pretty (Def pat val) = pretty pat <+> P.text "=" <+> pretty val

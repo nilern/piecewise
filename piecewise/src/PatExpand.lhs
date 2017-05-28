@@ -3,7 +3,7 @@
 
 > module PatExpand (expandExpr, expandStmt, expandStmtList,
 >                   runExpansion, PatError) where
-> import Data.Text (Text, pack)
+> import Data.Text (pack)
 > import Control.Monad (foldM)
 > import Control.Eff
 > import Control.Eff.Exception

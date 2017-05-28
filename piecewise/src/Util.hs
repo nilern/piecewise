@@ -3,7 +3,7 @@
 module Util (showViaPretty,
              Pos(..), nextPos, Positioned(..),
              Name(..), nameChars, freshName,
-             ParseError(..), ItpError(..)) where
+             ParseError(..)) where
 import Data.Semigroup ((<>))
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -62,7 +62,3 @@ data ParseError t d e = MalformedNumber T.Text
                       | InvalidPattern Pos e
                       | WildDedent Pos Int Int
                       deriving Show
-
-data ItpError b = BindingError b
-                | StackUnderflow
-                deriving Show

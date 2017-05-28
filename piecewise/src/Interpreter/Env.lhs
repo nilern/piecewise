@@ -1,78 +1,40 @@
-> {-# LANGUAGE FlexibleContexts #-}
+> {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 
-> module Interpreter.Env (lookup, insert, BindingError(..), pushFrame,
->                         LexEnv, emptyLexEnv,
->                         DynEnv, emptyDynEnv) where
+> module Interpreter.Env (Scoping, Env, LexEnv, DynEnv,
+>                         empty, toplevel, pushFrame, lookup) where
 > import Prelude hiding (lookup)
-> import Data.Typeable (Typeable)
-> import qualified Data.HashTable.IO as H
 > import Data.Hashable (Hashable)
-> import Control.Eff
-> import Control.Eff.Lift
-> import Control.Eff.Exception
-> import qualified Util
+> import qualified Data.HashMap.Lazy as HM
+> import Data.HashMap.Lazy (HashMap)
+> import qualified Data.HashTable.IO as HT
+> import Data.HashTable.IO (BasicHashTable)
+> import Control.Applicative ((<|>))
 
-Environment Interface
-=====================
+> data Scoping = Lexical | Dynamic
 
-> data BindingError k = Unbound k
->                     | ReAssignment k
->                     deriving Show
+> data Env :: Scoping -> * -> * -> * where
+>     Simple :: (HashMap k v) -> Env s k v
+>     Double :: (HashMap k v) -> (BasicHashTable k v) -> Env s k v
 
-> type ItpError k = Util.ItpError (BindingError k)
+> deriving instance (Show k, Show v) => Show (Env s k v)
 
-> class Environment e where
->     bindings :: (Hashable k, Eq k) => e k v -> H.BasicHashTable k v
->     parent :: (Hashable k, Eq k) => e k v -> Maybe (e k v)
->     pushFrame :: (Hashable k, Eq k) => e k v -> IO (e k v)
+> type LexEnv k v = Env 'Lexical k v
+> type DynEnv k v = Env 'Dynamic k v
 
-> lookup :: (Environment e, Hashable k, Eq k, Typeable k,
->            Member (Exc (ItpError k)) r, SetMember Lift (Lift IO) r)
->        => e k v -> k -> Eff r v
-> lookup env name =
->     do ov <- lift (H.lookup (bindings env) name)
->        case ov of
->            Just value -> return value
->            Nothing -> case parent env of
->                           Just p-> lookup p name
->                           Nothing ->
->                               throwExc (Util.BindingError (Unbound name))
+> empty :: (Hashable k, Eq k) => Env s k v
+> empty = Simple HM.empty
 
-> insert :: (Environment e, Hashable k, Eq k, Typeable k,
->            Member (Exc (ItpError k)) r, SetMember Lift (Lift IO) r)
->        => e k v -> k -> v -> Eff r ()
-> insert env name value =
->     let kvs = bindings env in
->     do ov <- lift (H.lookup kvs name)
->        case ov of
->            Nothing -> lift (H.insert kvs name value)
->            Just _ -> throwExc (Util.BindingError (ReAssignment name))
+> toplevel :: (Hashable k, Eq k) => IO (Env s k v)
+> toplevel = Double HM.empty <$> HT.new
 
-Lexical Environment
--------------------
+> pushFrame :: (Hashable k, Eq k) => Env s k v -> [(k, v)] -> Env s k v
+> pushFrame (Simple lbs) kvs = Simple (HM.union (HM.fromList kvs) lbs)
+> pushFrame (Double lbs gbs) kvs = Double (HM.union (HM.fromList kvs) lbs) gbs
 
-> data LexEnv k v = LexEnv (LexEnv k v) (H.BasicHashTable k v)
->                 | GlobalEnv (H.BasicHashTable k v)
-
-> emptyLexEnv :: IO (LexEnv k v)
-> emptyLexEnv = GlobalEnv <$> H.new
-
-> instance Environment LexEnv where
->     bindings (LexEnv _ kvs) = kvs
->     bindings (GlobalEnv kvs) = kvs
->     parent (LexEnv p _) = Just p
->     parent (GlobalEnv _) = Nothing
->     pushFrame p = LexEnv p <$> H.new
-
-Dynamic Environment
--------------------
-
-> data DynEnv k v = DynEnv (Maybe (DynEnv k v)) (H.BasicHashTable k v)
-
-> emptyDynEnv :: IO (DynEnv k v)
-> emptyDynEnv = DynEnv Nothing <$> H.new
-
-> instance Environment DynEnv where
->     bindings (DynEnv _ kvs) = kvs
->     parent (DynEnv p _) = p
->     pushFrame p = DynEnv (Just p) <$> H.new
+> lookup :: (Hashable k, Eq k) => Env s k v -> k -> v -> IO (Maybe v)
+> lookup (Simple bindings) name _ = pure (HM.lookup name bindings)
+> lookup (Double lbs gbs) name dflt =
+>     do let lv = HM.lookup name lbs
+>        gv <- HT.lookup gbs name
+>        dv <- HT.insert gbs name dflt >> pure (Just dflt)
+>        return (lv <|> gv <|> dv)

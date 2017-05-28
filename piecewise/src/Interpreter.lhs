@@ -1,7 +1,10 @@
 > {-# LANGUAGE RankNTypes, GADTs #-}
 > {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections #-}
 
-> module Interpreter (interpret, interpretStmt) where
+> module Interpreter (Value, ItpError,
+>                     eval, evalStmt, unwrap, normalize, evalInterpreter) where
+> import Prelude hiding (lookup)
+> import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 > import Data.List (intercalate)
 > import Data.Text (Text)
 > import Control.Eff
@@ -9,16 +12,15 @@
 > import Control.Eff.State.Lazy
 > import Control.Eff.Exception
 > import qualified Parsing.CST as CST (Const(..))
-> import Parsing.CST (Var(..))
+> import Parsing.CST (Var(..), varName, isLexVar, isDynVar)
 > import qualified AST (Expr(..))
-> import AST (Expr, Stmt(..))
+> import AST (Expr, Stmt(..), stmtBinders)
 > import Ops (Primop)
 > import qualified Interpreter.Env as Env
-> import Interpreter.Env (pushFrame, BindingError)
+> import Interpreter.Env (pushFrame)
 > import qualified Interpreter.Cont as Cont
 > import Interpreter.Cont (emptyDump, frames)
-> import qualified Util
-> import Util (Name)
+> import Util (Name, Pos)
 
 Value Representation
 ====================
@@ -27,11 +29,29 @@ Value Representation
 >            | Tuple [Value]
 >            | Int Int
 >            | String Text
+>            | Redirect (IORef (Maybe Value))
 
 > newtype Method = Method ([Var], Expr, LexEnv)
 
 > method :: LexEnv -> ([Var], Expr) -> Method
 > method lEnv (formals, body) = Method (formals, body, lEnv)
+
+> emptyRedirect :: IO Value
+> emptyRedirect = Redirect <$> newIORef Nothing
+
+> unwrap :: Value -> Interpreter Value
+> unwrap (Redirect ref) = do ov <- lift $ readIORef ref
+>                            case ov of
+>                                Just v -> unwrap v
+>                                Nothing -> throwExc UnAssigned
+> unwrap v = return v
+
+> normalize :: Value -> Interpreter Value
+> normalize f @ (Closure _) = pure f
+> normalize (Tuple vs) = Tuple <$> traverse normalize vs
+> normalize i @ (Int _) = pure i
+> normalize s @ (String _) = pure s
+> normalize r @ (Redirect _) = normalize =<< unwrap r
 
 > instance Show Value where
 >     show (Closure methods) = "#<Fn (" ++ show (length methods) ++ " methods)>"
@@ -39,11 +59,17 @@ Value Representation
 >     show (Tuple vs) = '(' : intercalate ", " (map show vs) ++ ")"
 >     show (Int i) = show i
 >     show (String t) = show t
+>     show (Redirect _) = "#<Redirect>"
 
 Errors
 ======
 
-> type ItpError = Util.ItpError (BindingError Name)
+> data ItpError = Unbound Pos Name
+>               | UnAssigned
+>               | ReAssignment Pos Name
+>               | UnAssignable Pos Name
+>               | StackUnderflow
+>               deriving Show
 
 Environments
 ============
@@ -69,9 +95,9 @@ Interpreter Monad
 
 > type ItpState = (DynEnv, Cont, ContDump)
 
-> evalInterpreter :: Interpreter Value -> LexEnv -> DynEnv
->                 -> IO (Either ItpError Value)
-> evalInterpreter m lEnv dEnv =
+> evalInterpreter :: LexEnv -> DynEnv -> Interpreter a
+>                 -> IO (Either ItpError a)
+> evalInterpreter lEnv dEnv m =
 >     runLift (runExc (evalState lEnv (evalState st m)))
 >     where st::ItpState = (dEnv, Cont.Halt, emptyDump)
 
@@ -81,18 +107,6 @@ Interpreter Monad
 > putLexEnv :: (Member (State LexEnv) r) => LexEnv -> Eff r ()
 > putLexEnv = put
 
-> lookupLex :: (Member (Exc ItpError) r,
->               Member (State LexEnv) r, SetMember Lift (Lift IO) r)
->           => Name -> Eff r Value
-> lookupLex name = do lEnv <- getLexEnv
->                     Env.lookup lEnv name
-
-> defLex :: (Member (Exc ItpError) r,
->            Member (State LexEnv) r, SetMember Lift (Lift IO) r)
->        => Name -> Value -> Eff r ()
-> defLex name val = do lEnv <- getLexEnv
->                      Env.insert lEnv name val
-
 > getDynEnv :: (Member (State ItpState) r) => Eff r DynEnv
 > getDynEnv = (\((e, _, _)::ItpState) -> e) <$> get
 
@@ -100,34 +114,58 @@ Interpreter Monad
 > putDynEnv dEnv = do (_, k, pks)::ItpState <- get
 >                     put (dEnv, k, pks)
 
-> lookupDyn :: (Member (Exc ItpError) r,
->               Member (State ItpState) r, SetMember Lift (Lift IO) r)
->           => Name -> Eff r Value
-> lookupDyn name = do dEnv <- getDynEnv
->                     Env.lookup dEnv name
+> lookup :: Var -> Interpreter Value
+> lookup var =
+>     case var of
+>         LexVar pos name ->
+>             do lEnv <- getLexEnv
+>                dflt <- lift emptyRedirect
+>                ov <- lift $ Env.lookup lEnv name dflt
+>                case ov of
+>                    Just v -> return v
+>                    Nothing -> throwExc (Unbound pos name)
+>         DynVar pos name ->
+>             do dEnv <- getDynEnv
+>                dflt <- lift emptyRedirect
+>                ov <- lift $ Env.lookup dEnv name dflt
+>                case ov of
+>                    Just v -> return v
+>                    Nothing -> throwExc (Unbound pos name)
 
-> defDyn :: (Member (Exc ItpError) r,
->            Member (State ItpState) r, SetMember Lift (Lift IO) r)
->        => Name -> Value -> Eff r ()
-> defDyn name val = do dEnv <- getDynEnv
->                      Env.insert dEnv name val
-
-> def :: (Member (Exc ItpError) r,
->         Member (State ItpState) r, Member (State LexEnv) r,
->         SetMember Lift (Lift IO) r)
->     => Var -> Value -> Eff r ()
-> def (LexVar _ name) val = defLex name val
-> def (GlobVar _ name) val = defLex name val
-> def (DynVar _ name) val = defDyn name val
+> def :: Var -> Value -> Interpreter ()
+> def var val =
+>     case var of
+>         LexVar pos name ->
+>             do lEnv <- getLexEnv
+>                dflt <- lift emptyRedirect
+>                orv <- lift $ Env.lookup lEnv name dflt
+>                case orv of
+>                    Just (Redirect ref) ->
+>                        do ov <- lift $ readIORef ref
+>                           case ov of
+>                               Nothing -> lift (writeIORef ref (Just val))
+>                               Just _ -> throwExc (ReAssignment pos name)
+>                    _ -> throwExc (UnAssignable pos name)
+>         DynVar pos name ->
+>             do dEnv <- getDynEnv
+>                dflt <- lift emptyRedirect
+>                orv <- lift $ Env.lookup dEnv name dflt
+>                case orv of
+>                    Just (Redirect ref) ->
+>                        do ov <- lift $ readIORef ref
+>                           case ov of
+>                               Nothing -> lift (writeIORef ref (Just val))
+>                               Just _ -> throwExc (ReAssignment pos name)
+>                    _ -> throwExc (UnAssignable pos name)
 
 > pushScope :: (Member (Exc ItpError) r,
 >               Member (State ItpState) r, Member (State LexEnv) r,
 >               SetMember Lift (Lift IO) r)
->           => LexEnv -> Eff r ()
-> pushScope lEnv = do dEnv' <- lift . pushFrame =<< getDynEnv
->                     lEnv' <- lift (pushFrame lEnv)
->                     putDynEnv dEnv'
->                     putLexEnv lEnv'
+>           => LexEnv -> [(Name, Value)] -> [(Name, Value)] -> Eff r ()
+> pushScope lEnv lkvs dkvs = do dEnv' <- pushFrame <$> getDynEnv <*> pure dkvs
+>                               let lEnv' = pushFrame lEnv lkvs
+>                               putDynEnv dEnv'
+>                               putLexEnv lEnv'
 
 > getCont :: (Member (State ItpState) r) => Eff r Cont
 > getCont = (\((_, k, _)::ItpState) -> k) <$> get
@@ -155,7 +193,7 @@ Interpreter Monad
 >                          do putCont (f lEnv dEnv k')
 >                             putLexEnv lEnv
 >                             putDynEnv dEnv
->                      Nothing -> throwExc (Util.StackUnderflow::ItpError)
+>                      Nothing -> throwExc (StackUnderflow::ItpError)
 
 > pop :: (Member (Exc ItpError) r,
 >         Member (State ItpState) r, Member (State LexEnv) r)
@@ -169,13 +207,18 @@ Abstract Machine
 > eval (AST.Fn _ cases) =
 >     do lEnv <- getLexEnv
 >        continue $ Closure (method lEnv <$> cases)
-> eval (AST.Block _ ([stmt])) =
->     do pushScope =<< getLexEnv
->        evalStmt stmt
-> eval (AST.Block _ (stmt:stmts)) =
->     do pushScope =<< getLexEnv
->        pushContFrame (Cont.Stmt stmts)
->        evalStmt stmt
+> eval (AST.Block _ stmts) =
+>     do lEnv <- getLexEnv
+>        let vars = stmtBinders =<< stmts
+>        let lVars = varName <$> filter isLexVar vars
+>        let dVars = varName <$> filter isDynVar vars
+>        lVals <- lift $ sequenceA (replicate (length lVars) emptyRedirect)
+>        dVals <- lift $ sequenceA (replicate (length dVars) emptyRedirect)
+>        pushScope lEnv (zip lVars lVals) (zip dVars dVals)
+>        case stmts of
+>            [stmt] -> evalStmt stmt
+>            stmt:stmts' -> do pushContFrame (Cont.Stmt stmts')
+>                              evalStmt stmt
 > eval (AST.App _ f args) =
 >     do pushContFrame (Cont.Applicant args)
 >        eval f
@@ -183,20 +226,14 @@ Abstract Machine
 >     do pushContFrame (Cont.PrimArg op [] args)
 >        eval arg
 > eval (AST.PrimApp _ op []) = applyPrimop op []
-> eval (AST.Var (LexVar _ name)) = continue =<< lookupLex name
-> eval (AST.Var (GlobVar _ name)) = continue =<< lookupLex name
-> eval (AST.Var (DynVar _ name)) = continue =<< lookupDyn name
+> eval (AST.Var var) = continue =<< lookup var
 > eval (AST.Const c) = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
 >           evalConst (CST.String _ s) = String s
 
 > evalStmt :: Stmt -> Interpreter Value
-> evalStmt (Def var expr) =
->     do pushContFrame (case var of
->                           GlobVar _ name -> Cont.LexAssign name
->                           LexVar _ name -> Cont.LexAssign name
->                           DynVar _ name -> Cont.DynAssign name)
->        eval expr
+> evalStmt (Def var expr) = do pushContFrame (Cont.Assign var)
+>                              eval expr
 > evalStmt (Expr expr) = eval expr
 
 > continue :: Value -> Interpreter Value
@@ -226,27 +263,19 @@ Abstract Machine
 >                     Cont.PrimArg op vs [] _ _ _ ->
 >                         do pop
 >                            applyPrimop op (reverse (v:vs))
->                     Cont.LexAssign name _ _ _ ->
+>                     Cont.Assign var _ _ _ ->
 >                         do pop
->                            defLex name v
->                            continue v -- QUESTION: what to return here?
->                     Cont.DynAssign name _ _ _ ->
->                         do pop
->                            defDyn name v
+>                            def var v
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.Halt -> return v
 
 > apply :: Value -> [Value] -> Interpreter Value
-> apply (Closure ((Method ([formal], body, lEnv)):_)) vs =
->     do pushScope lEnv
->        def formal (Tuple vs)
+> apply f args = unwrap f >>= flip applyDirect args
+
+> applyDirect :: Value -> [Value] -> Interpreter Value
+> applyDirect (Closure ((Method ([LexVar _ fname], body, lEnv)):_)) vs =
+>     do pushScope lEnv [(fname, Tuple vs)] []
 >        eval body
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
 > applyPrimop _ _ = return (Int 0) -- TODO...
-
-> interpret :: LexEnv -> DynEnv -> Expr -> IO (Either ItpError Value)
-> interpret lEnv dEnv expr = evalInterpreter (eval expr) lEnv dEnv
-
-> interpretStmt :: LexEnv -> DynEnv -> Stmt -> IO (Either ItpError Value)
-> interpretStmt lEnv dEnv stmt = evalInterpreter (evalStmt stmt) lEnv dEnv
