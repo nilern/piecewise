@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module AST (Stmt(..), stmtBinders, Expr(..), Jump(..)) where
+module IR.AST (Stmt(..), stmtBinders, Expr(..), Jump(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), (<+>), (</>))
 
-import Parsing.CST (Var, Const)
+import IR.CST (Var, Const)
 import Ops (Primop)
 import Util (showViaPretty, Pos)
 

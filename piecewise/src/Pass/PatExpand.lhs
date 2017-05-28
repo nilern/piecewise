@@ -1,17 +1,18 @@
 > {-# LANGUAGE FlexibleContexts, RankNTypes, GADTs #-}
 > {-# LANGUAGE ViewPatterns, OverloadedStrings #-}
 
-> module PatExpand (expandExpr, expandStmt, expandStmtList,
->                   runExpansion, PatError) where
+> module Pass.PatExpand (expandExpr, expandStmt, expandStmtList,
+>                        runExpansion, PatError) where
 > import Data.Text (pack)
 > import Control.Monad (foldM)
 > import Control.Eff
 > import Control.Eff.Exception
 > import Control.Eff.State.Lazy
 > import Control.Eff.Reader.Lazy
-> import qualified Parsing.CST as CST
-> import Parsing.CST (Const(..), Var(..))
-> import AST (Stmt(..), Expr(..), Jump(..))
+
+> import qualified IR.CST as CST
+> import IR.CST (Const(..), Var(..))
+> import IR.AST (Stmt(..), Expr(..), Jump(..))
 > import Util (Name(..), freshName, position)
 
 > data PatError = InvalidPat CST.Expr deriving Show

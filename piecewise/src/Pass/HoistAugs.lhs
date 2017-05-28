@@ -1,13 +1,14 @@
 > {-# LANGUAGE RankNTypes, GADTs, FlexibleContexts, ScopedTypeVariables #-}
 > {-# LANGUAGE OverloadedStrings, ViewPatterns, TupleSections #-}
 
-> module HoistAugs (hoisted, hoistedStmt, runHoisted, HoistError) where
+> module Pass.HoistAugs (hoisted, hoistedStmt, runHoisted, HoistError) where
 > import Data.Foldable (traverse_)
 > import Control.Eff
 > import Control.Eff.Exception
 > import Control.Eff.State.Lazy
-> import Parsing.CST (Var(..), varName)
-> import AST (Expr(..), Stmt(..))
+
+> import IR.CST (Var(..), varName)
+> import IR.AST (Expr(..), Stmt(..))
 > import Util (Name(..), freshName, position)
 
 > data HoistError = ReAssignment Var deriving Show

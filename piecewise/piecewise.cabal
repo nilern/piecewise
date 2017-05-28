@@ -16,8 +16,10 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
-                       Parsing.CST, Ops, PatExpand, AST, HoistAugs,
-                       Interpreter, Interpreter.Env, Interpreter.Cont, Util
+                       IR.CST, IR.AST
+                       Pass.PatExpand, Pass.HoistAugs,
+                       Interpreter, Interpreter.Env, Interpreter.Cont
+                       Ops, Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
                        , mtl >= 2.2.0

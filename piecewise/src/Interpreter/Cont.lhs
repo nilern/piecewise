@@ -1,8 +1,8 @@
 > module Interpreter.Cont
 >        (Cont(..), frames,
 >         ContDump, emptyDump, pushCont, popCont, splitDump) where
-> import Parsing.CST (Var)
-> import AST (Expr, Stmt)
+> import IR.CST (Var)
+> import IR.AST (Expr, Stmt)
 > import Ops (Primop)
 > import Interpreter.Env (LexEnv, DynEnv)
 

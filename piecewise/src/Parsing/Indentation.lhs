@@ -7,10 +7,11 @@
 > import qualified Data.Sequence as Seq
 > import Data.Sequence (ViewL(..), (|>))
 > import Data.Default
-> import Util (Pos(..), ParseError(..))
+
 > import qualified Parsing.Lexer as Lexer
 > import Parsing.Lexer (Lexer, Input, Tok(..), TokTag(..), Delimiter, Side(..),
 >                       Delimiter(..), LexicalError, charPos)
+> import Util (Pos(..), ParseError(..))
 
 A whitespace sensitive lexer just wraps a regular lexer with some additional
 state.

@@ -9,9 +9,10 @@ import qualified Data.ByteString as B
 import Parsing.Parser (expr)
 import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError, Input)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
-import AST (Stmt, Jump(..))
-import PatExpand (expandStmtList, runExpansion, PatError)
-import HoistAugs (hoistedStmt, runHoisted, HoistError)
+import qualified IR.AST as AST
+import IR.AST (Stmt, Jump(..))
+import Pass.PatExpand (expandStmtList, runExpansion, PatError)
+import Pass.HoistAugs (hoistedStmt, runHoisted, HoistError)
 import Interpreter (Value, ItpError, evalStmt, normalize, evalInterpreter)
 import qualified Interpreter.Env as Env
 import Util (Name)

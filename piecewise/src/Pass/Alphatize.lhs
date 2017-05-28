@@ -1,7 +1,7 @@
 > {-# LANGUAGE ViewPatterns #-}
 > {-# LANGUAGE RankNTypes, GADTs, FlexibleContexts #-}
 
-> module Alphatize (alphatize, alphatizeStmt, runAlphatization) where
+> module Pass.Alphatize (alphatize, alphatizeStmt, runAlphatization) where
 > import Prelude hiding (lookup)
 > import Data.Maybe (fromMaybe)
 > import qualified Data.Map as Map
@@ -10,8 +10,8 @@
 > import Control.Eff.State.Lazy
 > import Control.Eff.Reader.Lazy
 
-> import Parsing.CST (Var(..), varName)
-> import AST (Expr(..), Stmt(..))
+> import IR.CST (Var(..), varName)
+> import IR.AST (Expr(..), Stmt(..))
 > import Util (Name(..), nameChars, Pos)
 
 > type Alphatization a =

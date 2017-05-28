@@ -11,10 +11,11 @@
 > import Control.Eff.Lift
 > import Control.Eff.State.Lazy
 > import Control.Eff.Exception
-> import qualified Parsing.CST as CST (Const(..))
-> import Parsing.CST (Var(..), varName, isLexVar, isDynVar)
-> import qualified AST (Expr(..))
-> import AST (Expr, Stmt(..), stmtBinders)
+
+> import qualified IR.CST as CST (Const(..))
+> import IR.CST (Var(..), varName, isLexVar, isDynVar)
+> import qualified IR.AST as AST (Expr(..))
+> import IR.AST (Expr, Stmt(..), stmtBinders)
 > import Ops (Primop)
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame)

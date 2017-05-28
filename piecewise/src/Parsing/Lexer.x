@@ -15,8 +15,9 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Control.Monad.State
 import Control.Monad.Except
+
+import IR.CST (Expr)
 import Util (Pos(..), nextPos, ParseError(..))
-import Parsing.CST (Expr)
 }
 
 $delimiter = ["'`\(\)\[\]\{\}]

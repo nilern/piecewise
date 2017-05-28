@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parsing.CST (Stmt(..), Expr(..),
-                    Var(..), varName, isLexVar, isDynVar, Const(..)) where
+module IR.CST (Stmt(..), Expr(..),
+               Var(..), varName, isLexVar, isDynVar, Const(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), (</>), (<+>))
+
 import Ops (Primop)
 import Util (showViaPretty, Name, Pos, Positioned(..))
 

@@ -5,10 +5,11 @@ module Parsing.Parser (expr) where
 import Control.Monad.Except
 import qualified Data.Text as T
 import Data.Text.Read (decimal)
+
 import Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
                       Precedence(..), LexicalError(..), startPos)
 import Parsing.Indentation (WSLexer, readToken)
-import Parsing.CST (Expr(..), Var(..), Const(..), Stmt(..))
+import IR.CST (Expr(..), Var(..), Const(..), Stmt(..))
 import Util (Name(PlainName), Pos, position, ParseError(..))
 }
 
