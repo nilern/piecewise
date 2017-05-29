@@ -1,5 +1,6 @@
 > {-# LANGUAGE RankNTypes, GADTs #-}
-> {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections #-}
+> {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections,
+>              NamedFieldPuns, RecordWildCards #-}
 
 > module Interpreter (Value, ItpError,
 >                     eval, evalStmt, unwrap, normalize, evalInterpreter) where
@@ -15,12 +16,13 @@
 > import qualified IR.CST as CST (Const(..))
 > import IR.CST (Var(..), varName, isLexVar, isDynVar)
 > import qualified IR.AST as AST (Expr(..))
-> import IR.AST (Expr, Stmt(..), stmtBinders)
+> import IR.AST (Expr, Stmt(..), stmtBinders, Formals(..))
 > import Ops (Primop)
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame)
 > import qualified Interpreter.Cont as Cont
 > import Interpreter.Cont (emptyDump, frames)
+> import qualified Ops
 > import Util (Name, Pos)
 
 Value Representation
@@ -30,21 +32,21 @@ Value Representation
 >            | Tuple [Value]
 >            | Int Int
 >            | String Text
->            | Redirect (IORef (Maybe Value))
+>            | Redirect Var (IORef (Maybe Value))
 
-> newtype Method = Method ([Var], Expr, LexEnv)
+> newtype Method = Method (Formals, Maybe Expr, Expr, LexEnv)
 
-> method :: LexEnv -> ([Var], Expr) -> Method
-> method lEnv (formals, body) = Method (formals, body, lEnv)
+> method :: LexEnv -> (Formals, Maybe Expr, Expr) -> Method
+> method lEnv (formals, cond, body) = Method (formals, cond, body, lEnv)
 
-> emptyRedirect :: IO Value
-> emptyRedirect = Redirect <$> newIORef Nothing
+> emptyRedirect :: Var -> IO Value
+> emptyRedirect var = Redirect var <$> newIORef Nothing
 
 > unwrap :: Value -> Interpreter Value
-> unwrap (Redirect ref) = do ov <- lift $ readIORef ref
->                            case ov of
->                                Just v -> unwrap v
->                                Nothing -> throwExc UnAssigned
+> unwrap (Redirect var ref) = do ov <- lift $ readIORef ref
+>                                case ov of
+>                                    Just v -> unwrap v
+>                                    Nothing -> throwExc (UnAssigned var)
 > unwrap v = return v
 
 > normalize :: Value -> Interpreter Value
@@ -52,7 +54,7 @@ Value Representation
 > normalize (Tuple vs) = Tuple <$> traverse normalize vs
 > normalize i @ (Int _) = pure i
 > normalize s @ (String _) = pure s
-> normalize r @ (Redirect _) = normalize =<< unwrap r
+> normalize r @ (Redirect _ _) = normalize =<< unwrap r
 
 > instance Show Value where
 >     show (Closure methods) = "#<Fn (" ++ show (length methods) ++ " methods)>"
@@ -60,13 +62,13 @@ Value Representation
 >     show (Tuple vs) = '(' : intercalate ", " (map show vs) ++ ")"
 >     show (Int i) = show i
 >     show (String t) = show t
->     show (Redirect _) = "#<Redirect>"
+>     show (Redirect _ _) = "#<Redirect>"
 
 Errors
 ======
 
 > data ItpError = Unbound Pos Name
->               | UnAssigned
+>               | UnAssigned Var
 >               | ReAssignment Pos Name
 >               | UnAssignable Pos Name
 >               | StackUnderflow
@@ -120,14 +122,14 @@ Interpreter Monad
 >     case var of
 >         LexVar pos name ->
 >             do lEnv <- getLexEnv
->                dflt <- lift emptyRedirect
+>                dflt <- lift $ emptyRedirect var
 >                ov <- lift $ Env.lookup lEnv name dflt
 >                case ov of
 >                    Just v -> return v
 >                    Nothing -> throwExc (Unbound pos name)
 >         DynVar pos name ->
 >             do dEnv <- getDynEnv
->                dflt <- lift emptyRedirect
+>                dflt <- lift $ emptyRedirect var
 >                ov <- lift $ Env.lookup dEnv name dflt
 >                case ov of
 >                    Just v -> return v
@@ -138,10 +140,10 @@ Interpreter Monad
 >     case var of
 >         LexVar pos name ->
 >             do lEnv <- getLexEnv
->                dflt <- lift emptyRedirect
+>                dflt <- lift $ emptyRedirect var
 >                orv <- lift $ Env.lookup lEnv name dflt
 >                case orv of
->                    Just (Redirect ref) ->
+>                    Just (Redirect _ ref) ->
 >                        do ov <- lift $ readIORef ref
 >                           case ov of
 >                               Nothing -> lift (writeIORef ref (Just val))
@@ -149,10 +151,10 @@ Interpreter Monad
 >                    _ -> throwExc (UnAssignable pos name)
 >         DynVar pos name ->
 >             do dEnv <- getDynEnv
->                dflt <- lift emptyRedirect
+>                dflt <- lift $ emptyRedirect var
 >                orv <- lift $ Env.lookup dEnv name dflt
 >                case orv of
->                    Just (Redirect ref) ->
+>                    Just (Redirect _ ref) ->
 >                        do ov <- lift $ readIORef ref
 >                           case ov of
 >                               Nothing -> lift (writeIORef ref (Just val))
@@ -208,14 +210,15 @@ Abstract Machine
 > eval (AST.Fn _ cases) =
 >     do lEnv <- getLexEnv
 >        continue $ Closure (method lEnv <$> cases)
-> eval (AST.Block _ stmts) =
+> eval (AST.Block pos stmts) =
 >     do lEnv <- getLexEnv
 >        let vars = stmtBinders =<< stmts
->        let lVars = varName <$> filter isLexVar vars
->        let dVars = varName <$> filter isDynVar vars
->        lVals <- lift $ sequenceA (replicate (length lVars) emptyRedirect)
->        dVals <- lift $ sequenceA (replicate (length dVars) emptyRedirect)
->        pushScope lEnv (zip lVars lVals) (zip dVars dVals)
+>        let lVars = filter isLexVar vars
+>        let dVars = filter isDynVar vars
+>        lVals <- lift $ sequenceA (emptyRedirect <$> lVars)
+>        dVals <- lift $ sequenceA (emptyRedirect <$> dVars)
+>        pushScope lEnv (zip (varName <$> lVars) lVals)
+>                       (zip (varName <$> dVars) dVals)
 >        case stmts of
 >            [stmt] -> evalStmt stmt
 >            stmt:stmts' -> do pushContFrame (Cont.Stmt stmts')
@@ -246,37 +249,31 @@ Abstract Machine
 >                     Cont.Stmt (stmt:stmts) _ _ _ ->
 >                         do modifyTop (Cont.Stmt stmts)
 >                            evalStmt stmt
->                     Cont.Applicant (arg:args) _ _ _ ->
->                         do modifyTop (Cont.Arg v [] args)
->                            eval arg
->                     Cont.Applicant [] _ _ _ ->
+>                     Cont.Applicant args _ _ _ ->
+>                         do modifyTop (Cont.Arg v)
+>                            eval args
+>                     Cont.Arg f _ _ _ ->
 >                         do pop
->                            apply v []
->                     Cont.Arg f vs (arg:args) _ _ _ ->
->                         do modifyTop (Cont.Arg f (v:vs) args)
->                            eval arg
->                     Cont.Arg f vs [] _ _ _ ->
->                         do pop
->                            apply f (reverse (v:vs))
+>                            apply f v
 >                     Cont.PrimArg op vs (arg:args) _ _ _ ->
 >                         do modifyTop (Cont.PrimArg op (v:vs) args)
 >                            eval arg
 >                     Cont.PrimArg op vs [] _ _ _ ->
 >                         do pop
->                            applyPrimop op (reverse (v:vs))
+>                            continue =<< applyPrimop op (reverse (v:vs))
 >                     Cont.Assign var _ _ _ ->
 >                         do pop
 >                            def var v
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.Halt -> return v
 
-> apply :: Value -> [Value] -> Interpreter Value
+> apply :: Value -> Value -> Interpreter Value
 > apply f args = unwrap f >>= flip applyDirect args
 
-> applyDirect :: Value -> [Value] -> Interpreter Value
-> applyDirect (Closure ((Method ([LexVar _ fname], body, lEnv)):_)) vs =
->     do pushScope lEnv [(fname, Tuple vs)] []
+> applyDirect :: Value -> Value -> Interpreter Value
+> applyDirect (Closure ((Method (Formals {args, ..}, _, body, lEnv)):_)) vs =
+>     do pushScope lEnv [(varName args, vs)] []
 >        eval body
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
-> applyPrimop _ _ = return (Int 0) -- TODO...
+> applyPrimop Ops.Tuple vs = pure $ Tuple vs

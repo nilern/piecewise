@@ -16,8 +16,7 @@ data Stmt = Def Expr Expr
           | AugDef Expr Expr
           | Expr Expr
 
--- TODO: Fn Pos [([Expr], Maybe Expr, Expr)]
-data Expr = Fn Pos [([Expr], Expr, Expr)]
+data Expr = Fn Pos [([Expr], Maybe Expr, Expr)]
           | Block Pos [Stmt]
           | App Pos Expr [Expr]
           | PrimApp Pos Primop [Expr]

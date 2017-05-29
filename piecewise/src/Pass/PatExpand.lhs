@@ -1,9 +1,9 @@
 > {-# LANGUAGE FlexibleContexts, RankNTypes, GADTs #-}
-> {-# LANGUAGE ViewPatterns, OverloadedStrings #-}
+> {-# LANGUAGE ViewPatterns, OverloadedStrings, NamedFieldPuns #-}
 
 > module Pass.PatExpand (expandExpr, expandStmt, expandStmtList,
 >                        runExpansion, PatError) where
-> import Data.Text (pack)
+> import Data.Foldable (toList)
 > import Control.Monad (foldM)
 > import Control.Eff
 > import Control.Eff.Exception
@@ -12,7 +12,7 @@
 
 > import qualified IR.CST as CST
 > import IR.CST (Const(..), Var(..))
-> import IR.AST (Stmt(..), Expr(..), Jump(..))
+> import IR.AST (Stmt(..), Expr(..), Formals(..), Jump(..), app)
 > import Util (Name(..), freshName, position)
 
 > data PatError = InvalidPat CST.Expr deriving Show
@@ -32,16 +32,32 @@ here.
 > expandExpr (CST.Fn pos cases) = Fn pos <$> traverse expandCase cases
 >     where expandCase (pats, cond, body) =
 >               local (const NextMethod)
->                   (do formals <- traverse freshArg [0..length pats - 1]
->                       patStmts <- expandPatList Def pats (CST.Var <$> formals)
->                       cond' <- Expr <$> expandExpr cond
+>                   (do self <- LexVar pos <$> freshName "self"
+>                       args <- LexVar pos <$> freshName "args"
+>                       jmp <- ask
+>                       let argc = length pats
+>                       let argis = [0..argc - 1]
+>                       let fgets = getArg (CST.Var args) <$> argis
+>                       patStmts <- expandPatList Def pats fgets
+>                       cond' <- expandCond cond
 >                       body' <- Expr <$> expandExpr body
->                       return (formals, Block pos (patStmts ++ [cond', body'])))
->           freshArg i = LexVar pos <$> freshName (pack ("arg" ++ show i))
+>                       return (Formals {self, args}, cond',
+>                               Block pos (Guard (hasLen (Const (Int pos argc))
+>                                                        (Var args)) jmp :
+>                                          patStmts ++
+>                                          (Expr <$> toList cond') ++
+>                                          [body'])))
+>           expandCond (Just cond) = Just <$> expandExpr cond
+>           expandCond Nothing = pure Nothing
+>           hasLen l e = app pos eq [l, (app pos count [e])]
+>           eq = Var (LexVar pos (PlainName "=="))
+>           count = Var (LexVar pos (PlainName "count"))
+>           getArg args i = CST.App pos ref [args, CST.Const (Int pos i)]
+>           ref = CST.Var (LexVar pos (PlainName "get"))
 > expandExpr (CST.Block pos stmts) =
 >     local (const ThrowBindErr) (Block pos <$> expandStmtList stmts)
 > expandExpr (CST.App pos f args) =
->     App pos <$> expandExpr f <*> traverse expandExpr args
+>     app pos <$> expandExpr f <*> traverse expandExpr args
 > expandExpr (CST.PrimApp pos op args) =
 >     PrimApp pos op <$> traverse expandExpr args
 > expandExpr (CST.Var v) = return (Var v)
@@ -70,15 +86,15 @@ TODO: CST.PrimApp
 >        (viewStmts oview view f' val' jmp ++) <$>
 >            expandPatList mkDef args (map (field (CST.Var view)) [0..])
 >     where viewStmts oview view f' val' jmp =
->               [Def oview (App pos (Var unapply) [f', val']),
+>               [Def oview (app pos (Var unapply) [f', val']),
 >                Guard (isSome (Var oview)) jmp,
->                Def view (App pos (Var unwrap) [Var oview]),
+>                Def view (app pos (Var unwrap) [Var oview]),
 >                Guard (hasLen (Const (Int pos argc)) (Var view)) jmp]
 >           field v i = CST.App pos ref [v, CST.Const (Int pos i)]
 >           unapply = LexVar pos (PlainName "unapply")
 >           unwrap = LexVar pos (PlainName "unwrap")
->           isSome v = App pos (Var (LexVar pos (PlainName "some?"))) [v]
->           hasLen l e = App pos eq [l, (App pos count [e])]
+>           isSome v = app pos (Var (LexVar pos (PlainName "some?"))) [v]
+>           hasLen l e = app pos eq [l, (app pos count [e])]
 >           eq = Var (LexVar pos (PlainName "=="))
 >           count = Var (LexVar pos (PlainName "count"))
 >           ref = CST.Var (LexVar pos (PlainName "get"))
@@ -87,7 +103,7 @@ TODO: CST.PrimApp
 > expandPat _ (CST.Const (c @ (position -> pos))) val =
 >     do jmp <- ask
 >        val' <- expandExpr val
->        return [Guard (App pos eq [val', Const c]) jmp]
+>        return [Guard (app pos eq [val', Const c]) jmp]
 >     where eq = Var (LexVar pos (PlainName "=="))
 
 > expandPatList :: (Var -> Expr -> Stmt) -> [CST.Expr] -> [CST.Expr]

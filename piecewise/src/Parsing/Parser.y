@@ -78,7 +78,7 @@ Simple : '(' Expr ')'                     { $2 }
        | '[' SemiColonList(Stmt) ']'
          { let pos = startPos $1
            in Fn pos [([App pos (Var (LexVar pos (PlainName "tuple"))) []],
-                       Const (Keyword pos "True"),
+                       Nothing,
                        Block pos (reverse $2))] }
        | lexIdent { let Tok _ name pos _ = $1
                     in Var (LexVar pos (PlainName name)) }
@@ -140,7 +140,7 @@ parseError tok = throwError $ ParseError (startPos tok) tok
 extractBlock :: Pos -> [BlockItem] -> Expr
 extractBlock pos items @ ((Clause _ _):_) = Fn pos (clauses items)
     where clauses ((Clause formals stmt):items) =
-              (formals, Const (Keyword pos "True"),
+              (formals, Nothing,
                Block (position stmt) (stmt : map unwrap stmts))
               : clauses items'
               where (stmts, items') = span isStmt items
@@ -160,6 +160,5 @@ extractDef :: (Expr -> Expr -> Stmt) -> [Expr] -> Expr -> Stmt
 extractDef make [pat] expr = make pat expr
 extractDef make (pat:formals) expr =
     let pos = position pat
-    in extractDef make [pat] (Fn pos [(formals, Const (Keyword pos "True"),
-                                       expr)])
+    in extractDef make [pat] (Fn pos [(formals, Nothing, expr)])
 }

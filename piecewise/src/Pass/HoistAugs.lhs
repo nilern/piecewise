@@ -9,6 +9,7 @@
 
 > import IR.CST (Var(..), varName)
 > import IR.AST (Expr(..), Stmt(..))
+> import qualified Ops
 > import Util (Name(..), freshName, position)
 
 > data HoistError = ReAssignment Var deriving Show
@@ -24,12 +25,15 @@ is the Block case of `hoisted` which uses execState to reorder statements
 and traverses the reordered statements.
 
 > hoisted :: Expr -> Hoisted Expr
-> hoisted (Fn pos cases) = Fn pos <$> (traverse hoistCase cases)
->     where hoistCase (formals, expr) = (formals,) <$> hoisted expr
+> hoisted (Fn pos cases) = Fn pos <$> traverse hoistCase cases
+>     where hoistCase (formals, Just cond, expr) =
+>               (formals,,) <$> (Just <$> hoisted cond) <*> hoisted expr
+>           hoistCase (formals, Nothing, expr) =
+>               (formals, Nothing,) <$> hoisted expr
 > hoisted (Block pos stmts) =
 >     do stmts' <- reverse <$> execState [] (traverse_ hoistStmt stmts)
 >        Block pos <$> (traverse hoistedStmt stmts')
-> hoisted (App pos f args) = App pos <$> hoisted f <*> traverse hoisted args
+> hoisted (App pos f args) = App pos <$> hoisted f <*> hoisted args
 > hoisted (PrimApp pos op args) = PrimApp pos op <$> traverse hoisted args
 > hoisted node @ (Var _) = return node
 > hoisted node @ (Const _) = return node
@@ -74,7 +78,7 @@ the end in addition to running effects.
 >           defaultDef tmp =
 >               mkDef var (Var (UpperLexVar pos (varName var))) (Var tmp)
 >           mergeFns f g = App pos (Var (LexVar pos (PlainName "fnMerge")))
->                              [f, g]
+>                              (PrimApp pos Ops.Tuple [f, g])
 
 > hoistStmt :: Stmt -> Hoisting ()
 > hoistStmt (Def var val) = assocDef var val
