@@ -18,7 +18,7 @@ library
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
                        IR.CST, IR.AST
                        Pass.PatExpand, Pass.HoistAugs,
-                       Interpreter, Interpreter.Env, Interpreter.Cont
+                       Interpreter, Interpreter.Env
                        Ops, Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6
@@ -32,6 +32,7 @@ library
                        , hashable >= 1.2
                        , data-default >= 0.7.0
                        , wl-pprint-text
+                       , lens
   build-tools:         alex, happy
   default-language:    Haskell2010
   ghc-options:         -Wall
