@@ -3,6 +3,7 @@
 module Util (showViaPretty,
              Pos(..), nextPos, Positioned(..),
              Name(..), nameChars, freshName,
+             Label, freshLabel,
              ParseError(..)) where
 import Data.Semigroup ((<>))
 import qualified Data.Text as T
@@ -53,6 +54,16 @@ freshName :: (Member (State Int) r) => Text -> Eff r Name
 freshName chars = do res <- UniqueName chars <$> get
                      modify (+ (1::Int))
                      return res
+
+newtype Label = Label Int deriving Show
+
+instance Pretty Label where
+    pretty (Label i) = P.int i
+
+freshLabel :: (Member (State Int) r) => Eff r Label
+freshLabel = do i <- get
+                modify (+ (1::Int))
+                return (Label i)
 
 data ParseError t d e = MalformedNumber T.Text
                       | UnprecedentedOp T.Text

@@ -43,6 +43,7 @@ executable piecewise-exe
   build-depends:       base
                      , piecewise
                      , mtl >= 2.2.0
+                     , extensible-effects
                      , bytestring >= 0.10
                      , data-default >= 0.7.0
                      , wl-pprint-text

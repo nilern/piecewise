@@ -5,17 +5,20 @@ import Data.Default (def)
 import Data.Foldable (traverse_)
 import qualified Data.Bifunctor as Bf
 import qualified Data.ByteString as B
+import Control.Eff (run)
+import Control.Eff.Exception (runExc)
+import Control.Eff.State.Lazy (runState)
 
 import Parsing.Parser (expr)
 import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError, Input)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import qualified IR.AST as AST
-import IR.AST (Stmt, Jump(..))
+import IR.AST (Stmt)
 import Pass.PatExpand (expandStmtList, runExpansion, PatError)
 import Pass.HoistAugs (hoistedStmt, runHoisted, HoistError)
 import Interpreter (Value, ItpError, evalStmt, normalize, evalInterpreter)
 import qualified Interpreter.Env as Env
-import Util (Name)
+import Util (Name, freshLabel)
 
 type LexEnv = Env.LexEnv Name Value
 type DynEnv = Env.DynEnv Name Value
@@ -36,10 +39,9 @@ act input =
     do tokens <- Bf.first PwParseError (runWSLexer (tokenize []) def input)
        let tokstrs = map show (reverse tokens)
        cstStmts <- Bf.first PwParseError (runWSLexer expr def input)
-       let c = 0
+       (c, l) <- run $ runExc $ runState (0::Int) freshLabel
        (c', astStmts::[AST.Stmt]) <- Bf.first PwPatError
-                                  (runExpansion (expandStmtList cstStmts)
-                                                ThrowBindErr c)
+                                  (runExpansion (expandStmtList cstStmts) l c)
        (_, astStmts'::[AST.Stmt]) <- Bf.first PwHoistError
                                  (runHoisted c' (traverse hoistedStmt astStmts))
        return (astStmts,

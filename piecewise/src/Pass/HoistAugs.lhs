@@ -7,9 +7,8 @@
 > import Control.Eff.Exception
 > import Control.Eff.State.Lazy
 
-> import IR.CST (Var(..), varName)
-> import IR.AST (Expr(..), Stmt(..))
-> import qualified Ops
+> import IR.CST (Const(..), Var(..), varName)
+> import IR.AST (Expr(..), Stmt(..), app)
 > import Util (Name(..), freshName, position)
 
 > data HoistError = ReAssignment Var deriving Show
@@ -33,7 +32,8 @@ and traverses the reordered statements.
 > hoisted (Block pos stmts) =
 >     do stmts' <- reverse <$> execState [] (traverse_ hoistStmt stmts)
 >        Block pos <$> (traverse hoistedStmt stmts')
-> hoisted (App pos f args) = App pos <$> hoisted f <*> hoisted args
+> hoisted (App pos f i args) =
+>     App pos <$> hoisted f <*> hoisted i <*> hoisted args
 > hoisted (PrimApp pos op args) = PrimApp pos op <$> traverse hoisted args
 > hoisted node @ (Var _) = return node
 > hoisted node @ (Const _) = return node
@@ -41,6 +41,7 @@ and traverses the reordered statements.
 > hoistedStmt :: Stmt -> Hoisted Stmt
 > hoistedStmt (Def var val) = Def var <$> hoisted val
 > hoistedStmt (AugDef var val) = AugDef var <$> hoisted val
+> hoistedStmt (Label label stmt) = Label label <$> hoistedStmt stmt
 > hoistedStmt (Guard cond jmp) = Guard <$> hoisted cond <*> pure jmp
 > hoistedStmt (Expr expr) = Expr <$> hoisted expr
 
@@ -77,11 +78,12 @@ the end in addition to running effects.
 >           mkDef v f g = Def v (mergeFns f g)
 >           defaultDef tmp =
 >               mkDef var (Var (UpperLexVar pos (varName var))) (Var tmp)
->           mergeFns f g = App pos (Var (LexVar pos (PlainName "fnMerge")))
->                              (PrimApp pos Ops.Tuple [f, g])
+>           mergeFns f g = app pos (Var (LexVar pos (PlainName "fnMerge")))
+>                                  (Const (Int pos 0)) [f, g]
 
 > hoistStmt :: Stmt -> Hoisting ()
 > hoistStmt (Def var val) = assocDef var val
 > hoistStmt (AugDef var val) = assocAugDef var val
+> hoistStmt stmt @ (Label _ _) = push stmt -- might misbehave when input does
 > hoistStmt stmt @ (Guard _ _) = push stmt
 > hoistStmt stmt @ (Expr _) = push stmt

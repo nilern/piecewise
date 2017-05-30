@@ -223,8 +223,8 @@ Abstract Machine
 >            [stmt] -> evalStmt stmt
 >            stmt:stmts' -> do pushContFrame (Cont.Stmt stmts')
 >                              evalStmt stmt
-> eval (AST.App _ f args) =
->     do pushContFrame (Cont.Applicant args)
+> eval (AST.App _ f i args) =
+>     do pushContFrame (Cont.Applicant i args)
 >        eval f
 > eval (AST.PrimApp _ op (arg:args)) =
 >     do pushContFrame (Cont.PrimArg op [] args)
@@ -249,12 +249,15 @@ Abstract Machine
 >                     Cont.Stmt (stmt:stmts) _ _ _ ->
 >                         do modifyTop (Cont.Stmt stmts)
 >                            evalStmt stmt
->                     Cont.Applicant args _ _ _ ->
->                         do modifyTop (Cont.Arg v)
+>                     Cont.Applicant i args _ _ _ ->
+>                         do modifyTop (Cont.MethodIndex v args)
+>                            eval i
+>                     Cont.MethodIndex f args _ _ _ ->
+>                         do modifyTop (Cont.Arg f v)
 >                            eval args
->                     Cont.Arg f _ _ _ ->
+>                     Cont.Arg f (Int i) _ _ _ ->
 >                         do pop
->                            apply f v
+>                            apply f i v
 >                     Cont.PrimArg op vs (arg:args) _ _ _ ->
 >                         do modifyTop (Cont.PrimArg op (v:vs) args)
 >                            eval arg
@@ -267,11 +270,12 @@ Abstract Machine
 >                            continue v -- QUESTION: what to return here?
 >                     Cont.Halt -> return v
 
-> apply :: Value -> Value -> Interpreter Value
-> apply f args = unwrap f >>= flip applyDirect args
+> apply :: Value -> Int -> Value -> Interpreter Value
+> apply f i args = do f' <- unwrap f
+>                     applyDirect f' i args
 
-> applyDirect :: Value -> Value -> Interpreter Value
-> applyDirect (Closure ((Method (Formals {args, ..}, _, body, lEnv)):_)) vs =
+> applyDirect :: Value -> Int -> Value -> Interpreter Value
+> applyDirect (Closure ((Method (Formals {args, ..}, _, body, lEnv)):_)) _ vs =
 >     do pushScope lEnv [(varName args, vs)] []
 >        eval body
 
