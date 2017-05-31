@@ -5,11 +5,13 @@ module Parsing.Parser (expr) where
 import Control.Monad.Except
 import qualified Data.Text as T
 import Data.Text.Read (decimal)
+import qualified Data.HashMap.Lazy as HM
 
 import Parsing.Lexer (TokTag(..), Tok(..), Delimiter(..), Side(..),
                       Precedence(..), LexicalError(..), startPos)
 import Parsing.Indentation (WSLexer, readToken)
 import IR.CST (Expr(..), Var(..), Const(..), Stmt(..))
+import Ops (opMap)
 import Util (Name(PlainName), Pos, position, ParseError(..))
 }
 
@@ -23,6 +25,7 @@ import Util (Name(PlainName), Pos, position, ParseError(..))
       int      { Tok TokInt _ _ _ }
       lexIdent { Tok TokLexId _ _ _ }
       dynIdent { Tok TokDynId _ _ _ }
+      primIdent { Tok TokPrimId _ _ _ }
       string   { Tok TokString _ _ _ }
       char     { Tok TokChar _ _ _ }
       op0      { Tok (TokOp Zero) _ _ _ }
@@ -65,12 +68,23 @@ Infix5 : Infix(Infix5, op5, Infix6) { $1 }
 Infix6 : Infix(Infix6, op6, Infix7) { $1 }
 Infix7 : Infix7 op7 App             { let Tok _ name pos _ = $2
                                       in App (position $1)
-                                              (Var (LexVar pos (PlainName name)))
-                                              [$1, extractApp (reverse $3)] }
+                                             (Var (LexVar pos (PlainName name)))
+                                             [$1, extractApp (reverse $3)] }
        | App                        { extractApp (reverse $1) }
+       | Infix7 op7 PrimApp         { let Tok _ name pos _ = $2
+                                      in App (position $1)
+                                             (Var (LexVar pos (PlainName name)))
+                                             [$1, $3] }
+       | PrimApp                    { $1 }
 
 App : Simple     { [$1] }
     | App Simple { $2 : $1 }
+
+PrimApp : primIdent App
+          {% let Tok _ cs pos _ = $1
+             in case HM.lookup cs opMap of
+                    Just op -> return $ PrimApp pos op (reverse $2)
+                    Nothing -> throwError $ UnknownPrimop cs }
 
 Simple : '(' Expr ')'                     { $2 }
        | '{' SemiColonList(BlockItem) '}' { extractBlock (startPos $1)

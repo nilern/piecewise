@@ -69,6 +69,7 @@ freshLabel = do i <- get
 
 data ParseError t d e = MalformedNumber T.Text
                       | UnprecedentedOp T.Text
+                      | UnknownPrimop T.Text
                       | UnexpectedInput T.Text
                       | UnmatchedDelims (Maybe d) d
                       | ParseError Pos t

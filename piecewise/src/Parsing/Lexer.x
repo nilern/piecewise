@@ -36,6 +36,8 @@ tokens :-
     "="                   { \cs p q -> return $ Tok TokEq cs p q }
     "->"                  { \cs p q -> return $ Tok TokArrow_ cs p q }
     $digit $constituent*  { \cs p q -> return $ Tok TokInt cs p q }
+    "__" $constituent*
+        { \cs p q -> return $ Tok TokPrimId (T.drop 2 cs) p q }
     \$ $constituent*
         { \cs p q -> return $ Tok TokDynId (T.tail cs) p q :: Lexer Tok }
     $idchar $constituent* { \cs p q -> return $ Tok TokLexId cs p q }
@@ -92,6 +94,7 @@ data Precedence = Zero | One | Two | Three | Four | Five | Six | Seven
 
 data TokTag = TokLexId
             | TokDynId
+            | TokPrimId
             | TokOp Precedence
             | TokInt
             | TokString
