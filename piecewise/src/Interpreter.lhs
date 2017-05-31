@@ -20,7 +20,8 @@
 > import qualified IR.CST as CST (Const(..))
 > import IR.CST (Var(..), varName, isLexVar, isDynVar)
 > import qualified IR.AST as AST (Expr(..))
-> import IR.AST (Expr, Stmt(..), stmtBinders, Formals(..))
+> import IR.AST.Initial (Formals(..))
+> import IR.AST.Hoisted (Expr, Stmt(..), stmtBinders)
 > import Ops (Primop)
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame)
@@ -268,7 +269,7 @@ Abstract Machine
 > eval (AST.PrimApp _ op (arg:args)) =
 >     do pushContFrame (PrimArg op [] args)
 >        eval arg
-> eval (AST.PrimApp _ op []) = applyPrimop op []
+> eval (AST.PrimApp _ op []) = applyPrimopDirect op []
 > eval (AST.Var var) = continue =<< lookup var
 > eval (AST.Const c) = continue (evalConst c)
 >     where evalConst (CST.Int _ i) = Int i
@@ -336,16 +337,22 @@ Abstract Machine
 >         Nothing -> throwExc $ NoSuchMethod i
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
-> applyPrimop Ops.IAdd [Int a, Int b] = pure $ Int (a + b)
-> applyPrimop Ops.IAdd vs @ [_, _] = throwExc $ TypeError Ops.IAdd vs
-> applyPrimop Ops.IAdd vs = throwExc $ PrimArgc Ops.IAdd 2 (length vs)
-> applyPrimop Ops.IEq [Int a, Int b] = pure $ Bool (a == b)
-> applyPrimop Ops.IEq vs @ [_, _] = throwExc $ TypeError Ops.IEq vs
-> applyPrimop Ops.IEq vs = throwExc $ PrimArgc Ops.IEq 2 (length vs)
-> applyPrimop Ops.WordSize [Tuple vs] = pure $ Int (length vs)
-> applyPrimop Ops.WordSize vs @ [_] = throwExc $ TypeError Ops.WordSize vs
-> applyPrimop Ops.WordSize vs = throwExc $ PrimArgc Ops.WordSize 1 (length vs)
-> applyPrimop Ops.Tuple vs = pure $ Tuple vs
-> applyPrimop Ops.LoadWord [Tuple vs, Int i] = pure $ vs !! i
-> applyPrimop Ops.LoadWord vs @ [_, _] = throwExc $ TypeError Ops.LoadWord vs
-> applyPrimop Ops.LoadWord vs = throwExc $ PrimArgc Ops.LoadWord 2 (length vs)
+> applyPrimop op vs = applyPrimopDirect op =<< traverse unwrap vs
+
+> applyPrimopDirect :: Primop -> [Value] -> Interpreter Value
+> applyPrimopDirect Ops.IAdd [Int a, Int b] = pure $ Int (a + b)
+> applyPrimopDirect Ops.IAdd vs @ [_, _] = throwExc $ TypeError Ops.IAdd vs
+> applyPrimopDirect Ops.IAdd vs = throwExc $ PrimArgc Ops.IAdd 2 (length vs)
+> applyPrimopDirect Ops.IEq [Int a, Int b] = pure $ Bool (a == b)
+> applyPrimopDirect Ops.IEq vs @ [_, _] = throwExc $ TypeError Ops.IEq vs
+> applyPrimopDirect Ops.IEq vs = throwExc $ PrimArgc Ops.IEq 2 (length vs)
+> applyPrimopDirect Ops.WordSize [Tuple vs] = pure $ Int (length vs)
+> applyPrimopDirect Ops.WordSize vs @ [_] = throwExc $ TypeError Ops.WordSize vs
+> applyPrimopDirect Ops.WordSize vs =
+>     throwExc $ PrimArgc Ops.WordSize 1 (length vs)
+> applyPrimopDirect Ops.Tuple vs = pure $ Tuple vs
+> applyPrimopDirect Ops.LoadWord [Tuple vs, Int i] = pure $ vs !! i
+> applyPrimopDirect Ops.LoadWord vs @ [_, _] =
+>     throwExc $ TypeError Ops.LoadWord vs
+> applyPrimopDirect Ops.LoadWord vs =
+>     throwExc $ PrimArgc Ops.LoadWord 2 (length vs)

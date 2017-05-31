@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
-                       IR.CST, IR.AST
+                       IR.CST, IR.AST, IR.AST.Initial, IR.AST.Hoisted,
                        Pass.PatExpand, Pass.HoistAugs,
                        Interpreter, Interpreter.Env
                        Ops, Util

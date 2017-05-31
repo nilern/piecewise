@@ -1,62 +1,29 @@
-{-# LANGUAGE OverloadedStrings, NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-module IR.AST (Stmt(..), stmtBinders, app, addRet, Expr(..), Formals(..)) where
+module IR.AST (Expr(..), app) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Text.PrettyPrint.Leijen.Text as P
 import Text.PrettyPrint.Leijen.Text (Pretty(..), (<+>), (</>))
 
-import IR.CST (Var, Const)
+import IR.CST (Const)
 import qualified Ops
 import Ops (Primop)
-import Util (Label, Pos, showViaPretty)
+import Util (Pos, showViaPretty)
 
 -- TODO: enforce that the last Stmt in a Block is a Label or Expr
 
-data Stmt = Def Var Expr
-          | AugDef Var Expr
-          | Guard Expr Label
-          | Label Label Stmt
-          | Return Expr
-          | Expr Expr
+data Expr s v f = Fn Pos [(f, Maybe (Expr s v f), Expr s v f)]
+                | Block Pos [s]
+                | App Pos (Expr s v f) (Expr s v f) (Expr s v f)
+                | PrimApp Pos Primop [Expr s v f]
+                | Var v
+                | Const Const
 
-data Expr = Fn Pos [(Formals, Maybe Expr, Expr)]
-          | Block Pos [Stmt]
-          | App Pos Expr Expr Expr
-          | PrimApp Pos Primop [Expr]
-          | Var Var
-          | Const Const
-
-data Formals = Formals { self :: Var, methodIndex :: Var, args :: Var }
-
-stmtBinders :: Stmt -> [Var]
-stmtBinders (Def v _) = [v]
-stmtBinders (AugDef v _) = [v]
-stmtBinders (Guard _ _) = []
-stmtBinders (Label _ stmt) = stmtBinders stmt
-stmtBinders (Return expr) = []
-stmtBinders (Expr _) = []
-
-addRet :: [Stmt] -> [Stmt]
-addRet [Expr expr] = [Return expr]
-addRet (stmt:stmts) = stmt:addRet stmts
-
-app :: Pos -> Expr -> Expr -> [Expr] -> Expr
+app :: Pos -> Expr s v f -> Expr s v f -> [Expr s v f] -> Expr s v f
 app pos f i args = App pos f i (PrimApp pos Ops.Tuple args)
 
-instance Pretty Stmt where
-    pretty (Def pat val) = pretty pat <+> P.text "=" <+> pretty val
-    pretty (AugDef pat val) = pretty pat <+> P.text "+=" <+> pretty val
-    pretty (Guard cond dest) =
-        "@guard" <+> pretty cond <+> P.text "=>" <+> pretty dest
-    pretty (Return expr) = "@return" <+> pretty expr
-    pretty (Label label stmt) = pretty label <> P.colon <+> pretty stmt
-    pretty (Expr expr) = pretty expr
-
-instance Show Stmt where
-    show = showViaPretty
-
-instance Pretty Expr where
+instance (Pretty s, Pretty v, Pretty f) => Pretty (Expr s v f) where
     pretty (Fn _ cases) =
         P.braces (P.align (P.vcat (P.punctuate P.semi (prettyCase <$> cases))))
         where prettyCase (formals, Nothing, body) =
@@ -77,11 +44,5 @@ instance Pretty Expr where
     pretty (Var v) = pretty v
     pretty (Const c) = pretty c
 
-instance Show Expr where
+instance (Pretty s, Pretty v, Pretty f) => Show (Expr s v f) where
     show = showViaPretty
-
-instance Pretty Formals where
-    pretty (Formals {self, methodIndex, args}) =
-        P.text "self:" <+> pretty self <> P.comma <+>
-            P.text "mi:" <+> pretty methodIndex <> P.comma <+>
-            P.text "args:" <+> pretty args

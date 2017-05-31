@@ -12,7 +12,9 @@
 
 > import qualified IR.CST as CST
 > import IR.CST (Const(..), Var(..))
-> import IR.AST (Stmt(..), Expr(..), Formals(..), app, addRet)
+> import IR.AST (Expr(..), app)
+> import qualified IR.AST.Initial as IA
+> import IR.AST.Initial (Stmt(..), Formals(..), addRet)
 > import qualified Ops
 > import Util (Name(..), freshName, Label, freshLabel, position)
 
@@ -29,7 +31,7 @@
 FIXME: Pack source level formal pats to tuple and generate unpacking code for it
 here.
 
-> expandExpr :: CST.Expr -> Expansion Expr
+> expandExpr :: CST.Expr -> Expansion IA.Expr
 > expandExpr (CST.Fn pos cases) = Fn pos <$> traverse expandCase cases
 >     where expandCase (pats, cond, body) =
 >               do self <- LexVar pos <$> freshName "self"
@@ -85,7 +87,8 @@ here.
 
 TODO: CST.PrimApp
 
-> expandPat :: (Var -> Expr -> Stmt) -> CST.Expr -> CST.Expr -> Expansion [Stmt]
+> expandPat :: (Var -> IA.Expr -> Stmt) -> CST.Expr -> CST.Expr
+>           -> Expansion [Stmt]
 > expandPat _ pat @ (CST.Fn _ _) _ = throwExc $ InvalidPat pat
 > expandPat _ pat @ (CST.Block _ _) _ = throwExc $ InvalidPat pat
 > expandPat mkDef (CST.App pos f args) val =
@@ -120,7 +123,7 @@ TODO: CST.PrimApp
 >        return [Guard (app pos eq (Const (Int pos 0)) [val', Const c]) jmp]
 >     where eq = Var (LexVar pos (PlainName "=="))
 
-> expandPatList :: (Var -> Expr -> Stmt) -> [CST.Expr] -> [CST.Expr]
+> expandPatList :: (Var -> IA.Expr -> Stmt) -> [CST.Expr] -> [CST.Expr]
 >               -> Expansion [Stmt]
 > expandPatList mkDef pats vals =
 >     foldM (\stmts (pat, val) -> (stmts ++) <$> expandPat mkDef pat val)

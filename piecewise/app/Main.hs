@@ -13,7 +13,8 @@ import Parsing.Parser (expr)
 import Parsing.Lexer (Tok(..), TokTag(TokEOF), strToInput, LexicalError, Input)
 import Parsing.Indentation (WSLexer, runWSLexer, readToken)
 import qualified IR.AST as AST
-import IR.AST (Stmt)
+import qualified IR.AST.Initial as IA
+import qualified IR.AST.Hoisted as HA
 import Pass.PatExpand (expandStmtList, runExpansion, PatError)
 import Pass.HoistAugs (hoistedStmt, runHoisted, HoistError)
 import Interpreter (Value, ItpError, evalStmt, normalize, evalInterpreter)
@@ -34,15 +35,15 @@ tokenize toks = do tok <- readToken
                        Tok TokEOF _ _ _ -> return (tok : toks)
                        Tok _ _ _ _ -> tokenize (tok : toks)
 
-act :: Input -> Either PwError ([AST.Stmt], [String])
+act :: Input -> Either PwError ([HA.Stmt], [String])
 act input =
     do tokens <- Bf.first PwParseError (runWSLexer (tokenize []) def input)
        let tokstrs = map show (reverse tokens)
        cstStmts <- Bf.first PwParseError (runWSLexer expr def input)
        (c, l) <- run $ runExc $ runState (0::Int) freshLabel
-       (c', astStmts::[AST.Stmt]) <- Bf.first PwPatError
+       (c', astStmts::[IA.Stmt]) <- Bf.first PwPatError
                                   (runExpansion (expandStmtList cstStmts) l c)
-       (_, astStmts'::[AST.Stmt]) <- Bf.first PwHoistError
+       (_, astStmts'::[HA.Stmt]) <- Bf.first PwHoistError
                                  (runHoisted c' (traverse hoistedStmt astStmts))
        return (astStmts',
                [concatMap (++ "\n") tokstrs,
@@ -50,7 +51,7 @@ act input =
                 concatMap ((++ "\n") . show) astStmts,
                 concatMap ((++ "\n") . show) astStmts'])
 
-actStmt :: LexEnv -> DynEnv -> Stmt -> IO (Either ItpError Value)
+actStmt :: LexEnv -> DynEnv -> HA.Stmt -> IO (Either ItpError Value)
 actStmt lEnv dEnv stmt = evalInterpreter lEnv dEnv (evalStmt stmt >>= normalize)
 
 main :: IO ()
