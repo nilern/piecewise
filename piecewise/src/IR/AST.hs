@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, NamedFieldPuns #-}
 
-module IR.AST (Stmt(..), stmtBinders, app, Expr(..), Formals(..)) where
+module IR.AST (Stmt(..), stmtBinders, app, addRet, Expr(..), Formals(..)) where
 import Data.Semigroup ((<>))
 import Data.Foldable (foldl')
 import qualified Text.PrettyPrint.Leijen.Text as P
@@ -11,10 +11,13 @@ import qualified Ops
 import Ops (Primop)
 import Util (Label, Pos, showViaPretty)
 
+-- TODO: enforce that the last Stmt in a Block is a Label or Expr
+
 data Stmt = Def Var Expr
           | AugDef Var Expr
           | Guard Expr Label
           | Label Label Stmt
+          | Return Expr
           | Expr Expr
 
 data Expr = Fn Pos [(Formals, Maybe Expr, Expr)]
@@ -31,7 +34,12 @@ stmtBinders (Def v _) = [v]
 stmtBinders (AugDef v _) = [v]
 stmtBinders (Guard _ _) = []
 stmtBinders (Label _ stmt) = stmtBinders stmt
+stmtBinders (Return expr) = []
 stmtBinders (Expr _) = []
+
+addRet :: [Stmt] -> [Stmt]
+addRet [Expr expr] = [Return expr]
+addRet (stmt:stmts) = stmt:addRet stmts
 
 app :: Pos -> Expr -> Expr -> [Expr] -> Expr
 app pos f i args = App pos f i (PrimApp pos Ops.Tuple args)
@@ -41,6 +49,7 @@ instance Pretty Stmt where
     pretty (AugDef pat val) = pretty pat <+> P.text "+=" <+> pretty val
     pretty (Guard cond dest) =
         "@guard" <+> pretty cond <+> P.text "=>" <+> pretty dest
+    pretty (Return expr) = "@return" <+> pretty expr
     pretty (Label label stmt) = pretty label <> P.colon <+> pretty stmt
     pretty (Expr expr) = pretty expr
 

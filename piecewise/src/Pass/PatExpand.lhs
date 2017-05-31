@@ -12,7 +12,7 @@
 
 > import qualified IR.CST as CST
 > import IR.CST (Const(..), Var(..))
-> import IR.AST (Stmt(..), Expr(..), Formals(..), app)
+> import IR.AST (Stmt(..), Expr(..), Formals(..), app, addRet)
 > import qualified Ops
 > import Util (Name(..), freshName, Label, freshLabel, position)
 
@@ -43,7 +43,7 @@ here.
 >                          let fgets = getArg (CST.Var args) <$> argis
 >                          patStmts <- expandPatList Def pats fgets
 >                          cond' <- expandCond cond
->                          body' <- Expr <$> expandExpr body
+>                          body' <- Return <$> expandExpr body
 >                          return (Formals {self, methodIndex, args}, cond',
 >                                  Block pos
 >                                        (Guard (hasLen (Const (Int pos argc))
@@ -56,20 +56,16 @@ here.
 >                                                             args)])))
 >           expandCond (Just cond) = Just <$> expandExpr cond
 >           expandCond Nothing = pure Nothing
->           hasLen l e =
->               app pos eq (Const (Int pos 0))
->                          [l, (app pos (Const (Int pos 0)) count [e])]
->           eq = Var (LexVar pos (PlainName "=="))
->           count = Var (LexVar pos (PlainName "count"))
->           getArg args i = CST.App pos ref [args, CST.Const (Int pos i)]
->           ref = CST.Var (LexVar pos (PlainName "get"))
+>           hasLen l e = PrimApp pos Ops.IEq [l, (PrimApp pos Ops.WordSize [e])]
+>           getArg args i =
+>               CST.PrimApp pos Ops.LoadWord [args, CST.Const (Int pos i)]
 >           nextMethod f i args = Expr $ App pos (Var f) i' (Var args)
 >               where i' = PrimApp pos Ops.IAdd [Var i, Const (Int pos 1)]
 > expandExpr (CST.Block pos stmts) =
 >     do errLabel <- freshLabel
 >        let handler = Label errLabel (Expr (PrimApp pos Ops.ThrowBindErr []))
 >        stmts' <- local (const errLabel) (expandStmtList stmts)
->        return (Block pos (stmts' ++ [handler]))
+>        return (Block pos (addRet stmts' ++ [handler]))
 > expandExpr (CST.App pos f args) = -- FIXME: add closure, methodIndex args
 >     flip (app pos) (Const (Int pos 0)) <$> expandExpr f <*>
 >         traverse expandExpr args

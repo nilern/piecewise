@@ -55,7 +55,9 @@ freshName chars = do res <- UniqueName chars <$> get
                      modify (+ (1::Int))
                      return res
 
-newtype Label = Label Int deriving Show
+newtype Label = Label Int deriving (Show, Eq, Generic)
+
+instance Hashable Label
 
 instance Pretty Label where
     pretty (Label i) = P.int i

@@ -44,7 +44,7 @@ act input =
                                   (runExpansion (expandStmtList cstStmts) l c)
        (_, astStmts'::[AST.Stmt]) <- Bf.first PwHoistError
                                  (runHoisted c' (traverse hoistedStmt astStmts))
-       return (astStmts,
+       return (astStmts',
                [concatMap (++ "\n") tokstrs,
                 concatMap ((++ "\n") . show) cstStmts,
                 concatMap ((++ "\n") . show) astStmts,

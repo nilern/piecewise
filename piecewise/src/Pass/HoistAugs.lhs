@@ -43,6 +43,7 @@ and traverses the reordered statements.
 > hoistedStmt (AugDef var val) = AugDef var <$> hoisted val
 > hoistedStmt (Label label stmt) = Label label <$> hoistedStmt stmt
 > hoistedStmt (Guard cond jmp) = Guard <$> hoisted cond <*> pure jmp
+> hoistedStmt (Return expr) = Return <$> hoisted expr
 > hoistedStmt (Expr expr) = Expr <$> hoisted expr
 
 When we are actually reordering statements we need to keep track of the new
@@ -86,4 +87,5 @@ the end in addition to running effects.
 > hoistStmt (AugDef var val) = assocAugDef var val
 > hoistStmt stmt @ (Label _ _) = push stmt -- might misbehave when input does
 > hoistStmt stmt @ (Guard _ _) = push stmt
+> hoistStmt stmt @ (Return _) = push stmt
 > hoistStmt stmt @ (Expr _) = push stmt

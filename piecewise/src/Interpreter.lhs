@@ -1,7 +1,7 @@
 > {-# LANGUAGE TemplateHaskell #-}
 > {-# LANGUAGE RankNTypes, GADTs #-}
 > {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections,
->              NamedFieldPuns, RecordWildCards #-}
+>              NamedFieldPuns, RecordWildCards, OverloadedStrings #-}
 
 > module Interpreter (Value, ItpError,
 >                     eval, evalStmt, unwrap, normalize, evalInterpreter) where
@@ -9,7 +9,9 @@
 > import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 > import Data.List (intercalate)
 > import Data.Text (Text)
-> import Control.Lens (makeLenses, view, over, set)
+> import qualified Data.HashMap.Lazy as HM
+> import Data.HashMap.Lazy (HashMap)
+> import Control.Lens (makeLenses, view, over, set, element, (^?))
 > import Control.Eff
 > import Control.Eff.Lift
 > import Control.Eff.State.Lazy
@@ -23,7 +25,7 @@
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame)
 > import qualified Ops
-> import Util (Name, Pos)
+> import Util (Name, Label, Pos)
 
 Value Representation
 ====================
@@ -31,8 +33,14 @@ Value Representation
 > data Value = Closure [Method]
 >            | Tuple [Value]
 >            | Int Int
+>            | Bool Bool
 >            | String Text
+>            | Keyword Text
 >            | Redirect Var (IORef (Maybe Value))
+
+> isTruthy :: Value -> Bool
+> isTruthy (Bool b) = b
+> isTruthy _ = True
 
 > newtype Method = Method (Formals, Maybe Expr, Expr, LexEnv)
 
@@ -71,7 +79,11 @@ Errors
 >               | UnAssigned Var
 >               | ReAssignment Pos Name
 >               | UnAssignable Pos Name
+>               | UnboundLabel Label
 >               | StackUnderflow
+>               | TypeError Primop [Value]
+>               | PrimArgc Primop Int Int
+>               | NoSuchMethod Int
 >               deriving Show
 
 Environments
@@ -84,6 +96,7 @@ Continuations
 =============
 
 > data Cont = Stmts [Stmt] Context
+>           | Brf Label Context
 >           | Applicant Expr Expr Context
 >           | MethodIndex Value Expr Context
 >           | Arg Value Value Context
@@ -93,6 +106,7 @@ Continuations
 
 > contCtx :: Cont -> Maybe Context
 > contCtx (Stmts _ ctx) = Just ctx
+> contCtx (Brf _ ctx) = Just ctx
 > contCtx (Applicant _ _ ctx) = Just ctx
 > contCtx (MethodIndex _ _ ctx) = Just ctx
 > contCtx (Arg _ _ ctx) = Just ctx
@@ -134,14 +148,15 @@ Interpreter Monad
 
 > data Context = Context { _ctxLex :: LexEnv
 >                        , _ctxDyn :: DynEnv
->                        , _ctxCont :: Cont }
+>                        , _ctxCont :: Cont
+>                        , _ctxLabels :: Maybe (HashMap Label [Stmt]) }
 > makeLenses ''Context
 
 > evalInterpreter :: LexEnv -> DynEnv -> Interpreter a
 >                 -> IO (Either ItpError a)
 > evalInterpreter lEnv dEnv m =
 >     runLift (runExc (evalState emptyDump (evalState ctx m)))
->     where ctx::Context = Context lEnv dEnv Halt
+>     where ctx::Context = Context lEnv dEnv Halt Nothing
 
 > getLexEnv :: (Member (State Context) r) => Eff r LexEnv
 > getLexEnv = view ctxLex <$> get
@@ -210,12 +225,19 @@ Interpreter Monad
 >           => (Context -> Cont) -> Eff r ()
 > modifyTop f = do k <- getCont
 >                  case contCtx k of
->                      Just ctx @ (Context lEnv dEnv _) ->
+>                      Just ctx @ (Context lEnv dEnv _ _) ->
 >                          modify (over ctxCont (const (f ctx)))
 >                      Nothing -> throwExc StackUnderflow
 
 > pop :: (Member (Exc ItpError) r, Member (State Context) r) => Eff r ()
-> pop = modifyTop (\(Context _ _ k) -> k)
+> pop = modifyTop (view ctxCont)
+
+> getLabelStmts :: (Member (State Context) r, Member (Exc ItpError) r)
+>               => Label -> Eff r [Stmt]
+> getLabelStmts label = do labelEnv <- view ctxLabels <$> get
+>                          case labelEnv >>= HM.lookup label of
+>                              Just stmts -> return stmts
+>                              Nothing -> throwExc (UnboundLabel label)
 
 > getDump :: (Member (State ContDump) r) => Eff r ContDump
 > getDump = get
@@ -255,6 +277,10 @@ Abstract Machine
 > evalStmt :: Stmt -> Interpreter Value
 > evalStmt (Def var expr) = do pushContFrame (Assign var)
 >                              eval expr
+> evalStmt (Guard cond label) = do pushContFrame (Brf label)
+>                                  eval cond
+> evalStmt (Label _ stmt) = evalStmt stmt
+> evalStmt (Return expr) = pop *> eval expr
 > evalStmt (Expr expr) = eval expr
 
 > continue :: Value -> Interpreter Value
@@ -266,6 +292,13 @@ Abstract Machine
 >                     Stmts (stmt:stmts) _ ->
 >                         do modifyTop (Stmts stmts)
 >                            evalStmt stmt
+>                     Brf label _ ->
+>                         do pop
+>                            if isTruthy v
+>                            then continue v
+>                            else do stmts <- getLabelStmts label
+>                                    modifyTop (Stmts stmts)
+>                                    continue v
 >                     Applicant i args _ ->
 >                         do modifyTop (MethodIndex v args)
 >                            eval i
@@ -292,9 +325,27 @@ Abstract Machine
 >                     applyDirect f' i args
 
 > applyDirect :: Value -> Int -> Value -> Interpreter Value
-> applyDirect (Closure ((Method (Formals {args, ..}, _, body, lEnv)):_)) _ vs =
->     do pushScope lEnv [(varName args, vs)] []
->        eval body
+> applyDirect f @ (Closure ms) i vs =
+>     case ms ^? element i of
+>         Just (Method (Formals {self, methodIndex, args}, _, body, lEnv)) ->
+>             let bindings = [(varName self, f),
+>                             (varName methodIndex, Int i),
+>                             (varName args, vs)]
+>             in do pushScope lEnv bindings []
+>                   eval body
+>         Nothing -> throwExc $ NoSuchMethod i
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
+> applyPrimop Ops.IAdd [Int a, Int b] = pure $ Int (a + b)
+> applyPrimop Ops.IAdd vs @ [_, _] = throwExc $ TypeError Ops.IAdd vs
+> applyPrimop Ops.IAdd vs = throwExc $ PrimArgc Ops.IAdd 2 (length vs)
+> applyPrimop Ops.IEq [Int a, Int b] = pure $ Bool (a == b)
+> applyPrimop Ops.IEq vs @ [_, _] = throwExc $ TypeError Ops.IEq vs
+> applyPrimop Ops.IEq vs = throwExc $ PrimArgc Ops.IEq 2 (length vs)
+> applyPrimop Ops.WordSize [Tuple vs] = pure $ Int (length vs)
+> applyPrimop Ops.WordSize vs @ [_] = throwExc $ TypeError Ops.WordSize vs
+> applyPrimop Ops.WordSize vs = throwExc $ PrimArgc Ops.WordSize 1 (length vs)
 > applyPrimop Ops.Tuple vs = pure $ Tuple vs
+> applyPrimop Ops.LoadWord [Tuple vs, Int i] = pure $ vs !! i
+> applyPrimop Ops.LoadWord vs @ [_, _] = throwExc $ TypeError Ops.LoadWord vs
+> applyPrimop Ops.LoadWord vs = throwExc $ PrimArgc Ops.LoadWord 2 (length vs)
