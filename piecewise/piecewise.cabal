@@ -18,7 +18,7 @@ library
   exposed-modules:     Parsing.Lexer, Parsing.Indentation, Parsing.Parser,
                        IR.CST, IR.AST, IR.AST.Initial, IR.AST.Hoisted,
                        Pass.PatExpand, Pass.HoistAugs,
-                       Interpreter, Interpreter.Env
+                       Interpreter, Interpreter.Env, Interpreter.Value,
                        Ops, Util
   build-depends:       base >= 4.7 && < 5
                        , array >= 0.4 && < 0.6

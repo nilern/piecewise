@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, FlexibleContexts, GADTs, RankNTypes #-}
 
 module Main where
 import Data.Default (def)
@@ -6,7 +6,8 @@ import Data.Foldable (traverse_)
 import qualified Data.Bifunctor as Bf
 import qualified Data.ByteString as B
 import Control.Eff (run)
-import Control.Eff.Exception (runExc)
+import Control.Eff.Lift (lift, runLift)
+import Control.Eff.Exception (throwExc, runExc)
 import Control.Eff.State.Lazy (runState)
 
 import Parsing.Parser (expr)
@@ -17,7 +18,8 @@ import qualified IR.AST.Initial as IA
 import qualified IR.AST.Hoisted as HA
 import Pass.PatExpand (expandStmtList, runExpansion, PatError)
 import Pass.HoistAugs (hoistedStmt, runHoisted, HoistError)
-import Interpreter (Value, ItpError, evalStmt, normalize, evalInterpreter)
+import Interpreter.Value (Value)
+import Interpreter (Interpreter, ItpError(..), evalStmt, normalize, evalInterpreter)
 import qualified Interpreter.Env as Env
 import Util (Name, freshLabel)
 
@@ -52,7 +54,13 @@ act input =
                 concatMap ((++ "\n") . show) astStmts'])
 
 actStmt :: LexEnv -> DynEnv -> HA.Stmt -> IO (Either ItpError Value)
-actStmt lEnv dEnv stmt = evalInterpreter lEnv dEnv (evalStmt stmt >>= normalize)
+actStmt lEnv dEnv stmt = evalInterpreter lEnv dEnv (evalStmt stmt >>= norm)
+
+norm :: Value -> Interpreter Value
+norm v = do ev <- lift $ runLift (runExc (normalize v))
+            case ev of
+                Right v -> pure v
+                Left err -> throwExc (RedirectErr err)
 
 main :: IO ()
 main = do input <- strToInput <$> B.getContents

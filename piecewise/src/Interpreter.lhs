@@ -3,7 +3,7 @@
 > {-# LANGUAGE FlexibleContexts, ScopedTypeVariables, TupleSections,
 >              NamedFieldPuns, RecordWildCards, OverloadedStrings #-}
 
-> module Interpreter (Value, ItpError,
+> module Interpreter (Value, ItpError(..), Interpreter,
 >                     eval, evalStmt, unwrap, normalize, evalInterpreter) where
 > import Prelude hiding (lookup)
 > import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -25,59 +25,17 @@
 > import Ops (Primop)
 > import qualified Interpreter.Env as Env
 > import Interpreter.Env (pushFrame)
+> import Interpreter.Value (RedirectErr, Value(..), isTruthy,
+>                           Method(..), method,
+>                           emptyRedirect, unwrap, normalize)
 > import qualified Ops
 > import Util (Name, Label, Pos)
-
-Value Representation
-====================
-
-> data Value = Closure [Method]
->            | Tuple [Value]
->            | Int Int
->            | Bool Bool
->            | String Text
->            | Keyword Text
->            | Redirect Var (IORef (Maybe Value))
-
-> isTruthy :: Value -> Bool
-> isTruthy (Bool b) = b
-> isTruthy _ = True
-
-> newtype Method = Method (Formals, Maybe Expr, Expr, LexEnv)
-
-> method :: LexEnv -> (Formals, Maybe Expr, Expr) -> Method
-> method lEnv (formals, cond, body) = Method (formals, cond, body, lEnv)
-
-> emptyRedirect :: Var -> IO Value
-> emptyRedirect var = Redirect var <$> newIORef Nothing
-
-> unwrap :: Value -> Interpreter Value
-> unwrap (Redirect var ref) = do ov <- lift $ readIORef ref
->                                case ov of
->                                    Just v -> unwrap v
->                                    Nothing -> throwExc (UnAssigned var)
-> unwrap v = return v
-
-> normalize :: Value -> Interpreter Value
-> normalize f @ (Closure _) = pure f
-> normalize (Tuple vs) = Tuple <$> traverse normalize vs
-> normalize i @ (Int _) = pure i
-> normalize s @ (String _) = pure s
-> normalize r @ (Redirect _ _) = normalize =<< unwrap r
-
-> instance Show Value where
->     show (Closure methods) = "#<Fn (" ++ show (length methods) ++ " methods)>"
->     show (Tuple [v]) = '(' : show v ++ ",)"
->     show (Tuple vs) = '(' : intercalate ", " (map show vs) ++ ")"
->     show (Int i) = show i
->     show (String t) = show t
->     show (Redirect _ _) = "#<Redirect>"
 
 Errors
 ======
 
 > data ItpError = Unbound Pos Name
->               | UnAssigned Var
+>               | RedirectErr RedirectErr
 >               | ReAssignment Pos Name
 >               | UnAssignable Pos Name
 >               | UnboundLabel Label
@@ -173,7 +131,7 @@ Interpreter Monad
 
 > lookup :: Var -> Interpreter Value
 > lookup var =
->     do dflt <- lift $ emptyRedirect var
+>     do dflt <- emptyRedirect var
 >        case var of
 >            LexVar pos name -> envLookup name dflt pos =<< getLexEnv
 >            DynVar pos name -> envLookup name dflt pos =<< getDynEnv
@@ -186,7 +144,7 @@ Interpreter Monad
 
 > def :: Var -> Value -> Interpreter ()
 > def var val =
->     do dflt <- lift $ emptyRedirect var
+>     do dflt <- emptyRedirect var
 >        case var of
 >            LexVar pos name -> envDef name val dflt pos =<< getLexEnv
 >            DynVar pos name -> envDef name val dflt pos =<< getDynEnv
@@ -255,8 +213,8 @@ Abstract Machine
 >        let vars = stmtBinders =<< stmts
 >        let lVars = filter isLexVar vars
 >        let dVars = filter isDynVar vars
->        lVals <- lift $ sequenceA (emptyRedirect <$> lVars)
->        dVals <- lift $ sequenceA (emptyRedirect <$> dVars)
+>        lVals <- sequenceA (emptyRedirect <$> lVars)
+>        dVals <- sequenceA (emptyRedirect <$> dVars)
 >        pushScope lEnv (zip (varName <$> lVars) lVals)
 >                       (zip (varName <$> dVars) dVals)
 >        case stmts of
@@ -322,8 +280,10 @@ Abstract Machine
 >                     Halt -> return v
 
 > apply :: Value -> Int -> Value -> Interpreter Value
-> apply f i args = do f' <- unwrap f
->                     applyDirect f' i args
+> apply f i args = do ef' <- lift $ runLift (runExc (unwrap f))
+>                     case ef' of
+>                         Right f' -> applyDirect f' i args
+>                         Left err -> throwExc (RedirectErr err)
 
 > applyDirect :: Value -> Int -> Value -> Interpreter Value
 > applyDirect f @ (Closure ms) i vs =
@@ -337,7 +297,13 @@ Abstract Machine
 >         Nothing -> throwExc $ NoSuchMethod i
 
 > applyPrimop :: Primop -> [Value] -> Interpreter Value
-> applyPrimop op vs = applyPrimopDirect op =<< traverse unwrap vs
+> applyPrimop op vs = applyPrimopDirect op =<< traverse unwrapArg vs
+
+> unwrapArg :: Value -> Interpreter Value
+> unwrapArg v = do ev <- lift $ runLift (runExc (unwrap v))
+>                  case ev of
+>                      Right v -> pure v
+>                      Left err -> throwExc (RedirectErr err)
 
 > applyPrimopDirect :: Primop -> [Value] -> Interpreter Value
 > applyPrimopDirect Ops.IAdd [Int a, Int b] = pure $ Int (a + b)
