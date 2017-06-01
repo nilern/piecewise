@@ -1,0 +1,9 @@
+local
+    $(SML_LIB)/basis/basis.mlb
+    $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
+    parser.grm.sig
+    parser.grm.sml
+    lexer.lex.sml
+in
+    main.sml
+end
