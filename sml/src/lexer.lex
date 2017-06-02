@@ -24,6 +24,11 @@ in
                 val _ = incCol (size cs)
                 val q = getPos fileName
             in (cs, p, q) end
+    fun advance_ cs fileName =
+            let val p = getPos fileName
+                val _ = incCol (size cs)
+                val q = getPos fileName
+            in (p, q) end
 end
 
 fun eof fileName = let val p = getPos fileName in Tokens.EOF(p, p) end
@@ -35,6 +40,9 @@ fun error (e, p, _) = TextIO.output(TextIO.stdOut, Pos.toString p ^ "\n")
 %header (functor PcwsLexFun(structure Tokens: Pcws_TOKENS));
 %arg (fileName : string);
 
+delimiter = ['\"`\(\)\[\]\{\}];
+separator = [,\;];
+
 alpha = [A-Za-z];
 ws = [\ \t];
 
@@ -43,3 +51,14 @@ ws = [\ \t];
 \n       => (incLine (); continue());
 {ws}+    => (incCol (size yytext); continue());
 {alpha}+ => (Tokens.ID (advance yytext fileName));
+"="      => (Tokens.EQ (advance_ yytext fileName));
+"+="     => (Tokens.AUG (advance_ yytext fileName));
+"=>"     => (Tokens.DARROW (advance_ yytext fileName));
+\(       => (Tokens.LPAREN (advance_ yytext fileName));
+\)       => (Tokens.RPAREN (advance_ yytext fileName));
+\[       => (Tokens.LBRACKET (advance_ yytext fileName));
+\]       => (Tokens.RBRACKET (advance_ yytext fileName));
+\{       => (Tokens.LBRACE (advance_ yytext fileName));
+\}       => (Tokens.RBRACE (advance_ yytext fileName));
+,        => (Tokens.COMMA (advance_ yytext fileName));
+\;       => (Tokens.SEMI (advance_ yytext fileName));

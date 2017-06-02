@@ -1,7 +1,7 @@
 structure CST = struct
-    datatype expr = Fn of fnCase vector
-                  | Block of stmt vector
-                  | App of expr * expr vector
+    datatype expr = Fn of Pos.t * fnCase vector
+                  | Block of Pos.t * stmt vector
+                  | App of Pos.t * expr * expr vector
                   | PrimApp of Primop.t * expr vector
                   | Var of Pos.t * Var.t
                   | Const of Const.t
@@ -12,5 +12,39 @@ structure CST = struct
 
     withtype fnCase = expr vector * expr option * expr
 
-    fun toString (Var (_, v)) = Var.toString v
+    fun exprPos (Fn (pos, _)) = pos
+      | exprPos (Block (pos, _)) = pos
+      | exprPos (App (pos, _, _)) = pos
+      | exprPos (Var (pos, _)) = pos
+
+    fun stmtPos (Def (pat, _)) = exprPos pat
+      | stmtPos (AugDef (pat, _)) = exprPos pat
+      | stmtPos (Expr expr) = exprPos expr
+
+    fun exprToString (Fn (_, cases)) =
+            Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ caseToString c)
+                         "{" cases ^ "}"
+      | exprToString (Block (_, stmts)) =
+              Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ stmtToString c)
+                           "{" stmts ^ "}"
+      | exprToString (App (_, f, args)) =
+            "(" ^
+                Vector.foldl (fn (arg, acc) => acc ^ " " ^ exprToString arg)
+                             (exprToString f) args ^
+                ")"
+      | exprToString (Var (_, v)) = Var.toString v
+
+    and stmtToString (Def (pat, expr)) =
+          exprToString pat ^ " = " ^ exprToString expr
+      | stmtToString (AugDef (pat, expr)) =
+            exprToString pat ^ " += " ^ exprToString expr
+      | stmtToString (Expr expr) = exprToString expr
+
+    and caseToString (pats, SOME cond, body) =
+            Vector.foldl (fn (pat, acc) => acc ^ " " ^ exprToString pat)
+                         "" pats ^ " | " ^ exprToString cond ^ " => " ^
+                         exprToString body
+      | caseToString (pats, NONE, body) =
+              Vector.foldl (fn (pat, acc) => acc ^ " " ^ exprToString pat)
+                           "" pats ^ " => " ^ exprToString body
 end

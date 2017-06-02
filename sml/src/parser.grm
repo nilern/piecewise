@@ -1,19 +1,86 @@
+
+datatype blockItem = Clause of CST.expr vector * CST.stmt
+                   | Stmt of CST.stmt
+
+fun extractApp _ [e] = e
+  | extractApp pos (f::args) = CST.App (pos, f, Vector.fromList args)
+  | extractApp _ [] = raise LrParser.ParseError
+
+fun extractBlock pos (items as (Clause _ :: _)) =
+        let fun stmtSplit (Stmt stmt::items) =
+                    let val (stmts', items') = stmtSplit items
+                    in (stmt::stmts', items') end
+              | stmtSplit items = ([], items)
+            fun clauses (Clause(formals, stmt)::items) =
+                    let val (stmts, items') = stmtSplit items
+                    in (formals, NONE,
+                        CST.Block(CST.stmtPos stmt,
+                                  Vector.fromList (stmt::stmts)))
+                       ::clauses items end
+              | clauses [] = []
+              | clauses _ = raise LrParser.ParseError
+        in CST.Fn (pos, Vector.fromList (clauses items)) end
+  | extractBlock pos (items as (Stmt _ :: _)) =
+        let fun unwrapStmt (Stmt stmt) = stmt
+              | unwrapStmt (Clause _) = raise LrParser.ParseError
+        in CST.Block(pos, Vector.map unwrapStmt (Vector.fromList items)) end
+  | extractBlock _ [] = raise LrParser.ParseError
+
 %%
-
-%eop EOF
-
-%pos Pos.t
-
-%term ID of string | EOF
-%nonterm expr of CST.expr | program of CST.expr
 
 %name Pcws
 
+%pos Pos.t
+
+%term ID of string
+    | EQ
+    | AUG
+    | DARROW
+    | LPAREN
+    | RPAREN
+    | LBRACKET
+    | RBRACKET
+    | LBRACE
+    | RBRACE
+    | COMMA
+    | SEMI
+    | EOF
+
+%nonterm program of CST.stmt vector
+       | stmtList of CST.stmt list
+       | stmt of CST.stmt
+       | blockItems of blockItem list
+       | blockItem of blockItem
+       | expr of CST.expr
+       | app of CST.expr list
+       | simple of CST.expr
+
+%eop EOF
 %noshift EOF
-%verbose
 
 %%
 
-program : expr (expr)
+program : stmtList (Vector.fromList (List.rev stmtList))
 
-expr : ID (CST.Var (IDleft, Var.Lex (Name.Plain ID)))
+stmtList : stmt ([stmt])
+         | stmtList SEMI stmt (stmt :: stmtList)
+
+stmt : expr EQ expr  (CST.Def (expr1, expr2))
+     | expr AUG expr (CST.AugDef (expr1, expr2))
+     | expr          (CST.Expr expr)
+
+blockItems : blockItem                 ([blockItem])
+           | blockItems SEMI blockItem (blockItem :: blockItems)
+
+blockItem : app DARROW stmt (Clause (Vector.fromList (List.rev app), stmt))
+          | stmt            (Stmt stmt)
+
+expr : app (extractApp appleft(List.rev app))
+
+app : simple     ([simple])
+    | app simple (simple :: app)
+
+simple : LPAREN expr RPAREN (expr)
+       | LBRACE blockItems RBRACE
+         (extractBlock LBRACEleft (List.rev blockItems))
+       | ID                 (CST.Var (IDleft, Var.Lex (Name.Plain ID)))

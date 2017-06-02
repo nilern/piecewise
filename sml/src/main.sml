@@ -33,7 +33,11 @@ end = struct
                 let val (result, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
                 in
-                    TextIO.output(TextIO.stdOut, CST.toString result ^ "\n");
+                    Vector.app
+                        (fn cst =>
+                             TextIO.output(TextIO.stdOut,
+                                           CST.stmtToString cst ^ "\n"))
+                        result;
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
                     else loop lexer
