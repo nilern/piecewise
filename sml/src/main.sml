@@ -9,13 +9,13 @@ end = struct
 
     structure PcwsParser =
         Join(structure LrParser = LrParser
-	         structure ParserData = PcwsLrVals.ParserData
-	         structure Lex = PcwsLex)
+             structure ParserData = PcwsLrVals.ParserData
+             structure Lex = PcwsLex)
 
     fun invoke lexstream =
-        let fun print_error (s,i:int,_) =
-	            TextIO.output(TextIO.stdOut,
-			        "Error, line " ^ (Int.toString i) ^ ", " ^ s ^ "\n")
+        let fun print_error (s, i:int, _) =
+                TextIO.output(TextIO.stdOut,
+                    "Error, line " ^ (Int.toString i) ^ ", " ^ s ^ "\n")
         in
             PcwsParser.parse(0, lexstream, print_error, ())
         end
@@ -24,21 +24,17 @@ end = struct
         let val lexer = PcwsParser.makeLexer (fn _ =>
                             (case TextIO.inputLine TextIO.stdIn
                              of SOME s => s
-                             |  _ => ""))
-	        val dummyEOF = PcwsLrVals.Tokens.EOF(0, 0)
-	        fun loop lexer =
-	            let val (result, lexer) = invoke lexer
-		            val (nextToken, lexer) = PcwsParser.Stream.get lexer
-		            val _ = case result
-			                of SOME r =>
-				                   TextIO.output(TextIO.stdOut,
-				                       "result = " ^ (Int.toString r) ^ "\n")
-			                | NONE => ()
-	            in
+                              | _ => ""))
+            val dummyEOF = PcwsLrVals.Tokens.EOF(0, 0)
+            fun loop lexer =
+                let val (result, lexer) = invoke lexer
+                    val (nextToken, lexer) = PcwsParser.Stream.get lexer
+                in
+                    TextIO.output(TextIO.stdOut, CST.toString result ^ "\n");
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
-		            else loop lexer
-	            end
+                    else loop lexer
+                end
         in
             loop lexer
         end

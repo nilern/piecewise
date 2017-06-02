@@ -7,7 +7,7 @@ type lexresult = (svalue, pos) token
 
 val pos = ref 0
 
-fun eof () = Tokens.EOF(!pos, !pos)
+fun eof _ = Tokens.EOF(!pos, !pos)
 
 fun error (e, l : int, _) = TextIO.output (TextIO.stdOut, String.concat [
 	    "line ", (Int.toString l), ": ", e, "\n"])
@@ -15,25 +15,12 @@ fun error (e, l : int, _) = TextIO.output (TextIO.stdOut, String.concat [
 %%
 
 %header (functor PcwsLexFun(structure Tokens: Pcws_TOKENS));
+
 alpha = [A-Za-z];
-digit = [0-9];
 ws = [\ \t];
 
 %%
 
-\n       => (pos := (!pos) + 1;
-             lex());
-{ws}+    => (lex());
-{digit}+ => (Tokens.NUM (valOf (Int.fromString yytext), !pos, !pos));
-
-"+"      => (Tokens.PLUS(!pos, !pos));
-"*"      => (Tokens.TIMES(!pos, !pos));
-";"      => (Tokens.SEMI(!pos, !pos));
-{alpha}+ => (if yytext = "print"
-             then Tokens.PRINT(!pos, !pos)
-             else Tokens.ID(yytext, !pos, !pos));
-"-"      => (Tokens.SUB(!pos, !pos));
-"^"      => (Tokens.CARAT(!pos, !pos));
-"/"      => (Tokens.DIV(!pos, !pos));
-"."      => (error ("ignoring bad character " ^ yytext, !pos, !pos);
-             lex());
+\n       => (pos := !pos + 1; continue());
+{ws}+    => (continue());
+{alpha}+ => (Tokens.ID(yytext, !pos, !pos));
