@@ -48,18 +48,23 @@ ws = [\ \t];
 
 %%
 
-\n       => (incLine (); continue());
 {ws}+    => (incCol (size yytext); continue());
+# [^\n]* => (incCol (size yytext); continue());
+\n       => (incLine (); continue());
+
 {alpha}+ => (Tokens.ID (advance yytext fileName));
+
 "="      => (Tokens.EQ (advance_ yytext fileName));
 "+="     => (Tokens.AUG (advance_ yytext fileName));
 "=>"     => (Tokens.DARROW (advance_ yytext fileName));
 "->"     => (Tokens.ARROW (advance_ yytext fileName));
+
 \(       => (Tokens.LPAREN (advance_ yytext fileName));
 \)       => (Tokens.RPAREN (advance_ yytext fileName));
 \[       => (Tokens.LBRACKET (advance_ yytext fileName));
 \]       => (Tokens.RBRACKET (advance_ yytext fileName));
 \{       => (Tokens.LBRACE (advance_ yytext fileName));
 \}       => (Tokens.RBRACE (advance_ yytext fileName));
+
 ,        => (Tokens.COMMA (advance_ yytext fileName));
 \;       => (Tokens.SEMI (advance_ yytext fileName));
