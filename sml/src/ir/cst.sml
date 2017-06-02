@@ -3,7 +3,7 @@ structure CST = struct
                   | Block of stmt vector
                   | App of expr * expr vector
                   | PrimApp of Primop.t * expr vector
-                  | Var of Var.t
+                  | Var of Pos.t * Var.t
                   | Const of Const.t
 
     and stmt = Def of expr * expr
@@ -12,5 +12,5 @@ structure CST = struct
 
     withtype fnCase = expr vector * expr option * expr
 
-    fun toString (Var v) = Var.toString v
+    fun toString (Var (_, v)) = Var.toString v
 end

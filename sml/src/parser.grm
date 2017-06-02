@@ -2,24 +2,18 @@
 
 %eop EOF
 
-(* %pos declares the type of positions for terminals.
-   Each symbol has an associated left and right position. *)
-
-%pos int
+%pos Pos.t
 
 %term ID of string | EOF
-%nonterm EXP of CST.expr | START of CST.expr
+%nonterm expr of CST.expr | program of CST.expr
 
 %name Pcws
 
 %noshift EOF
-%value ID ("bogus")
 %verbose
 
 %%
 
-(* the parser returns the value associated with the expression *)
+program : expr (expr)
 
-START : EXP (EXP)
-
-EXP : ID (CST.Var (Var.Lex (Name.Plain ID)))
+expr : ID (CST.Var (IDleft, Var.Lex (Name.Plain ID)))
