@@ -54,6 +54,7 @@ ws = [\ \t];
 "="      => (Tokens.EQ (advance_ yytext fileName));
 "+="     => (Tokens.AUG (advance_ yytext fileName));
 "=>"     => (Tokens.DARROW (advance_ yytext fileName));
+"->"     => (Tokens.ARROW (advance_ yytext fileName));
 \(       => (Tokens.LPAREN (advance_ yytext fileName));
 \)       => (Tokens.RPAREN (advance_ yytext fileName));
 \[       => (Tokens.LBRACKET (advance_ yytext fileName));

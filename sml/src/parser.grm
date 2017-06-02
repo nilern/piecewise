@@ -26,6 +26,10 @@ fun extractBlock pos (items as (Clause _ :: _)) =
         in CST.Block(pos, Vector.map unwrapStmt (Vector.fromList items)) end
   | extractBlock _ [] = raise LrParser.ParseError
 
+fun applyNameRev pos name revExprs =
+        CST.App(pos, CST.Var(pos, Var.Lex (Name.Plain name)),
+                Vector.fromList (List.rev revExprs))
+
 %%
 
 %name Pcws
@@ -33,27 +37,40 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 %pos Pos.t
 
 %term ID of string
+
     | EQ
     | AUG
     | DARROW
+    | ARROW
+
     | LPAREN
     | RPAREN
     | LBRACKET
     | RBRACKET
     | LBRACE
     | RBRACE
+
     | COMMA
     | SEMI
+
     | EOF
 
 %nonterm program of CST.stmt vector
-       | stmtList of CST.stmt list
        | stmt of CST.stmt
-       | blockItems of blockItem list
-       | blockItem of blockItem
        | expr of CST.expr
+       | blockItem of blockItem
+
        | app of CST.expr list
        | simple of CST.expr
+
+       | datum of CST.expr
+       | compound of CST.expr
+
+       | exprList of CST.expr list
+       | exprListTwoPlus of CST.expr list
+       | mapPairs of (CST.expr * CST.expr) list
+       | stmtList of CST.stmt list
+       | blockItemList of blockItem list
 
 %eop EOF
 %noshift EOF
@@ -62,25 +79,50 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
 program : stmtList (Vector.fromList (List.rev stmtList))
 
-stmtList : stmt ([stmt])
-         | stmtList SEMI stmt (stmt :: stmtList)
-
 stmt : expr EQ expr  (CST.Def (expr1, expr2))
      | expr AUG expr (CST.AugDef (expr1, expr2))
      | expr          (CST.Expr expr)
 
-blockItems : blockItem                 ([blockItem])
-           | blockItems SEMI blockItem (blockItem :: blockItems)
+expr : app (extractApp appleft(List.rev app))
 
 blockItem : app DARROW stmt (Clause (Vector.fromList (List.rev app), stmt))
           | stmt            (Stmt stmt)
-
-expr : app (extractApp appleft(List.rev app))
 
 app : simple     ([simple])
     | app simple (simple :: app)
 
 simple : LPAREN expr RPAREN (expr)
-       | LBRACE blockItems RBRACE
-         (extractBlock LBRACEleft (List.rev blockItems))
-       | ID                 (CST.Var (IDleft, Var.Lex (Name.Plain ID)))
+       | LBRACE blockItemList RBRACE
+         (extractBlock LBRACEleft (List.rev blockItemList))
+       | ID    (CST.Var (IDleft, Var.Lex (Name.Plain ID)))
+       | datum (datum)
+
+datum : compound (compound)
+
+compound : LPAREN exprList RPAREN (applyNameRev LPARENleft "tuple" exprList)
+         | LBRACKET exprList RBRACKET
+           (applyNameRev LBRACKETleft "array" exprList)
+         | LBRACE exprList RBRACE (applyNameRev LBRACEleft "set" exprList)
+         | LBRACE mapPairs RBRACE
+           (let val pos = LBRACEleft
+                val args = List.foldl (fn ((k, v), acc) => k::v::acc)
+                                      [] mapPairs
+            in CST.App(pos, CST.Var(pos, Var.Lex (Name.Plain "hashMap")),
+                       Vector.fromList args) end)
+
+exprList :                 ([])
+         | expr COMMA      ([expr])
+         | exprListTwoPlus (exprListTwoPlus)
+
+exprListTwoPlus : expr COMMA expr            ([expr2, expr1])
+                | exprListTwoPlus COMMA expr (expr :: exprListTwoPlus)
+
+mapPairs : ARROW                          ([])
+         | expr ARROW expr                ([(expr1, expr2)])
+         | mapPairs COMMA expr ARROW expr ((expr1, expr2) :: mapPairs)
+
+stmtList : stmt               ([stmt])
+         | stmtList SEMI stmt (stmt :: stmtList)
+
+blockItemList : blockItem                    ([blockItem])
+              | blockItemList SEMI blockItem (blockItem :: blockItemList)
