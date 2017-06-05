@@ -1,0 +1,7 @@
+[package]
+name = "piecewise-rt"
+version = "0.1.0"
+authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
+
+[dependencies]
+nix = "0.8.0"
