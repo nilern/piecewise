@@ -2,6 +2,8 @@
 
 extern crate nix;
 
-mod block;
-mod arena;
 mod util;
+mod freelist;
+pub mod arena;
+pub mod descriptor;
+pub mod block;

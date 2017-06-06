@@ -1,103 +1,74 @@
+use std::mem;
+use std::ptr;
+
 use arena;
+use freelist::FreeList;
+use descriptor::{Descriptor, FreeListNode};
 use util::IntLog2;
 
-const SHIFT: usize = 12;
+pub const SHIFT: usize = 12;
 pub const SIZE: usize = 1 << SHIFT;
 
-enum Descriptor {
-    Links(Links)
-}
-
-impl Descriptor {
-    #[cfg(target_pointer_width = "64")]
-    const SHIFT: usize = 6;
-
-    const SIZE: usize = 1 << Descriptor::SHIFT;
-
-    fn from_ptr(ptr: *const ()) -> *mut Descriptor {
-        let index = (ptr as usize & arena::MASK) >> SHIFT;
-        let byte_index = index >> SHIFT << Descriptor::SHIFT;
-        (byte_index as usize & !arena::MASK | byte_index) as _
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            &Descriptor::Links(Links {len, ..}) => len
-        }
-    }
-
-    fn push_front(&mut self, other: &mut Descriptor) {
-        unimplemented!()
-    }
-
-    fn pop_front(&mut self) -> Option<*mut Descriptor> {
-        unimplemented!()
-    }
-}
-
-struct Links {
-    len: usize,
-    next: Option<*mut Descriptor>,
-    prev: Option<*mut Descriptor>
-}
-
-impl Links {
-    fn push_front(&mut self, other: &mut Descriptor) {
-        unimplemented!()
-    }
-
-    fn pop_front(&mut self) -> Option<*mut Descriptor> {
-        unimplemented!()
-    }
-}
-
-struct Allocator {
+/// Block allocator (allocates BlockArr:s)
+pub struct Allocator {
     arena_allocator: arena::Allocator,
-    arena_list: Option<*mut arena::Descriptor>,
-    grouplists: [Option<*mut Descriptor>; Allocator::NLISTS]
+    blockarr_lists: [FreeList<FreeListNode>; Allocator::NLISTS]
 }
 
 impl Allocator {
     const NLISTS: usize = arena::SHIFT - SHIFT;
 
-    fn new() -> Allocator {
-        Allocator {
+    /// Create a new block allocator.
+    pub fn new() -> Allocator {
+        // The array initialization is nasty. Hopefully there will be a better way in future Rust.
+
+        let mut res = Allocator {
             arena_allocator: arena::Allocator::new(),
-            arena_list: None,
-            grouplists: [None; Allocator::NLISTS]
+            blockarr_lists: unsafe { mem::uninitialized::<[_; Allocator::NLISTS]>() }
+        };
+        for list in res.blockarr_lists.iter_mut() {
+            unsafe { ptr::write(list, FreeList::new()); }
         }
+        res
     }
 
-    fn allocate(&mut self, n: usize) -> *mut Descriptor {
+    /// Allocate a BlockArr of length `n`.
+    pub fn allocate(&mut self, n: usize) -> *mut Descriptor {
         if n <= arena::CAPACITY {
             unimplemented!()
         } else {
-            let start = n.log2_ceil();
-            if let Some(i) = self.grouplists[start..].iter().position(Option::is_some) {
-                let descr = unsafe { &mut *self.grouplists[i].unwrap() };
-                match descr.len() {
+            let mut descr = ptr::null_mut();
+
+            for list in self.blockarr_lists[n.log2_ceil()..].iter_mut() {
+                descr = list.pop_front();
+                if descr.is_null() { break; }
+            }
+
+            if !descr.is_null() {
+                match unsafe { (*descr).len() } {
                     len if len == n => {
-                        descr.pop_front().unwrap()
+                        unsafe { (*descr).upcast() }
                     },
                     len if len > n => {
-                        unimplemented!()
+                        let res = unsafe { // descr is still non-null...
+                            (*(*descr).upcast()).split_off(n)
+                        };
+                        self.push_front(descr);
+                        res
                     },
-                    _ => panic!("grouplists corrupted")
+                    _ => panic!("blockarr_lists corrupted")
                 }
             } else {
                 unimplemented!()
             }
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::Descriptor;
-    use std::mem;
-
-    #[test]
-    fn descriptor_size() {
-        assert_eq!(mem::size_of::<Descriptor>(), Descriptor::SIZE);
+    /// Push `descr` on top of the appropriate free list.
+    fn push_front(&mut self, descr: *mut FreeListNode) {
+        unsafe {
+            self.blockarr_lists[(*descr).len().log2_floor()]
+                .push_front(&mut *descr);
+        }
     }
 }
