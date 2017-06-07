@@ -10,3 +10,16 @@ pub const MASK: usize = SIZE - 1;
 
 /// An arena holds CAPACITY allocatable blocks
 pub const CAPACITY: usize = 252;
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+    use super::{SIZE, CAPACITY};
+    use descriptor::Descriptor;
+    use block;
+
+    #[test]
+    fn capacity() {
+        assert!(CAPACITY*(block::SIZE + size_of::<Descriptor>()) <= SIZE);
+    }
+}

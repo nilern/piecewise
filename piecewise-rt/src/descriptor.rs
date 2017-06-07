@@ -14,7 +14,7 @@ impl Descriptor {
     #[cfg(target_pointer_width = "64")]
     const SHIFT: usize = 6;
 
-    const SIZE: usize = 1 << Descriptor::SHIFT;
+    pub const SIZE: usize = 1 << Descriptor::SHIFT;
 
     pub const MASK: usize = Descriptor::SIZE - 1;
 
