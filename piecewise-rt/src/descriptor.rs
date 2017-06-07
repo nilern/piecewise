@@ -1,12 +1,12 @@
-use std::mem::transmute;
-use intrusive_collections::{UnsafeRef, LinkedListLink};
-
-use arena;
 use block;
+use block::Block;
+use block_arr::BlockArr;
+use arena;
+use arena_arr::ArenaArr;
 
 pub enum Descriptor {
-    BlockArr(BlockArr),
     Block(Block),
+    BlockArr(BlockArr),
     ArenaArr(ArenaArr)
 }
 
@@ -16,7 +16,7 @@ impl Descriptor {
 
     const SIZE: usize = 1 << Descriptor::SHIFT;
 
-    const MASK: usize = Descriptor::SIZE - 1;
+    pub const MASK: usize = Descriptor::SIZE - 1;
 
     fn from_ptr(ptr: *const ()) -> *mut Descriptor {
         let index = (ptr as usize & arena::MASK) >> block::SHIFT;
@@ -24,44 +24,9 @@ impl Descriptor {
         (byte_index as usize & !arena::MASK | byte_index) as _
     }
 
-    pub fn len(&self) -> usize {
-        if let &Descriptor::BlockArr(BlockArr::FreeListNode(ref node)) = self {
-            node.len()
-        } else {
-            unimplemented!()
-        }
-    }
-
     pub fn split_off(&mut self, n: usize) -> *mut Descriptor {
         unimplemented!()
     }
-}
-
-pub enum BlockArr {
-    FreeListNode(FreeListNode)
-}
-
-pub struct FreeListNode {
-    link: LinkedListLink,
-    len: usize
-}
-
-intrusive_adapter!(pub FreeAdapter = UnsafeRef<FreeListNode>: FreeListNode { link: LinkedListLink });
-
-impl FreeListNode {
-    pub fn upcast(&self) -> *mut Descriptor {
-        (unsafe { transmute::<_, usize>(self) } & !Descriptor::MASK) as _
-    }
-
-    pub fn len(&self) -> usize { self.len }
-}
-
-pub enum Block {
-
-}
-
-pub enum ArenaArr {
-    FreeListNode(FreeListNode)
 }
 
 #[cfg(test)]
