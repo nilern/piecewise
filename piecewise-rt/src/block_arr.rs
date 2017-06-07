@@ -18,14 +18,38 @@ pub struct FreeListNode {
     len: usize
 }
 
-intrusive_adapter!(pub FreeAdapter = UnsafeRef<FreeListNode>: FreeListNode { link: LinkedListLink });
+intrusive_adapter!(pub FreeAdapter = UnsafeRef<FreeListNode>:
+                   FreeListNode { link: LinkedListLink });
 
 impl FreeListNode {
-    pub fn upcast(&self) -> *mut Descriptor {
+    fn upcast(&self) -> *mut Descriptor {
         (unsafe { transmute::<_, usize>(self) } & !Descriptor::MASK) as _
     }
 
-    pub fn len(&self) -> usize { self.len }
+    fn len(&self) -> usize { self.len }
+
+    fn split_off(&mut self, n: usize) -> *mut FreeListNode {
+        let ptr = self.offset(self.len() - n);
+        unsafe { FreeListNode::init(ptr, n) }
+    }
+
+    fn offset(&self, n: usize) -> *mut () {
+        (unsafe { transmute::<_, usize>(self) } + n*Descriptor::SIZE) as _
+    }
+
+    unsafe fn init(descr: *mut (), len: usize) -> *mut FreeListNode {
+        let descr = descr as _;
+        ptr::write(descr, Descriptor::BlockArr(BlockArr::FreeListNode(FreeListNode {
+            link: LinkedListLink::default(),
+            len: len
+        })));
+
+        if let Descriptor::BlockArr(BlockArr::FreeListNode(ref node)) = *descr {
+            transmute(node)
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 /// Block allocator (allocates BlockArr:s)
@@ -52,10 +76,8 @@ impl Allocator {
     }
 
     /// Allocate a BlockArr of length `n`.
-    pub fn allocate(&mut self, n: usize) -> *mut Descriptor {
+    pub fn allocate(&mut self, n: usize) -> *mut FreeListNode {
         if n <= arena::CAPACITY {
-            unimplemented!()
-        } else {
             let mut odescr = None;
 
             for list in self.blockarr_lists[n.log2_ceil()..].iter_mut() {
@@ -65,18 +87,36 @@ impl Allocator {
 
             if let Some(descr) = odescr {
                 match descr.len() {
-                    len if len == n => descr.upcast(),
+                    len if len == n => UnsafeRef::into_raw(descr),
                     len if len > n => {
-                        let res = unsafe { (*descr.upcast()).split_off(n) };
-                        self.push_front(descr);
-                        res
+                        let descr = UnsafeRef::into_raw(descr);
+                        unsafe {
+                            let res = (*descr).split_off(n);
+                            self.push_front(UnsafeRef::from_raw(descr));
+                            res
+                        }
                     },
                     _ => panic!("blockarr_lists corrupted")
                 }
             } else {
-                unimplemented!()
+                let arena_arr = self.arena_allocator.allocate(1);
+                unsafe {
+                    let descr = (*arena_arr).upcast();
+                    let res = FreeListNode::init(descr as _, n);
+                    let excess_descr = (*res).offset(n);
+                    self.free(FreeListNode::init(excess_descr, arena::CAPACITY - n));
+                    res
+                }
             }
+        } else {
+            unimplemented!()
         }
+    }
+
+    /// Free `descr`.
+    pub fn free(&mut self, descr: *mut FreeListNode) {
+        unsafe { self.push_front(UnsafeRef::from_raw(descr)) };
+        unimplemented!(); // TODO: coalescing
     }
 
     /// Push `descr` on top of the appropriate free list.

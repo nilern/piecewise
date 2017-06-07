@@ -18,27 +18,28 @@ intrusive_adapter!(pub ArrAdapter = UnsafeRef<ArenaArr>: ArenaArr { link: Linked
 
 impl ArenaArr {
     fn new(len: usize) -> *mut ArenaArr {
-        unsafe { ArenaArr::init(os_allocate(len), len) }
+        let start = unsafe { os_allocate(len) };
+        let descr = (start as usize + arena::SIZE
+                     - arena::CAPACITY*(block::SIZE + Descriptor::SIZE)) as _;
+        unsafe { ArenaArr::init(descr, len) }
     }
 
     fn len(&self) -> usize { self.len }
 
     fn split_off(&mut self, n: usize) -> *mut ArenaArr {
         let ptr = self.offset(self.len() - n);
-        unsafe { ArenaArr::init_descr(ptr, n) }
+        unsafe { ArenaArr::init(ptr, n) }
+    }
+
+    pub fn upcast(&self) -> *mut Descriptor {
+        (unsafe { transmute::<_, usize>(self) } & !Descriptor::MASK) as _
     }
 
     fn offset(&self, n: usize) -> *mut () {
         (unsafe { transmute::<_, usize>(self) } + n*arena::SIZE) as _
     }
 
-    unsafe fn init(start: *mut (), len: usize) -> *mut ArenaArr {
-        let descr = (start as usize + arena::SIZE
-                     - arena::CAPACITY*(block::SIZE + Descriptor::SIZE)) as _;
-        ArenaArr::init_descr(descr, len)
-    }
-
-    unsafe fn init_descr(descr: *mut (), len: usize) -> *mut ArenaArr {
+    unsafe fn init(descr: *mut (), len: usize) -> *mut ArenaArr {
         let descr = descr as _;
         ptr::write(descr, Descriptor::ArenaArr(ArenaArr {
             link: LinkedListLink::default(),

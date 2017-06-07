@@ -23,10 +23,6 @@ impl Descriptor {
         let byte_index = index >> block::SHIFT << Descriptor::SHIFT;
         (byte_index as usize & !arena::MASK | byte_index) as _
     }
-
-    pub fn split_off(&mut self, n: usize) -> *mut Descriptor {
-        unimplemented!()
-    }
 }
 
 #[cfg(test)]
