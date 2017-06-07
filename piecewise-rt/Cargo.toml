@@ -5,3 +5,4 @@ authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 
 [dependencies]
 nix = "0.8.0"
+intrusive-collections = "0.6"

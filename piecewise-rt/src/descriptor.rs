@@ -1,6 +1,6 @@
 use std::mem::transmute;
+use intrusive_collections::{UnsafeRef, LinkedListLink};
 
-use freelist;
 use arena;
 use block;
 
@@ -42,18 +42,11 @@ pub enum BlockArr {
 }
 
 pub struct FreeListNode {
-    len: usize,
-    next: *mut FreeListNode,
-    prev: *mut FreeListNode
+    link: LinkedListLink,
+    len: usize
 }
 
-impl freelist::Node for FreeListNode {
-    fn next(&self) -> *mut Self { self.next }
-    fn set_next(&mut self, new_next: *mut Self) { self.next = new_next; }
-
-    fn prev(&self) -> *mut Self { self.prev }
-    fn set_prev(&mut self, new_prev: *mut Self) { self.prev = new_prev }
-}
+intrusive_adapter!(pub FreeAdapter = UnsafeRef<FreeListNode>: FreeListNode { link: LinkedListLink });
 
 impl FreeListNode {
     pub fn upcast(&self) -> *mut Descriptor {

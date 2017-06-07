@@ -1,9 +1,9 @@
 use std::mem;
 use std::ptr;
+use intrusive_collections::{UnsafeRef, LinkedList};
 
 use arena;
-use freelist::FreeList;
-use descriptor::{Descriptor, FreeListNode};
+use descriptor::{Descriptor, FreeListNode, FreeAdapter};
 use util::IntLog2;
 
 pub const SHIFT: usize = 12;
@@ -12,7 +12,7 @@ pub const SIZE: usize = 1 << SHIFT;
 /// Block allocator (allocates BlockArr:s)
 pub struct Allocator {
     arena_allocator: arena::Allocator,
-    blockarr_lists: [FreeList<FreeListNode>; Allocator::NLISTS]
+    blockarr_lists: [LinkedList<FreeAdapter>; Allocator::NLISTS]
 }
 
 impl Allocator {
@@ -27,7 +27,7 @@ impl Allocator {
             blockarr_lists: unsafe { mem::uninitialized::<[_; Allocator::NLISTS]>() }
         };
         for list in res.blockarr_lists.iter_mut() {
-            unsafe { ptr::write(list, FreeList::new()); }
+            unsafe { ptr::write(list, LinkedList::new(FreeAdapter::new())); }
         }
         res
     }
@@ -37,14 +37,14 @@ impl Allocator {
         if n <= arena::CAPACITY {
             unimplemented!()
         } else {
-            let mut descr = ptr::null_mut();
+            let mut odescr = None;
 
             for list in self.blockarr_lists[n.log2_ceil()..].iter_mut() {
-                descr = list.pop_front();
-                if descr.is_null() { break; }
+                odescr = list.pop_front();
+                if odescr.is_some() { break; }
             }
 
-            if !descr.is_null() {
+            if let Some(descr) = odescr {
                 match unsafe { (*descr).len() } {
                     len if len == n => {
                         unsafe { (*descr).upcast() }
@@ -65,10 +65,8 @@ impl Allocator {
     }
 
     /// Push `descr` on top of the appropriate free list.
-    fn push_front(&mut self, descr: *mut FreeListNode) {
-        unsafe {
-            self.blockarr_lists[(*descr).len().log2_floor()]
-                .push_front(&mut *descr);
-        }
+    fn push_front(&mut self, descr: UnsafeRef<FreeListNode>) {
+        let i = descr.len().log2_floor();
+        self.blockarr_lists[i].push_front(descr);
     }
 }
