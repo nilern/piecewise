@@ -4,6 +4,7 @@ use std::ptr;
 use intrusive_collections::{UnsafeRef, LinkedList, LinkedListLink};
 
 use block;
+use block::Block;
 use arena;
 use arena_arr;
 use descriptor::Descriptor;
@@ -49,6 +50,41 @@ impl FreeListNode {
         } else {
             unreachable!()
         }
+    }
+}
+
+pub struct Active {
+    link: LinkedListLink,
+    len: usize
+}
+
+intrusive_adapter!(pub ActiveAdapter = UnsafeRef<Active>: Active { link: LinkedListLink });
+
+impl Active {
+    pub fn len(&self) -> usize { self.len }
+
+    pub fn blocks(&self) -> Blocks {
+        Blocks {
+            start: self.upcast(),
+            max: self.len()
+        }
+    }
+
+    fn upcast(&self) -> *mut Descriptor {
+        unimplemented!()
+    }
+}
+
+pub struct Blocks {
+    start: *mut Descriptor,
+    max: usize
+}
+
+impl Iterator for Blocks {
+    type Item = *mut Block;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unimplemented!()
     }
 }
 

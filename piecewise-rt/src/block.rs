@@ -6,3 +6,9 @@ pub const SHIFT: usize = 12;
 pub const SIZE: usize = 1 << SHIFT;
 
 pub enum Block {}
+
+impl Block {
+    pub fn sweep(&mut self) {
+        unimplemented!()
+    }
+}
