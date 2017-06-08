@@ -98,8 +98,6 @@ impl Allocator {
 
 #[cfg(unix)]
 unsafe fn os_allocate(n: usize) -> *mut () {
-    // basically just wraps `mmap()`
-
     let size = n*arena::SIZE;
     let inflated_size = size + arena::SIZE;
 
@@ -109,10 +107,32 @@ unsafe fn os_allocate(n: usize) -> *mut () {
 
     let offset = addr as usize & arena::MASK;
     munmap(addr, arena::SIZE - offset)
-        .and_then(|_| {
+        .and_then(|()| if offset > 0 {
             munmap(addr.offset(inflated_size as isize).offset(-(offset as isize)), offset)
+        } else {
+            Ok(())
         })
         .expect("munmap() failed");
 
     addr.offset(arena::SIZE as isize).offset(-(offset as isize)) as *mut ()
+}
+
+#[cfg(unix)]
+unsafe fn os_free(ptr: *mut (), n: usize) {
+    munmap(transmute(ptr), n).expect("munmap() failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{os_allocate, os_free};
+
+    #[test]
+    fn os_layer() {
+        unsafe {
+            let blobs: Vec<(usize, *mut ())> = (1..100).map(|n| (n, os_allocate(n))).collect();
+            for (n, ptr) in blobs {
+                os_free(ptr, n);
+            }
+        }
+    }
 }
