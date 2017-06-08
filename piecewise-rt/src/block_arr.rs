@@ -4,14 +4,21 @@ use std::ptr;
 use intrusive_collections::{UnsafeRef, LinkedList, LinkedListLink};
 
 use block;
-use block::Block;
 use arena;
 use arena_arr;
-use descriptor::Descriptor;
 use util::IntLog2;
 
-pub enum BlockArr {
+pub enum Descriptor {
     FreeListNode(FreeListNode)
+}
+
+impl Descriptor {
+    #[cfg(target_pointer_width = "64")]
+    const SHIFT: usize = 6;
+
+    pub const SIZE: usize = 1 << Descriptor::SHIFT;
+
+    pub const MASK: usize = Descriptor::SIZE - 1;
 }
 
 pub struct FreeListNode {
@@ -40,16 +47,13 @@ impl FreeListNode {
 
     unsafe fn init(descr: *mut (), len: usize) -> *mut FreeListNode {
         let descr = descr as _;
-        ptr::write(descr, Descriptor::BlockArr(BlockArr::FreeListNode(FreeListNode {
+        ptr::write(descr, Descriptor::FreeListNode(FreeListNode {
             link: LinkedListLink::default(),
             len: len
-        })));
+        }));
 
-        if let Descriptor::BlockArr(BlockArr::FreeListNode(ref node)) = *descr {
-            transmute(node)
-        } else {
-            unreachable!()
-        }
+        let Descriptor::FreeListNode(ref node) = *descr;
+        transmute(node)
     }
 }
 
@@ -81,14 +85,14 @@ pub struct Blocks {
 }
 
 impl Iterator for Blocks {
-    type Item = *mut Block;
+    type Item = *mut block::Descriptor;
 
     fn next(&mut self) -> Option<Self::Item> {
         unimplemented!()
     }
 }
 
-/// Block allocator (allocates BlockArr:s)
+/// Block allocator (allocates Descriptor:s)
 pub struct Allocator {
     arena_allocator: arena_arr::Allocator,
     blockarr_lists: [LinkedList<FreeAdapter>; Allocator::NLISTS]
@@ -111,7 +115,7 @@ impl Allocator {
         res
     }
 
-    /// Allocate a BlockArr of length `n`.
+    /// Allocate a Descriptor of length `n`.
     pub fn allocate(&mut self, n: usize) -> *mut FreeListNode {
         if n <= arena::CAPACITY {
             let mut odescr = None;
@@ -137,7 +141,7 @@ impl Allocator {
             } else {
                 let arena_arr = self.arena_allocator.allocate(1);
                 unsafe {
-                    let descr = (*arena_arr).upcast();
+                    let descr = arena_arr;
                     let res = FreeListNode::init(descr as _, n);
                     let excess_descr = (*res).offset(n);
                     self.free(FreeListNode::init(excess_descr, arena::CAPACITY - n));

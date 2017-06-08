@@ -1,6 +1,5 @@
 use intrusive_collections::LinkedList;
 
-use block::Block;
 use block_arr;
 use gcref::GCRef;
 

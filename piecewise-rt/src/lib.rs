@@ -10,7 +10,6 @@ extern crate quickcheck;
 
 mod util;
 pub mod gcref;
-pub mod descriptor;
 pub mod arena;
 pub mod arena_arr;
 pub mod block;

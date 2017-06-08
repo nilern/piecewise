@@ -1,5 +1,3 @@
-use std::mem::transmute;
-
 #[derive(Clone, Copy)]
 struct Header(usize);
 

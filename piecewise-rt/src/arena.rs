@@ -13,13 +13,11 @@ pub const CAPACITY: usize = 252;
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
     use super::{SIZE, CAPACITY};
-    use descriptor::Descriptor;
     use block;
 
     #[test]
     fn capacity() {
-        assert!(CAPACITY*(block::SIZE + size_of::<Descriptor>()) <= SIZE);
+        assert!(CAPACITY*(block::SIZE + block::Descriptor::SIZE) <= SIZE);
     }
 }

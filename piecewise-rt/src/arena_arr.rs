@@ -7,54 +7,51 @@ use intrusive_collections::{UnsafeRef, LinkedListLink, LinkedList};
 
 use block;
 use arena;
-use descriptor::Descriptor;
 
-pub struct ArenaArr {
+pub struct Descriptor {
     link: LinkedListLink,
     len: usize
 }
 
-intrusive_adapter!(pub ArrAdapter = UnsafeRef<ArenaArr>: ArenaArr { link: LinkedListLink });
+intrusive_adapter!(pub ArrAdapter = UnsafeRef<Descriptor>: Descriptor { link: LinkedListLink });
 
-impl ArenaArr {
-    fn new(len: usize) -> *mut ArenaArr {
+impl Descriptor {
+    #[cfg(target_pointer_width = "64")]
+    const SHIFT: usize = 6;
+
+    pub const SIZE: usize = 1 << Descriptor::SHIFT;
+
+    pub const MASK: usize = Descriptor::SIZE - 1;
+
+    fn new(len: usize) -> *mut Descriptor {
         let start = unsafe { os_allocate(len) };
         let descr = (start as usize + arena::SIZE
                      - arena::CAPACITY*(block::SIZE + Descriptor::SIZE)) as _;
-        unsafe { ArenaArr::init(descr, len) }
+        unsafe { Descriptor::init(descr, len) }
     }
 
     fn len(&self) -> usize { self.len }
 
-    fn split_off(&mut self, n: usize) -> *mut ArenaArr {
+    fn split_off(&mut self, n: usize) -> *mut Descriptor {
         let ptr = self.offset(self.len() - n);
-        unsafe { ArenaArr::init(ptr, n) }
-    }
-
-    pub fn upcast(&self) -> *mut Descriptor {
-        (unsafe { transmute::<_, usize>(self) } & !Descriptor::MASK) as _
+        unsafe { Descriptor::init(ptr, n) }
     }
 
     fn offset(&self, n: usize) -> *mut () {
         (unsafe { transmute::<_, usize>(self) } + n*arena::SIZE) as _
     }
 
-    unsafe fn init(descr: *mut (), len: usize) -> *mut ArenaArr {
+    unsafe fn init(descr: *mut (), len: usize) -> *mut Descriptor {
         let descr = descr as _;
-        ptr::write(descr, Descriptor::ArenaArr(ArenaArr {
+        ptr::write(descr, Descriptor {
             link: LinkedListLink::default(),
             len: len
-        }));
-
-        if let Descriptor::ArenaArr(ref arr) = *descr {
-            transmute(arr)
-        } else {
-            unreachable!()
-        }
+        });
+        descr
     }
 }
 
-/// Arena allocator (allocates ArenaArr:s)
+/// Arena allocator (allocates Descriptor:s)
 pub struct Allocator {
     arena_arr_list: LinkedList<ArrAdapter>
 }
@@ -67,9 +64,9 @@ impl Allocator {
         }
     }
 
-    /// Allocate an ArenaArr of length `n`.
-    pub fn allocate(&mut self, n: usize) -> *mut ArenaArr {
-        let mut best: Option<&ArenaArr> = None;
+    /// Allocate an Descriptor of length `n`.
+    pub fn allocate(&mut self, n: usize) -> *mut Descriptor {
+        let mut best: Option<&Descriptor> = None;
         let mut cursor = self.arena_arr_list.cursor_mut();
 
         loop {
@@ -89,9 +86,9 @@ impl Allocator {
         }
 
         if let Some(descr) = best {
-            unsafe { (*transmute::<_, *mut ArenaArr>(descr)).split_off(n) }
+            unsafe { (*transmute::<_, *mut Descriptor>(descr)).split_off(n) }
         } else {
-            ArenaArr::new(n)
+            Descriptor::new(n)
         }
     }
 }
@@ -124,7 +121,8 @@ unsafe fn os_free(ptr: *mut (), n: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{os_allocate, os_free};
+    use super::{os_allocate, os_free, Descriptor};
+    use std::mem;
 
     #[test]
     fn os_layer() {
@@ -134,5 +132,10 @@ mod tests {
                 os_free(ptr, n);
             }
         }
+    }
+
+    #[test]
+    fn descriptor_size() {
+        assert!(mem::size_of::<Descriptor>() <= Descriptor::SIZE);
     }
 }
