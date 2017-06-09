@@ -8,7 +8,7 @@ extern crate intrusive_collections;
 #[macro_use]
 extern crate quickcheck;
 
-mod util;
+pub mod util;
 pub mod gcref;
 pub mod arena;
 pub mod arena_arr;
