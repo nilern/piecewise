@@ -120,7 +120,7 @@ impl Allocator {
         if n <= arena::CAPACITY {
             let mut odescr = None;
 
-            for list in self.blockarr_lists[n.log2_ceil()..].iter_mut() {
+            for list in self.blockarr_lists[Self::alloc_index(n)..].iter_mut() {
                 odescr = list.pop_front();
                 if odescr.is_some() { break; }
             }
@@ -161,7 +161,11 @@ impl Allocator {
 
     /// Push `descr` on top of the appropriate free list.
     fn push_front(&mut self, descr: UnsafeRef<FreeListNode>) {
-        let i = descr.len().log2_floor();
+        let i = Self::free_index(descr.len());
         self.blockarr_lists[i].push_front(descr);
     }
+
+    fn alloc_index(n: usize) -> usize { n.log2_ceil() }
+
+    fn free_index(n: usize) -> usize { n.log2_floor() }
 }
