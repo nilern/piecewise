@@ -1,4 +1,4 @@
-#![feature(associated_consts)]
+#![feature(unique, associated_consts)]
 
 extern crate nix;
 #[macro_use]
@@ -10,6 +10,7 @@ extern crate quickcheck;
 
 pub mod util;
 pub mod gcref;
+pub mod freelist;
 pub mod arena;
 pub mod arena_arr;
 pub mod block;
