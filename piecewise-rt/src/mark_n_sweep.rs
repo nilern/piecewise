@@ -5,7 +5,8 @@ use std::mem;
 use std::mem::transmute;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef};
 
-use allocator::Allocator;
+use util::Lengthy;
+use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool};
 use freelist;
 use freelist::IndexCalculation;
 use block_arr;
@@ -14,7 +15,7 @@ use gcref::GCRef;
 pub struct MSHeap {
     block_allocator: block_arr::Allocator,
     free_buckets: freelist::Bucketed<FreeAdapter, ObjIndexCalc>,
-    free_fallback: LinkedList<SizedFreeAdapter>,
+    free_fallback: freelist::FirstFit<SizedFreeAdapter>,
     active_blocks: LinkedList<block_arr::ActiveAdapter>,
     mark_stack: Vec<GCRef>
 }
@@ -26,7 +27,7 @@ impl MSHeap {
         let mut res = MSHeap {
             block_allocator: block_arr::Allocator::new(),
             free_buckets: freelist::Bucketed::new(Self::NLISTS),
-            free_fallback: LinkedList::new(SizedFreeAdapter::new()),
+            free_fallback: freelist::FirstFit::new(),
             active_blocks: LinkedList::new(block_arr::ActiveAdapter::new()),
             mark_stack: Vec::new()
         };
@@ -56,42 +57,23 @@ impl MSHeap {
             }
         }
     }
-
-    fn push_front(&mut self, sfref: *mut SizedFreeObj) {
-        unimplemented!()
-        // if let Some(i) = MSHeap::free_index(unsafe { (*sfref).len() }) {
-        //     let fref = unsafe { transmute(sfref) };
-        //     unsafe { ptr::write(fref, FreeObj::default()) };
-        //     self.free_buckets[i].push_front(unsafe { UnsafeRef::from_raw(fref) });
-        // } else {
-        //     self.free_fallback.push_front(unsafe { UnsafeRef::from_raw(sfref) });
-        // }
-    }
 }
 
 impl Allocator for MSHeap {
     fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+        // TODO: what if wsize >= Block::SIZE?
         self.free_buckets.allocate(walign, wsize)
-            .or_else(|| {
-                None // FIXME
-                // let mut cursor = self.free_fallback.cursor_mut();
-                // while let Some(oref) = cursor.get() {
-                //     if oref.len == *wsize {
-                //         cursor.remove();
-                //         return unsafe { transmute(oref) };
-                //     } else if oref.len > *wsize {
-                //         cursor.remove();
-                //         let oref: *mut SizedFreeObj = unsafe { transmute(oref) };
-                //         let res = unsafe { (*oref).split_off(*wsize) };
-                //         // self.push_front(oref); FIXME
-                //         return Some(unsafe { Unique::new(oref as *mut ()) });
-                //     }
-                // }
+            .or_else(|| self.free_fallback.allocate_at_least(walign, wsize))
+            // TODO: split excess off and release it, allocate blocks if free_fallback fails
+    }
+}
 
-                //let block = self.block_allocator.allocate(1);
-                // self.active_blocks.push_back(block);
-                // (*block).sweep(/* free_buckets */);
-            })
+impl AbsorbentMemoryPool for MSHeap {
+    unsafe fn release(&mut self, oref: Unique<()>, wsize: NonZero<usize>) {
+        // TODO: what if wsize >= Block::SIZE?
+        self.free_buckets.try_release(oref, wsize)
+            .and_then(|oref| self.free_fallback.try_release(oref, wsize))
+            .map_or((), |oref| unimplemented!())
     }
 }
 
@@ -102,6 +84,8 @@ struct FreeObj {
 
 intrusive_adapter!(FreeAdapter = UnsafeRef<FreeObj>: FreeObj { link: LinkedListLink });
 
+
+#[derive(Default)]
 struct SizedFreeObj {
     len: usize,
     link: LinkedListLink
@@ -111,13 +95,16 @@ intrusive_adapter!(SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
 impl SizedFreeObj {
-    fn len(&self) -> usize { self.len }
-
     fn split_off(&mut self, n: usize) -> *mut () {
         let offset = self.len() - n;
         self.len = offset;
         (unsafe { transmute::<_, usize>(self) } + offset) as _
     }
+}
+
+impl Lengthy for SizedFreeObj {
+    fn len(&self) -> usize { self.len }
+    fn set_len(&mut self, new_len: usize) { self.len = new_len }
 }
 
 struct ObjIndexCalc;

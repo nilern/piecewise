@@ -1,5 +1,10 @@
 use std::mem::size_of;
 
+pub trait Lengthy {
+    fn len(&self) -> usize;
+    fn set_len(&mut self, new_len: usize);
+}
+
 pub trait IntLog2 {
     fn log2_floor(self) -> Self;
 

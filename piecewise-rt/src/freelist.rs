@@ -6,7 +6,55 @@ use std::ptr::Unique;
 use std::marker::PhantomData;
 use intrusive_collections::{LinkedList, LinkedListLink, Adapter, UnsafeRef, IntrusivePointer};
 
-use allocator::{Allocator, MemoryPool};
+use util::Lengthy;
+use allocator::{Allocator, OverAllocator, MemoryPool};
+
+pub struct FirstFit<N> where N: Adapter<Link = LinkedListLink> + Default,
+                             N::Value: Default + Lengthy {
+    list: LinkedList<N>
+}
+
+impl<N> FirstFit<N> where N: Adapter<Link = LinkedListLink> + Default,
+                          N::Value: Default + Lengthy
+{
+    pub fn new() -> Self {
+        FirstFit {
+            list: LinkedList::new(N::default())
+        }
+    }
+}
+
+impl<N> OverAllocator for FirstFit<N> where N: Adapter<Link = LinkedListLink> + Default,
+                                            N::Value: Default + Lengthy
+{
+    fn allocate_at_least(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+        -> Option<Unique<()>>
+    {
+        // TODO: observe walign
+        let mut cursor = self.list.cursor_mut();
+        while let Some(node) = cursor.get() {
+            if node.len() >= *wsize {
+                return cursor.remove().map(|v| unsafe { Unique::new(v.into_raw() as *mut ()) });
+            }
+            cursor.move_next();
+        }
+        None
+    }
+}
+
+impl<N> MemoryPool for FirstFit<N> where N: Adapter<Link = LinkedListLink> + Default,
+                                         N::Value: Default + Lengthy
+{
+    unsafe fn try_release(&mut self, oref: Unique<()>, wsize: NonZero<usize>)
+        -> Option<Unique<()>>
+    {
+        let node = transmute::<*mut (), *mut N::Value>(*oref);
+        ptr::write(node, N::Value::default());
+        (*node).set_len(*wsize);
+        self.list.push_front(N::Pointer::from_raw(node));
+        None
+    }
+}
 
 /// Compute free list indices from object word counts.
 /// # Laws
@@ -55,7 +103,9 @@ impl<N, I> MemoryPool for Bucketed<N, I> where N: Adapter<Link = LinkedListLink>
                                                N::Value: Default,
                                                I: IndexCalculation
 {
-    unsafe fn release(&mut self, oref: Unique<()>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+    unsafe fn try_release(&mut self, oref: Unique<()>, wsize: NonZero<usize>)
+        -> Option<Unique<()>>
+    {
         let i = I::free_index(wsize);
         if i < self.buckets.len() {
             let node = transmute::<*mut (), *mut N::Value>(*oref);
