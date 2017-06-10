@@ -1,33 +1,22 @@
 use std::mem;
 use std::mem::transmute;
+use core::nonzero::NonZero;
 use std::ptr;
 use std::ptr::Unique;
 use std::marker::PhantomData;
 use intrusive_collections::{LinkedList, LinkedListLink, Adapter, UnsafeRef, IntrusivePointer};
 
-/// Freelist interface
-pub trait FreeList {
-    /// Try to allocate `n` words from this freelist.
-    /// # Safety
-    /// `n` must not be zero.
-    unsafe fn allocate(&mut self, n: usize) -> Option<Unique<()>>;
-
-    /// Release `n` words of memory behind `fobj` into this list.
-    /// # Safety
-    /// Overestimating `n` leads to undefined behaviour. (Underestimates just leak memory).
-    /// `n` must be large enough to hold the link pointers used by Self.
-    unsafe fn release(&mut self, fobj: Unique<()>, n: usize) -> bool;
-}
+use allocator::{Allocator, MemoryPool};
 
 /// Compute free list indices from object word counts.
 /// # Laws
 /// `alloc_index(x) >= free_index(x) | x > 0`
 pub trait IndexCalculation {
     /// Get the index of the first freelist that can support allocation of `n` words.
-    unsafe fn alloc_index(n: usize) -> usize;
+    fn alloc_index(n: NonZero<usize>) -> usize;
 
     /// Get the index of the freelist where an object of `n` words should be freed to.
-    unsafe fn free_index(n: usize) -> usize;
+    fn free_index(n: NonZero<usize>) -> usize;
 }
 
 /// Bucketed freelist
@@ -50,25 +39,31 @@ impl<N, I> Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default, N::
     }
 }
 
-impl<N, I> FreeList for Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default,
+impl<N, I> Allocator for Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default,
                                              N::Value: Default,
                                              I: IndexCalculation
 {
-    unsafe fn allocate(&mut self, n: usize) -> Option<Unique<()>> {
-        self.buckets.get_mut(I::alloc_index(n))
+    fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+        // TODO: observe walign
+        self.buckets.get_mut(I::alloc_index(wsize))
             .and_then(LinkedList::pop_front)
-            .map(|v| Unique::new(v.into_raw() as *mut ()))
+            .map(|v| unsafe { Unique::new(v.into_raw() as *mut ()) })
     }
+}
 
-    unsafe fn release(&mut self, fobj: Unique<()>, n: usize) -> bool {
-        let i = I::free_index(n);
+impl<N, I> MemoryPool for Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default,
+                                               N::Value: Default,
+                                               I: IndexCalculation
+{
+    unsafe fn release(&mut self, oref: Unique<()>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+        let i = I::free_index(wsize);
         if i < self.buckets.len() {
-            let node = transmute::<*mut (), *mut N::Value>(*fobj);
+            let node = transmute::<*mut (), *mut N::Value>(*oref);
             ptr::write(node, N::Value::default());
             self.buckets[i].push_front(N::Pointer::from_raw(node));
-            true
+            None
         } else {
-            false
+            Some(oref)
         }
     }
 }

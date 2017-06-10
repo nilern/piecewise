@@ -1,11 +1,13 @@
+use core::nonzero::NonZero;
 use std::ptr;
 use std::ptr::Unique;
 use std::mem;
 use std::mem::transmute;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef};
 
+use allocator::Allocator;
 use freelist;
-use freelist::{FreeList, IndexCalculation};
+use freelist::IndexCalculation;
 use block_arr;
 use gcref::GCRef;
 
@@ -29,32 +31,6 @@ impl MSHeap {
             mark_stack: Vec::new()
         };
         res
-    }
-
-    pub fn allocate_words(&mut self, n: usize) -> Unique<()> {
-        loop {
-            if let Some(res) = unsafe { self.free_buckets.allocate(n) } {
-                return res;
-            } else {
-                let mut cursor = self.free_fallback.cursor_mut();
-                while let Some(fobj) = cursor.get() {
-                    if fobj.len == n {
-                        cursor.remove();
-                        return unsafe { transmute(fobj) };
-                    } else if fobj.len > n {
-                        cursor.remove();
-                        let fobj: *mut SizedFreeObj = unsafe { transmute(fobj) };
-                        let res = unsafe { (*fobj).split_off(n) };
-                        // self.push_front(fobj); FIXME
-                        return unsafe { Unique::new(fobj as *mut ()) };
-                    }
-                }
-
-                let block = self.block_allocator.allocate(1);
-                // self.active_blocks.push_back(block); FIXME
-                // (*block).sweep(/* free_buckets */);
-            }
-        }
     }
 
     pub fn collect(&mut self) {
@@ -93,6 +69,32 @@ impl MSHeap {
     }
 }
 
+impl Allocator for MSHeap {
+    fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+        self.free_buckets.allocate(walign, wsize)
+            .or_else(|| {
+                None // FIXME
+                // let mut cursor = self.free_fallback.cursor_mut();
+                // while let Some(oref) = cursor.get() {
+                //     if oref.len == *wsize {
+                //         cursor.remove();
+                //         return unsafe { transmute(oref) };
+                //     } else if oref.len > *wsize {
+                //         cursor.remove();
+                //         let oref: *mut SizedFreeObj = unsafe { transmute(oref) };
+                //         let res = unsafe { (*oref).split_off(*wsize) };
+                //         // self.push_front(oref); FIXME
+                //         return Some(unsafe { Unique::new(oref as *mut ()) });
+                //     }
+                // }
+
+                //let block = self.block_allocator.allocate(1);
+                // self.active_blocks.push_back(block);
+                // (*block).sweep(/* free_buckets */);
+            })
+    }
+}
+
 #[derive(Default)]
 struct FreeObj {
     link: LinkedListLink
@@ -121,29 +123,30 @@ impl SizedFreeObj {
 struct ObjIndexCalc;
 
 impl IndexCalculation for ObjIndexCalc {
-    unsafe fn alloc_index(n: usize) -> usize {
-        if n <= 8 {
-            n - 1         // 1 -> 0, .., 8 -> 7, ...
-        } else if n <= 16 {
-            (n + 7) >> 1  // 9 -> 8, 10 -> 8, .., 15 -> 11, 16 -> 11, ...
+    fn alloc_index(n: NonZero<usize>) -> usize {
+        if *n <= 8 {
+            *n - 1         // 1 -> 0, .., 8 -> 7, ...
+        } else if *n <= 16 {
+            (*n + 7) >> 1  // 9 -> 8, 10 -> 8, .., 15 -> 11, 16 -> 11, ...
         } else {
-            (n + 31) >> 2 // 17 -> 12, .., 20 -> 12, ..., 29 -> 15, .., 32 -> 15, ...
+            (*n + 31) >> 2 // 17 -> 12, .., 20 -> 12, ..., 29 -> 15, .., 32 -> 15, ...
         }
     }
 
-    unsafe fn free_index(n: usize) -> usize {
-        if n <= 8 {
-            n - 1        // 1 -> 0, .., 8 -> 7, ...
-        } else if n <= 16 {
-            (n >> 1) + 3 // 9 -> 7, 10 -> 8, 11 -> 8, .., 15 -> 10, 16 -> 11, ...
+    fn free_index(n: NonZero<usize>) -> usize {
+        if *n <= 8 {
+            *n - 1        // 1 -> 0, .., 8 -> 7, ...
+        } else if *n <= 16 {
+            (*n >> 1) + 3 // 9 -> 7, 10 -> 8, 11 -> 8, .., 15 -> 10, 16 -> 11, ...
         } else {
-            (n >> 2) + 7 // 17 -> 11, .., 19 -> 11, ..., 32 -> 15, .., 35 -> 15, ...
+            (*n >> 2) + 7 // 17 -> 11, .., 19 -> 11, ..., 32 -> 15, .., 35 -> 15, ...
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use core::nonzero::NonZero;
     use std::mem::size_of;
     use quickcheck::TestResult;
 
@@ -160,10 +163,9 @@ mod tests {
     quickcheck! {
         fn alloc_free_indices(n: usize) -> TestResult {
             if n != 0 {
-                unsafe {
-                    TestResult::from_bool(
-                        ObjIndexCalc::alloc_index(n) >= ObjIndexCalc::free_index(n))
-                }
+                let n_ = unsafe { NonZero::new(n) };
+                TestResult::from_bool(ObjIndexCalc::alloc_index(n_)
+                                      >= ObjIndexCalc::free_index(n_))
             } else {
                 TestResult::discard()
             }
