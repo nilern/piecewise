@@ -7,6 +7,7 @@ pub trait Allocator {
     fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>>;
 }
 
+// FIXME: also return the actual amount allocated
 /// Generous memory allocator
 pub trait OverAllocator {
     /// Try to allocate at least `wsize` words of memory with an alignment (in words) of `walign`.

@@ -1,9 +1,7 @@
 use core::nonzero::NonZero;
-use std::ptr;
 use std::ptr::Unique;
-use std::mem;
 use std::mem::transmute;
-use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef};
+use intrusive_collections::{SinglyLinkedListLink, LinkedList, LinkedListLink, UnsafeRef};
 
 use util::Lengthy;
 use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool};
@@ -16,7 +14,7 @@ pub struct MSHeap {
     block_allocator: block_arr::Allocator,
     free_buckets: freelist::Bucketed<FreeAdapter, ObjIndexCalc>,
     free_fallback: freelist::FirstFit<SizedFreeAdapter>,
-    active_blocks: LinkedList<block_arr::ActiveAdapter>,
+    active_blocks: LinkedList<block_arr::ActiveAdapter>, // FIXME: LinkedList<BlockAdapter>
     mark_stack: Vec<GCRef>
 }
 
@@ -24,14 +22,13 @@ impl MSHeap {
     const NLISTS: usize = 16;
 
     pub fn new() -> MSHeap {
-        let mut res = MSHeap {
+        MSHeap {
             block_allocator: block_arr::Allocator::new(),
             free_buckets: freelist::Bucketed::new(Self::NLISTS),
             free_fallback: freelist::FirstFit::new(),
             active_blocks: LinkedList::new(block_arr::ActiveAdapter::new()),
             mark_stack: Vec::new()
-        };
-        res
+        }
     }
 
     pub fn collect(&mut self) {
@@ -79,10 +76,10 @@ impl AbsorbentMemoryPool for MSHeap {
 
 #[derive(Default)]
 struct FreeObj {
-    link: LinkedListLink
+    link: SinglyLinkedListLink
 }
 
-intrusive_adapter!(FreeAdapter = UnsafeRef<FreeObj>: FreeObj { link: LinkedListLink });
+intrusive_adapter!(FreeAdapter = UnsafeRef<FreeObj>: FreeObj { link: SinglyLinkedListLink });
 
 
 #[derive(Default)]
