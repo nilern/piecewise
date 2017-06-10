@@ -62,7 +62,7 @@ impl MSHeap {
 impl Allocator for MSHeap {
     fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
         // TODO: what if wsize >= Block::SIZE?
-        self.free_buckets.allocate(walign, wsize)
+        self.free_buckets.allocate_at_least(walign, wsize)
             .or_else(|| self.free_fallback.allocate_at_least(walign, wsize))
             // TODO: split excess off and release it, allocate blocks if free_fallback fails
     }
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn freeobj_size() {
         assert!(size_of::<FreeObj>() <= 2*size_of::<GCRef>());
-        assert!(size_of::<SizedFreeObj>() <= 36*size_of::<GCRef>());
+        assert!(size_of::<SizedFreeObj>() <= 3*size_of::<GCRef>());
     }
 
     quickcheck! {

@@ -67,6 +67,8 @@ pub trait IndexCalculation {
     fn free_index(n: NonZero<usize>) -> usize;
 }
 
+// TODO: Use singly linked lists
+// MAYBE: Use typelevel numbers to exchange the Vec for a size-generic array
 /// Bucketed freelist
 pub struct Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default, N::Value: Default,
                                 I: IndexCalculation
@@ -87,14 +89,20 @@ impl<N, I> Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default, N::
     }
 }
 
-impl<N, I> Allocator for Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default,
-                                             N::Value: Default,
-                                             I: IndexCalculation
+impl<N, I> OverAllocator for Bucketed<N, I> where N: Adapter<Link = LinkedListLink> + Default,
+                                                  N::Value: Default,
+                                                  I: IndexCalculation
 {
-    fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+    fn allocate_at_least(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+        -> Option<Unique<()>>
+    {
         // TODO: observe walign
-        self.buckets.get_mut(I::alloc_index(wsize))
+        let start = I::alloc_index(wsize);
+        self.buckets.get_mut(start)
             .and_then(LinkedList::pop_front)
+            .or_else(|| self.buckets[start + 1..].iter_mut()
+                            .find(|b| !b.is_empty())
+                            .and_then(LinkedList::pop_front))
             .map(|v| unsafe { Unique::new(v.into_raw() as *mut ()) })
     }
 }
