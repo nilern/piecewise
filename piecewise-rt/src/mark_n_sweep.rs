@@ -11,10 +11,12 @@ use freelist::IndexCalculation;
 use block_arr;
 use object_model::{GCRef, Object};
 
+/// Mark & Sweep memory manager
 pub struct MSHeap {
-    block_allocator: block_arr::Allocator,
     free_buckets: freelist::Bucketed<FreeAdapter, ObjIndexCalc>,
     free_fallback: freelist::FirstFit<SizedFreeAdapter>,
+    block_allocator: block_arr::Allocator,
+
     active_blocks: LinkedList<block_arr::ActiveAdapter>, // FIXME: LinkedList<BlockAdapter>
     mark_stack: Vec<Shared<Object>>
 }
@@ -22,40 +24,52 @@ pub struct MSHeap {
 impl MSHeap {
     const NLISTS: usize = 16;
 
+    /// Create a new MSHeap.
     pub fn new() -> MSHeap {
         MSHeap {
-            block_allocator: block_arr::Allocator::new(),
             free_buckets: freelist::Bucketed::new(Self::NLISTS),
             free_fallback: freelist::FirstFit::new(ObjIndexCalc::max(Self::NLISTS)),
+            block_allocator: block_arr::Allocator::new(),
+
             active_blocks: LinkedList::new(block_arr::ActiveAdapter::new()),
             mark_stack: Vec::new()
         }
     }
 
-    pub fn collect(&mut self) {
-        self.mark();
-        self.sweep();
-    }
-
-    fn mark(&mut self) {
-        while let Some(oref) = self.mark_stack.pop() {
-            unsafe {
-                for fref in (**oref).fields() {
-                    if let Some(ptr) = fref.ptr() {
-                        if (**ptr).is_marked() {
-                            (**ptr).mark();
-                            self.mark_stack.push(ptr);
-                        }
+    /// Mark a single object reference.
+    pub fn mark_ref(&mut self, oref: GCRef) {
+        unsafe {
+            if let Some(ptr) = oref.ptr() {
+                if !(**ptr).is_marked() {
+                    (**ptr).mark();
+                    if (**ptr).is_pointy() {
+                        self.mark_stack.push(ptr);
                     }
                 }
             }
         }
     }
 
-    fn sweep(&mut self) {
+    /// Collect garbage.
+    /// # Safety
+    /// Calling this without marking all the roots first leads to undefined behaviour.
+    pub unsafe fn collect(&mut self) {
+        self.mark_all();
+        self.sweep_all();
+    }
+
+    unsafe fn mark_all(&mut self) {
+        while let Some(oref) = self.mark_stack.pop() {
+            for fref in (**oref).fields() {
+                self.mark_ref(*fref);
+            }
+        }
+    }
+
+    unsafe fn sweep_all(&mut self) {
         for block_arr in self.active_blocks.iter() {
             for block in block_arr.blocks() {
-                unsafe { (*block).sweep(/* free_buckets */); }
+                (*block).sweep(/* free_buckets */);
             }
         }
     }
