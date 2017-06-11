@@ -1,5 +1,5 @@
 use core::nonzero::NonZero;
-use std::ptr::Unique;
+use std::ptr::{Unique, Shared};
 use std::mem::{size_of, transmute};
 use std::cell::Cell;
 use intrusive_collections::{SinglyLinkedListLink, LinkedList, LinkedListLink, UnsafeRef};
@@ -9,14 +9,14 @@ use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool, Split
 use freelist;
 use freelist::IndexCalculation;
 use block_arr;
-use gcref::GCRef;
+use object_model::{GCRef, Object};
 
 pub struct MSHeap {
     block_allocator: block_arr::Allocator,
     free_buckets: freelist::Bucketed<FreeAdapter, ObjIndexCalc>,
     free_fallback: freelist::FirstFit<SizedFreeAdapter>,
     active_blocks: LinkedList<block_arr::ActiveAdapter>, // FIXME: LinkedList<BlockAdapter>
-    mark_stack: Vec<GCRef>
+    mark_stack: Vec<Shared<Object>>
 }
 
 impl MSHeap {
@@ -39,10 +39,14 @@ impl MSHeap {
 
     fn mark(&mut self) {
         while let Some(oref) = self.mark_stack.pop() {
-            for fref in oref.fields() {
-                if !fref.is_marked() {
-                    fref.mark();
-                    self.mark_stack.push(fref);
+            unsafe {
+                for fref in (**oref).fields() {
+                    if let Some(ptr) = fref.ptr() {
+                        if (**ptr).is_marked() {
+                            (**ptr).mark();
+                            self.mark_stack.push(ptr);
+                        }
+                    }
                 }
             }
         }
@@ -156,7 +160,7 @@ mod tests {
 
     use super::{FreeObj, SizedFreeObj, ObjIndexCalc};
     use freelist::IndexCalculation;
-    use gcref::GCRef;
+    use object_model::GCRef;
 
     #[test]
     fn freeobj_size() {

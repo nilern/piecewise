@@ -204,7 +204,7 @@ mod tests {
     use std::mem::size_of;
     use std::ptr::Unique;
 
-    use gcref::GCRef;
+    use object_model::GCRef;
 
     #[test]
     fn unique_is_null_ptr_optimized() {

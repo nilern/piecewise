@@ -1,4 +1,4 @@
-#![feature(nonzero, unique, associated_consts)]
+#![feature(nonzero, unique, shared, associated_consts)]
 
 extern crate core;
 extern crate nix;
@@ -10,7 +10,7 @@ extern crate intrusive_collections;
 extern crate quickcheck;
 
 pub mod util;
-pub mod gcref;
+pub mod object_model;
 pub mod allocator;
 pub mod freelist;
 pub mod arena;
