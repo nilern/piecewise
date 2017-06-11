@@ -1,8 +1,38 @@
+use std::ptr::Unique;
 use std::mem::size_of;
 
 pub trait Lengthy {
     fn len(&self) -> usize;
     fn set_len(&mut self, new_len: usize);
+}
+
+pub struct OwnedSlice<T> {
+    ptr: Unique<T>,
+    len: usize
+}
+
+impl<T> OwnedSlice<T> {
+    pub fn from_raw_parts(ptr: Unique<T>, len: usize) -> Self {
+        OwnedSlice {
+            ptr: ptr,
+            len: len
+        }
+    }
+
+    pub fn into_unique(self) -> Unique<T> { self.ptr }
+
+    pub fn len(&self) -> usize { self.len }
+
+    pub fn split_off(&mut self, n: usize) -> Self {
+        assert!(n <= self.len);
+
+        let remainder = self.len - n;
+        self.len = remainder;
+        OwnedSlice {
+            ptr: unsafe { Unique::new(self.ptr.offset(remainder as isize)) },
+            len: n
+        }
+    }
 }
 
 pub trait IntLog2 {

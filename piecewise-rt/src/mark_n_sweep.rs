@@ -1,10 +1,11 @@
 use core::nonzero::NonZero;
 use std::ptr::Unique;
-use std::mem::transmute;
+use std::mem::{size_of, transmute};
+use std::cell::Cell;
 use intrusive_collections::{SinglyLinkedListLink, LinkedList, LinkedListLink, UnsafeRef};
 
 use util::Lengthy;
-use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool};
+use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool, SplitOff};
 use freelist;
 use freelist::IndexCalculation;
 use block_arr;
@@ -25,7 +26,7 @@ impl MSHeap {
         MSHeap {
             block_allocator: block_arr::Allocator::new(),
             free_buckets: freelist::Bucketed::new(Self::NLISTS),
-            free_fallback: freelist::FirstFit::new(),
+            free_fallback: freelist::FirstFit::new(ObjIndexCalc::max(Self::NLISTS)),
             active_blocks: LinkedList::new(block_arr::ActiveAdapter::new()),
             mark_stack: Vec::new()
         }
@@ -57,16 +58,26 @@ impl MSHeap {
 }
 
 impl Allocator for MSHeap {
-    fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>) -> Option<Unique<()>> {
+    fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+        -> Option<Unique<usize>>
+    {
         // TODO: what if wsize >= Block::SIZE?
         self.free_buckets.allocate_at_least(walign, wsize)
             .or_else(|| self.free_fallback.allocate_at_least(walign, wsize))
-            // TODO: split excess off and release it, allocate blocks if free_fallback fails
+            .map(|mut words| {
+                let excess_len = words.len() - *wsize;
+                if excess_len > 0 {
+                    let excess = words.split_off(excess_len);
+                    unsafe { self.release(excess.into_unique(), NonZero::new(excess_len)); }
+                }
+                words.into_unique()
+            })
+            // TODO: allocate blocks if free_fallback fails
     }
 }
 
 impl AbsorbentMemoryPool for MSHeap {
-    unsafe fn release(&mut self, oref: Unique<()>, wsize: NonZero<usize>) {
+    unsafe fn release(&mut self, oref: Unique<usize>, wsize: NonZero<usize>) {
         // TODO: what if wsize >= Block::SIZE?
         self.free_buckets.try_release(oref, wsize)
             .and_then(|oref| self.free_fallback.try_release(oref, wsize))
@@ -84,24 +95,25 @@ intrusive_adapter!(FreeAdapter = UnsafeRef<FreeObj>: FreeObj { link: SinglyLinke
 
 #[derive(Default)]
 struct SizedFreeObj {
-    len: usize,
+    len: Cell<usize>,
     link: LinkedListLink
 }
 
 intrusive_adapter!(SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
-impl SizedFreeObj {
-    fn split_off(&mut self, n: usize) -> *mut () {
-        let offset = self.len() - n;
-        self.len = offset;
-        (unsafe { transmute::<_, usize>(self) } + offset) as _
-    }
+impl Lengthy for SizedFreeObj {
+    fn len(&self) -> usize { self.len.get() }
+    fn set_len(&mut self, new_len: usize) { self.len.set(new_len) }
 }
 
-impl Lengthy for SizedFreeObj {
-    fn len(&self) -> usize { self.len }
-    fn set_len(&mut self, new_len: usize) { self.len = new_len }
+impl SplitOff for SizedFreeObj {
+    fn split_off(&self, wsize: usize) -> Unique<usize> {
+        assert!(wsize <= self.len.get() + size_of::<SizedFreeObj>()/size_of::<GCRef>());
+        let rem = self.len.get() - wsize;
+        self.len.set(rem);
+        unsafe { Unique::new(transmute::<_, *mut usize>(self).offset(rem as isize)) }
+    }
 }
 
 struct ObjIndexCalc;
@@ -125,6 +137,14 @@ impl IndexCalculation for ObjIndexCalc {
         } else {
             (*n >> 2) + 7 // 17 -> 11, .., 19 -> 11, ..., 32 -> 15, .., 35 -> 15, ...
         }
+    }
+
+    fn min(index: usize) -> usize {
+        unimplemented!()
+    }
+
+    fn max(index: usize) -> usize {
+        unimplemented!()
     }
 }
 
