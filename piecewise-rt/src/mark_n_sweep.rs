@@ -9,7 +9,7 @@ use allocator::{Allocator, OverAllocator, MemoryPool, AbsorbentMemoryPool, Split
 use freelist;
 use freelist::IndexCalculation;
 use block_arr;
-use object_model::{GCRef, Object};
+use object_model::{GCRef, PointyObject};
 
 /// Mark & Sweep memory manager
 pub struct MSHeap {
@@ -18,7 +18,7 @@ pub struct MSHeap {
     block_allocator: block_arr::Allocator,
 
     active_blocks: LinkedList<block_arr::ActiveAdapter>, // FIXME: LinkedList<BlockAdapter>
-    mark_stack: Vec<Shared<Object>>
+    mark_stack: Vec<Shared<PointyObject>>
 }
 
 impl MSHeap {
@@ -42,8 +42,8 @@ impl MSHeap {
             if let Some(ptr) = oref.ptr() {
                 if !(**ptr).is_marked() {
                     (**ptr).mark();
-                    if (**ptr).is_pointy() {
-                        self.mark_stack.push(ptr);
+                    if oref.is_pointy() {
+                        self.mark_stack.push(transmute(ptr));
                     }
                 }
             }

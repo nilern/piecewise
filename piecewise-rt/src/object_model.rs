@@ -7,8 +7,10 @@ use std::mem::transmute;
 pub struct GCRef(usize);
 
 impl GCRef {
-    const TAG_MASK: usize = 0b111;
-    const PTR_BIT: usize = 0b1;
+    const SHIFT: usize      = 3;
+    const TAG_MASK: usize   = 0b111;
+    const PTR_BIT: usize    = 0b001;
+    const POINTY_BIT: usize = 0b010;
 
     /// Get the pointer if the reference contains one.
     pub fn ptr(self) -> Option<Shared<Object>> {
@@ -18,6 +20,8 @@ impl GCRef {
             None
         }
     }
+
+    pub fn is_pointy(self) -> bool { self.0 & Self::POINTY_BIT != 0 }
 }
 
 impl From<Shared<Object>> for GCRef {
@@ -26,19 +30,23 @@ impl From<Shared<Object>> for GCRef {
     }
 }
 
+impl From<isize> for GCRef {
+    fn from(n: isize) -> GCRef {
+        GCRef((n as usize) << Self::SHIFT)
+    }
+}
+
 /// Object header
 #[derive(Clone, Copy)]
-struct Header(usize);
+pub struct Header(usize);
 
 impl Header {
     const LEN_SHIFT: usize = 8;
-    const POINTY_BIT: usize = 0b10;
+
+    pub fn new(len: usize) -> Self { Header(len << Self::LEN_SHIFT) }
 
     /// Length of the object (in words if `self.pointy()`, in bytes otherwise).
     fn obj_len(self) -> usize { self.0 >> Self::LEN_SHIFT }
-
-    /// Does the object contain pointers?
-    fn pointy(self) -> bool { self.0 & Self::POINTY_BIT == 1 }
 }
 
 /// Heap-allocated value
@@ -50,9 +58,6 @@ pub struct Object {
 impl Object {
     const DATA_OFFSET: isize = 1;
 
-    /// Does the object contain pointers?
-    pub fn is_pointy(&self) -> bool { self.header.pointy() }
-
     /// Has the object been marked during the current collection?
     pub fn is_marked(&self) -> bool { unimplemented!() }
 
@@ -61,16 +66,19 @@ impl Object {
 
     /// Length of the object (in words if `self.pointy()`, in bytes otherwise).
     pub fn len(&self) -> usize { self.header.obj_len() }
+}
 
+#[repr(C)]
+pub struct PointyObject {
+    base: Object
+}
+
+impl PointyObject {
     /// The fields of the object that may contain pointers.
     pub fn fields(&self) -> &[GCRef] {
-        if self.is_pointy() {
-            unsafe {
-                let ptr = transmute::<_, *const GCRef>(self).offset(Self::DATA_OFFSET);
-                slice::from_raw_parts(ptr, self.len())
-            }
-        } else {
-            Default::default() // empty slice
+        unsafe {
+            let ptr = transmute::<_, *const GCRef>(self).offset(Object::DATA_OFFSET);
+            slice::from_raw_parts(ptr, self.base.len())
         }
     }
 }
