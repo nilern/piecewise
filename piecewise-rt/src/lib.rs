@@ -10,4 +10,4 @@ pub mod freerope;
 pub mod arena;
 pub mod block;
 pub mod object_model;
-//pub mod mark_n_sweep;
+pub mod mark_n_sweep;

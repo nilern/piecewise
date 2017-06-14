@@ -2,6 +2,10 @@ use std::ptr::Shared;
 use std::slice;
 use std::mem::transmute;
 
+use block;
+
+pub const LARGE_OBJ_THRESHOLD: usize = block::WSIZE * 8 / 10;
+
 /// Object reference (tagged pointer)
 #[derive(Clone, Copy)]
 pub struct ValueRef(usize);
