@@ -4,10 +4,10 @@ use std::mem::transmute;
 
 /// Object reference (tagged pointer)
 #[derive(Clone, Copy)]
-pub struct GCRef(usize);
+pub struct ValueRef(usize);
 
-impl GCRef {
-    const SHIFT: usize      = 3;
+impl ValueRef {
+    pub const SHIFT: usize  = 3;
     const TAG_MASK: usize   = 0b111;
     const PTR_BIT: usize    = 0b001;
     const POINTY_BIT: usize = 0b010;
@@ -24,15 +24,15 @@ impl GCRef {
     pub fn is_pointy(self) -> bool { self.0 & Self::POINTY_BIT != 0 }
 }
 
-impl From<Shared<Object>> for GCRef {
-    fn from(ptr: Shared<Object>) -> GCRef {
-        GCRef(unsafe { ptr.as_mut_ptr() } as usize | Self::PTR_BIT)
+impl From<Shared<Object>> for ValueRef {
+    fn from(ptr: Shared<Object>) -> ValueRef {
+        ValueRef(unsafe { ptr.as_mut_ptr() } as usize | Self::PTR_BIT)
     }
 }
 
-impl From<isize> for GCRef {
-    fn from(n: isize) -> GCRef {
-        GCRef((n as usize) << Self::SHIFT)
+impl From<isize> for ValueRef {
+    fn from(n: isize) -> ValueRef {
+        ValueRef((n as usize) << Self::SHIFT)
     }
 }
 
@@ -75,9 +75,9 @@ pub struct PointyObject {
 
 impl PointyObject {
     /// The fields of the object that may contain pointers.
-    pub fn fields(&self) -> &[GCRef] {
+    pub fn fields(&self) -> &[ValueRef] {
         unsafe {
-            let ptr = transmute::<_, *const GCRef>(self).offset(Object::DATA_OFFSET);
+            let ptr = transmute::<_, *const ValueRef>(self).offset(Object::DATA_OFFSET);
             slice::from_raw_parts(ptr, self.base.len())
         }
     }

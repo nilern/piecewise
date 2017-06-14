@@ -1,213 +1,145 @@
-use std::mem::transmute;
 use core::nonzero::NonZero;
-use std::ptr;
+use std::fmt::Debug;
+use std::mem::transmute;
 use std::ptr::Unique;
-use std::marker::PhantomData;
-use intrusive_collections::{LinkedList, LinkedListLink, Adapter,
-                            SinglyLinkedList, SinglyLinkedListLink,
-                            IntrusivePointer};
+use std::cmp::Ordering;
+use std::ops::Range;
+use intrusive_collections::{Adapter, LinkedList, LinkedListLink, IntrusivePointer};
 
-use util::{Lengthy, OwnedSlice};
-use allocator::{OverAllocator, MemoryPool, SplitOff};
+use util::{Init, Lengthy, SplitOff, Uninitialized};
 
-// TODO: replace various checks in alloc/release methods with preconditions
+// FIXME: what if the remainder cannot hold a N::Value?
 
-// ================================================================================================
-
-/// Compute free list indices from object word counts.
-/// # Laws
-/// `alloc_index(x) >= free_index(x) | x > 0`
-pub trait IndexCalculation {
-    /// Get the index of the first freelist that can support allocation of `n` words.
-    fn alloc_index(n: NonZero<usize>) -> usize;
-
-    /// Get the index of the freelist where an object of `n` words should be freed to.
-    fn free_index(n: NonZero<usize>) -> usize;
-
-    /// The minimum size of nodes under `index`.
-    fn min(index: usize) -> usize;
-
-    /// The non-inclusive upper bound of node size under `index`.
-    fn max(index: usize) -> usize;
+pub struct FirstFitHead<N> where N: Adapter<Link = LinkedListLink> {
+    list: LinkedList<N>,
+    bounds: Range<usize>
 }
 
-// ================================================================================================
-
-struct SizeClass<N> where N: Adapter<Link = SinglyLinkedListLink>
+impl<N> FirstFitHead<N> where N: Adapter<Link = LinkedListLink> + Default,
+                              N::Value: Sized + Init + Lengthy,
+                              N::Pointer: Debug
 {
-    min: usize,
-    max: usize,
-    list: SinglyLinkedList<N>
-}
-
-impl<N> SizeClass<N> where N: Adapter<Link = SinglyLinkedListLink> + Default {
-    fn new(min: usize, max: usize) -> Self {
-        SizeClass {
-            min: min,
-            max: max,
-            list: SinglyLinkedList::new(N::default())
+    pub fn new(bounds: Range<usize>) -> Self {
+        FirstFitHead {
+            list: LinkedList::new(N::default()),
+            bounds: bounds
         }
     }
 
-    fn is_empty(&self) -> bool { self.list.is_empty() }
-}
-
-impl<N> OverAllocator for SizeClass<N> where N: Adapter<Link = SinglyLinkedListLink> {
-    fn allocate_at_least(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<OwnedSlice<usize>>
+    pub fn allocate_at_least<R>(&mut self, n: NonZero<usize>) -> Option<R>
+        where N::Value: SplitOff<R>
     {
-        if *wsize <= self.min {
-            self.list.pop_front()
-                .map(|v| OwnedSlice::from_raw_parts(unsafe { Unique::new(v.into_raw() as _) },
-                                                    self.min))
-        } else {
-            None
-        }
-    }
-}
-
-impl<N> MemoryPool for SizeClass<N> where N: Adapter<Link = SinglyLinkedListLink>,
-                                          N::Value: Default
-{
-    unsafe fn try_release(&mut self, oref: Unique<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<usize>>
-    {
-        if *wsize >= self.min && *wsize < self.max {
-            let node = transmute::<*mut usize, *mut N::Value>(*oref);
-            ptr::write(node, N::Value::default());
-            self.list.push_front(N::Pointer::from_raw(node));
-            None
-        } else {
-            Some(oref)
-        }
-    }
-}
-
-// ================================================================================================
-
-/// First-fit freelist
-pub struct FirstFit<N> where N: Adapter<Link = LinkedListLink> {
-    min: usize,
-    list: LinkedList<N>
-}
-
-impl<N> FirstFit<N> where N: Adapter<Link = LinkedListLink> + Default
-{
-    /// Create a new first-fit freelist
-    pub fn new(min: usize) -> Self {
-        FirstFit {
-            min: min,
-            list: LinkedList::new(N::default())
-        }
-    }
-}
-
-impl<N> OverAllocator for FirstFit<N> where N: Adapter<Link = LinkedListLink>,
-                                            N::Value: Lengthy + SplitOff
-{
-    fn allocate_at_least(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<OwnedSlice<usize>>
-    {
-        // TODO: observe walign
         let mut cursor = self.list.cursor_mut();
         while let Some(node) = cursor.get() {
-            if node.len() >= *wsize {
-                let remainder = node.len() - *wsize;
-                return if remainder >= self.min {
-                    Some(OwnedSlice::from_raw_parts(node.split_off(*wsize), *wsize))
-                } else {
-                    cursor.remove()
-                          .map(|v| OwnedSlice::from_raw_parts(
-                              unsafe { Unique::new(v.into_raw() as _) },
-                              node.len()))
-               }
+            match node.len().cmp(&*n) {
+                Ordering::Equal =>
+                    return cursor.remove()
+                                 .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
+                Ordering::Greater => unsafe {
+                    let new_node = N::Pointer::from_raw(*node.split_off(*n) as _);
+                    let ptr = cursor.replace_with(new_node).unwrap().into_raw() as _;
+                    return Some(Unique::new(ptr));
+                },
+                Ordering::Less => cursor.move_next()
             }
-            cursor.move_next();
         }
         None
     }
-}
 
-impl<N> MemoryPool for FirstFit<N> where N: Adapter<Link = LinkedListLink>,
-                                         N::Value: Default + Lengthy
-{
-    unsafe fn try_release(&mut self, oref: Unique<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<usize>>
-    {
-        if *wsize >= self.min {
-            let node = transmute::<*mut usize, *mut N::Value>(*oref);
-            ptr::write(node, N::Value::default());
-            (*node).set_len(*wsize);
-            self.list.push_front(N::Pointer::from_raw(node));
-            None
-        } else {
-            Some(oref)
-        }
+    pub fn release(&mut self, uptr: Unique<Uninitialized<N::Value>>, n: NonZero<usize>) {
+        self.list.push_front(unsafe { N::Pointer::from_raw(*N::Value::init(uptr, n)) })
     }
 }
 
 // ================================================================================================
 
-// MAYBE: Use typelevel numbers to exchange the Vec for a size-generic array
-/// Bucketed freelist
-pub struct Bucketed<N, I> where N: Adapter<Link = SinglyLinkedListLink>
-{
-    buckets: Vec<SizeClass<N>>,
-    index_calc: PhantomData<I>
+pub struct FirstFitTail<N> where N: Adapter<Link = LinkedListLink> {
+    list: LinkedList<N>,
+    bounds: Range<usize>
 }
 
-impl<N, I> Bucketed<N, I> where N: Adapter<Link = SinglyLinkedListLink> + Default,
-                                I: IndexCalculation
+impl<N> FirstFitTail<N> where N: Adapter<Link = LinkedListLink> + Default,
+                              N::Value: Sized + Init + Lengthy,
+                              N::Pointer: Debug
 {
-    /// Create a new bucketed freelist with `n` buckets.
-    pub fn new(n: usize) -> Self {
-        Bucketed {
-            buckets: (0..n).map(|i| SizeClass::new(I::min(i), I::max(i))).collect(),
-            index_calc: PhantomData::default()
+    pub fn new(bounds: Range<usize>) -> Self {
+        FirstFitTail {
+            list: LinkedList::new(N::default()),
+            bounds: bounds
         }
     }
-}
 
-impl<N, I> OverAllocator for Bucketed<N, I> where N: Adapter<Link = SinglyLinkedListLink>
-                                                     + Default,
-                                                  I: IndexCalculation
-{
-    fn allocate_at_least(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<OwnedSlice<usize>>
+    pub fn allocate_at_least<R>(&mut self, n: NonZero<usize>) -> Option<R>
+        where N::Value: SplitOff<R>
     {
-        // TODO: observe walign
-        let start = I::alloc_index(wsize);
-        self.buckets.get_mut(start)
-            .and_then(|b| b.allocate_at_least(walign, wsize))
-            .or_else(|| self.buckets[start + 1..].iter_mut()
-                            .find(|b| !b.is_empty())
-                            .and_then(|b| b.allocate_at_least(walign, wsize)))
+        let mut cursor = self.list.cursor_mut();
+        while let Some(node) = cursor.get() {
+            match node.len().cmp(&*n) {
+                Ordering::Equal =>
+                    return cursor.remove()
+                                 .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
+                Ordering::Greater => return Some(unsafe { transmute(node.split_off(*n)) }),
+                Ordering::Less => cursor.move_next()
+            }
+        }
+        None
     }
-}
 
-impl<N, I> MemoryPool for Bucketed<N, I> where N: Adapter<Link = SinglyLinkedListLink>,
-                                               N::Value: Default,
-                                               I: IndexCalculation
-{
-    unsafe fn try_release(&mut self, oref: Unique<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<usize>>
-    {
-        self.buckets.get_mut(I::free_index(wsize))
-            .and_then(|b| b.try_release(oref, wsize))
+    pub fn release(&mut self, uptr: Unique<Uninitialized<N::Value>>, n: NonZero<usize>) {
+        self.list.push_front(unsafe { N::Pointer::from_raw(*N::Value::init(uptr, n)) })
     }
 }
 
 // ================================================================================================
 
-#[cfg(test)]
-mod tests {
-    use std::mem::size_of;
-    use std::ptr::Unique;
+pub struct BestFitHead<N> where N: Adapter<Link = LinkedListLink> {
+    list: LinkedList<N>,
+    bounds: Range<usize>
+}
 
-    use object_model::GCRef;
+impl<N> BestFitHead<N> where N: Adapter<Link = LinkedListLink> + Default,
+                             N::Value: Sized + Init + Lengthy,
+                             N::Pointer: Debug
+{
+    pub fn new(bounds: Range<usize>) -> Self {
+        BestFitHead {
+            list: LinkedList::new(N::default()),
+            bounds: bounds
+        }
+    }
 
-    #[test]
-    fn unique_is_null_ptr_optimized() {
-        assert_eq!(size_of::<Option<Unique<usize>>>(), size_of::<GCRef>());
+    pub fn allocate_at_least<R>(&mut self, n: NonZero<usize>) -> Option<R>
+        where N::Value: SplitOff<R>
+    {
+        let mut best: Option<*const N::Value> = None;
+        {
+            let mut cursor = self.list.cursor_mut();
+            while let Some(node) = cursor.get() {
+                if best.is_none() {
+                    best = Some(unsafe { transmute(node) });
+                } else {
+                    match node.len().cmp(&*n) {
+                        Ordering::Equal =>
+                            return cursor.remove()
+                                         .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
+                        Ordering::Greater if node.len() < unsafe { (*best.unwrap()).len() } => {
+                            best = Some(unsafe { transmute(node) });
+                        },
+                        _ => {}
+                    }
+                }
+                cursor.move_next()
+            }
+        }
+        best.map(|node| unsafe {
+            let mut cursor = self.list.cursor_mut_from_ptr(node);
+            let new_node = N::Pointer::from_raw(*(*node).split_off(*n) as _);
+            let ptr = cursor.replace_with(new_node).unwrap().into_raw() as _;
+            Unique::new(ptr)
+        })
+    }
+
+    pub fn release(&mut self, uptr: Unique<Uninitialized<N::Value>>, n: NonZero<usize>) {
+        self.list.push_front(unsafe { N::Pointer::from_raw(*N::Value::init(uptr, n)) })
     }
 }
