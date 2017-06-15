@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
 use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
-use layout::Block;
+use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{MSBlockAdapter, LargeObjRopeAdapter};
 use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject};
@@ -21,6 +21,8 @@ pub struct Generation {
 
     active_blocks: LinkedList<MSBlockAdapter>,
     large_objs: LinkedList<LargeObjRopeAdapter>,
+
+    current_mark: u8,
     mark_stack: Vec<Shared<PointyObject>>
 }
 
@@ -33,6 +35,8 @@ impl Generation {
 
             active_blocks: LinkedList::new(MSBlockAdapter::new()),
             large_objs: LinkedList::new(LargeObjRopeAdapter::new()),
+
+            current_mark: 1,
             mark_stack: Vec::new()
         }
     }
@@ -41,8 +45,8 @@ impl Generation {
     pub fn mark_ref(&mut self, oref: ValueRef) {
         unsafe {
             if let Some(ptr) = oref.ptr() {
-                if !(**ptr).is_marked() {
-                    (**ptr).mark();
+                if (**ptr).get_mark() != self.current_mark {
+                    (**ptr).set_mark(self.current_mark);
                     if oref.is_pointy() {
                         self.mark_stack.push(transmute(ptr));
                     }
@@ -75,10 +79,18 @@ impl Generation {
     pub unsafe fn collect(&mut self) {
         self.mark_all();
         self.sweep_all();
+        self.current_mark.wrapping_add(2);
     }
 
-    fn release(&mut self, uptr: Unique<Uninitialized<usize>>, wsize: NonZero<usize>) {
-        unimplemented!()
+    fn release(&mut self, uptr: Unique<Uninitialized<usize>>, gsize: NonZero<GSize>) {
+        // TODO: is gsize is large enough, recycle to bumper list instead (a la Immix)
+        if *gsize >= GSize::of::<SizedFreeObj>() { // can we link it into the list?
+            unsafe {
+                let node = SizedFreeObj::init(transmute(uptr), transmute(gsize));
+                self.freelist.push_back(UnsafeRef::from_raw(*node));
+            }
+        }
+        // otherwise we just leak it (at least until the next sweep)
     }
 
     unsafe fn mark_all(&mut self) {
@@ -93,13 +105,22 @@ impl Generation {
         for block in self.active_blocks.iter() {
             block.sweep(&mut self.block_allocator, &mut self.freelist);
         }
-        // TODO: sweep large_objs
+
+        let mut cursor = self.large_objs.front_mut();
+        while let Some(obj) = cursor.get() {
+            if obj.get_mark() != self.current_mark {
+                cursor.remove();
+                // TODO: release obj to block allocator
+            } else {
+                cursor.move_next();
+            }
+        }
     }
 
     fn freelist_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
-        let mut cursor = self.freelist.cursor_mut();
+        let mut cursor = self.freelist.front_mut();
         while let Some(node) = cursor.get() {
             match node.len().cmp(&*wsize) {
                 Ordering::Equal =>
@@ -136,7 +157,7 @@ impl Generation {
             let slice = bumper.into_owned_slice();
             let len = slice.len();
             if len > 0 {
-                self.release(slice.into_unique(), unsafe { NonZero::new(len) });
+                self.release(slice.into_unique(), unsafe { NonZero::new(transmute(len)) });
             }
         }
         if let Some((block, bumper)) = self.block_allocator.alloc_ms_block() {

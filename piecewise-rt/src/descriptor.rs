@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::ops::Index;
 use intrusive_collections::{LinkedList, LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use util::{Init, Lengthy, Uninitialized, SplitOff, OwnedSlice, Span};
+use util::{Init, Lengthy, Uninitialized, SplitOff, Span};
 use layout::{Arena, Block, DESCR_MASK, Markmap};
 use block::BlockAllocator;
 use mark_n_sweep::SizedFreeAdapter;
@@ -81,12 +81,6 @@ impl MSBlock {
     }
 }
 
-impl SplitOff<OwnedSlice<usize>> for MSBlock {
-    unsafe fn split_off(&self, n: usize) -> OwnedSlice<usize> {
-        unimplemented!()
-    }
-}
-
 // ================================================================================================
 
 pub struct LargeObjRope {
@@ -100,7 +94,17 @@ intrusive_adapter!(pub LargeObjRopeAdapter = UnsafeRef<LargeObjRope>:
                    LargeObjRope { link: LinkedListLink });
 
 impl LargeObjRope {
+    pub unsafe fn init(uptr: Unique<Uninitialized<Descriptor>>, n: NonZero<usize>)
+        -> Unique<LargeObjRope>
+    {
+        unimplemented!()
+    }
+
     pub fn start_mut(&mut self) -> *mut usize {
+        unimplemented!()
+    }
+
+    pub fn get_mark(&self) -> u8 {
         unimplemented!()
     }
 }

@@ -40,11 +40,18 @@ impl BlockAllocator {
     }
 
     pub fn alloc_large_obj_rope(&mut self, n: NonZero<usize>) -> Option<Unique<LargeObjRope>> {
-        unimplemented!()
+        self.allocate(n).map(|uptr| unsafe { LargeObjRope::init(uptr, n) })
     }
 
     fn alloc_markmap(&mut self) -> Option<Unique<Markmap>> {
-        unimplemented!()
+        self.markmaps.as_mut().and_then(|mmaps| mmaps.split_off(1))
+            .map(|ummap| unsafe {
+                let mmap: *mut Markmap = *ummap as _;
+                for byte in (*mmap).iter_mut() {
+                    *byte = 0;
+                }
+                Unique::new(mmap)
+            })
     }
 
     fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {

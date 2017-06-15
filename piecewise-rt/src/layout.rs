@@ -1,3 +1,4 @@
+use core::nonzero::Zeroable;
 use std::mem::{size_of, transmute};
 
 use util::CeilDiv;
@@ -64,7 +65,7 @@ impl Granule {
     const SIZE: usize = 8;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GSize(usize);
 
 impl GSize {
@@ -79,6 +80,8 @@ impl GSize {
         unsafe { ptr.offset(inv_rem as isize) }
     }
 }
+
+unsafe impl Zeroable for GSize {}
 
 // ================================================================================================
 

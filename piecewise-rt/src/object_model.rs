@@ -47,8 +47,6 @@ pub struct Header(usize);
 impl Header {
     const LEN_SHIFT: usize = 8;
 
-    pub fn new(len: usize) -> Self { Header(len << Self::LEN_SHIFT) }
-
     /// Length of the object (in words if `self.pointy()`, in bytes otherwise).
     fn obj_len(self) -> usize { self.0 >> Self::LEN_SHIFT }
 }
@@ -62,11 +60,9 @@ pub struct Object {
 impl Object {
     const DATA_OFFSET: isize = 1;
 
-    /// Has the object been marked during the current collection?
-    pub fn is_marked(&self) -> bool { unimplemented!() }
+    pub fn get_mark(&self) -> u8 { unimplemented!() }
 
-    /// Set the mark (so that `self.is_marked() == true`).
-    pub fn mark(&self) { unimplemented!() }
+    pub fn set_mark(&self, mark: u8)  { unimplemented!() }
 
     /// Length of the object (in words if `self.pointy()`, in bytes otherwise).
     pub fn len(&self) -> usize { self.header.obj_len() }
