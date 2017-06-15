@@ -7,7 +7,9 @@ use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
 use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
-use block::{self, BlockAllocator, MSBlockAdapter, LargeObjRopeAdapter};
+use layout::Block;
+use block::BlockAllocator;
+use descriptor::{MSBlockAdapter, LargeObjRopeAdapter};
 use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject};
 
 // TODO: use singly linked .freelist?
@@ -120,7 +122,7 @@ impl Generation {
         -> Option<Unique<Uninitialized<usize>>>
     {
         unsafe {
-            let bsize = NonZero::new((*wsize).ceil_div(block::WSIZE));
+            let bsize = NonZero::new((*wsize).ceil_div(Block::WSIZE));
             self.block_allocator.alloc_large_obj_rope(bsize)
                 .map(|rope| {
                     self.large_objs.push_back(UnsafeRef::from_raw(*rope));
@@ -177,7 +179,7 @@ impl Lengthy for SizedFreeObj {
 impl SplitOff<Unique<Uninitialized<usize>>> for SizedFreeObj {
     unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<usize>> {
         assert!(n <= self.len());
-        
+
         let rem = self.len() - n;
         let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
         self.set_len(rem);

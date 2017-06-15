@@ -6,9 +6,9 @@ extern crate nix;
 extern crate intrusive_collections;
 
 pub mod util;
-pub mod granule;
-pub mod freerope;
+pub mod layout;
 pub mod arena;
 pub mod block;
+pub mod descriptor;
 pub mod object_model;
 pub mod mark_n_sweep;

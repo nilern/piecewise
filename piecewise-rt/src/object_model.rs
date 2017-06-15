@@ -2,9 +2,9 @@ use std::ptr::Shared;
 use std::slice;
 use std::mem::transmute;
 
-use block;
+use layout::Block;
 
-pub const LARGE_OBJ_THRESHOLD: usize = block::WSIZE * 8 / 10;
+pub const LARGE_OBJ_THRESHOLD: usize = Block::WSIZE * 8 / 10;
 
 /// Object reference (tagged pointer)
 #[derive(Clone, Copy)]

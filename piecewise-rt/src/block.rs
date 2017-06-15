@@ -1,113 +1,14 @@
 use core::nonzero::NonZero;
 use std::mem::transmute;
-use std::ptr::{self, Unique};
+use std::ptr::Unique;
 use std::cmp::Ordering;
-use intrusive_collections::{RBTree, Bound, IntrusivePointer, UnsafeRef,
-                            LinkedList, LinkedListLink};
+use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use util::{Init, Lengthy, Uninitialized, SplitOff, OwnedSlice, Span};
-use arena::{Arena, ArenaAllocator};
-use object_model::ValueRef;
-use freerope::{FreeRope, AddrFreeRope, SizeFreeRope};
-use mark_n_sweep::SizedFreeAdapter;
-
-/// A number such that SIZE = 1^SHIFT
-pub const SHIFT: usize = 12;
-
-/// A block is SIZE bytes of memory
-pub const SIZE: usize = 1 << SHIFT;
-
-pub const WSIZE: usize = SIZE >> ValueRef::SHIFT;
-
-pub type Block = [usize; WSIZE];
-
-pub type Markmap = [u8; WSIZE];
-
-// ================================================================================================
-
-pub enum Descriptor {
-    MSBlock(MSBlock),
-    LargeObjRope(LargeObjRope)
-}
-
-impl Descriptor {
-    #[cfg(target_pointer_width = "64")]
-    pub const SHIFT: usize = 6;
-
-    pub const SIZE: usize = 1 << Self::SHIFT;
-
-    pub const MASK: usize = Self::SIZE - 1;
-
-    unsafe fn mem(&self) -> Span<Uninitialized<usize>> {
-        Span::from_raw_parts(Unique::new(self.start() as _), self.end() as _)
-    }
-
-    unsafe fn markmaps_mem(&self) -> Span<Uninitialized<Markmap>> {
-        Span::from_raw_parts(Unique::new(self.start() as _), self.end() as _)
-    }
-
-    fn start(&self) -> *const usize {
-        unsafe {
-            let arena = Arena::containing(self as *const Self);
-            let index: usize = (*arena).descriptor_index(self);
-            transmute(&(*arena).blocks[index])
-        }
-    }
-
-    fn end(&self) -> *const usize {
-        unsafe { self.start().offset(self::WSIZE as isize) }
-    }
-}
-
-trait SubDescr: Sized {
-    fn upcast(&self) -> &Descriptor {
-        unsafe { transmute(transmute::<_, usize>(self) & !Descriptor::MASK) }
-    }
-}
-
-// ================================================================================================
-
-pub struct MSBlock {
-    link: LinkedListLink,
-    marks: Unique<Markmap>,
-    _padding: [usize; 4]
-}
-
-impl SubDescr for MSBlock {}
-
-intrusive_adapter!(pub MSBlockAdapter = UnsafeRef<MSBlock>: MSBlock { link: LinkedListLink });
-
-impl MSBlock {
-    pub fn sweep(&self, block_allocator: &mut BlockAllocator,
-                        freelist: &mut LinkedList<SizedFreeAdapter>)
-    {
-        unimplemented!()
-    }
-}
-
-impl SplitOff<OwnedSlice<usize>> for MSBlock {
-    unsafe fn split_off(&self, n: usize) -> OwnedSlice<usize> {
-        unimplemented!()
-    }
-}
-
-// ================================================================================================
-
-pub struct LargeObjRope {
-    link: LinkedListLink,
-    _padding: [usize; 5]
-}
-
-impl SubDescr for LargeObjRope {}
-
-intrusive_adapter!(pub LargeObjRopeAdapter = UnsafeRef<LargeObjRope>:
-                   LargeObjRope { link: LinkedListLink });
-
-impl LargeObjRope {
-    pub fn start_mut(&mut self) -> *mut usize {
-        unimplemented!()
-    }
-}
+use util::{Init, Lengthy, SplitOff, Uninitialized, Span};
+use layout::Markmap;
+use arena::ArenaAllocator;
+use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope,
+                 AddrFreeRope, SizeFreeRope};
 
 // ================================================================================================
 
@@ -135,21 +36,7 @@ impl BlockAllocator {
                     } else {
                         None
                     })
-                    .map(|marks| {
-                        let ptr: *mut Descriptor = *uptr as _;
-                        unsafe {
-                            ptr::write(ptr, Descriptor::MSBlock(MSBlock {
-                                link: LinkedListLink::default(),
-                                marks: marks,
-                                _padding: Default::default()
-                            }));
-                            if let &Descriptor::MSBlock(ref block) = &*ptr {
-                                (Unique::new(transmute(block)), block.upcast().mem())
-                            } else {
-                                unreachable!()
-                            }
-                        }
-                    }))
+                    .map(|marks| unsafe { MSBlock::init(uptr, marks) }))
     }
 
     pub fn alloc_large_obj_rope(&mut self, n: NonZero<usize>) -> Option<Unique<LargeObjRope>> {
@@ -160,7 +47,7 @@ impl BlockAllocator {
         unimplemented!()
     }
 
-    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<FreeRope>>> {
+    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {
         self.free_ropes.allocate(n)
             .or_else(|| {
                 self.arenas.allocate_at_least(n)
@@ -205,7 +92,7 @@ impl Freelist {
         }
     }
 
-    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<FreeRope>>> {
+    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {
         let (rope, erm) = {
             let mut cursor = self.by_size.lower_bound_mut(Bound::Included(&*n));
             match cursor.get().map(|node| node.len().cmp(&*n)) {
@@ -228,7 +115,7 @@ impl Freelist {
         }
         rope.map(|rope| unsafe {
             self.by_addr.cursor_mut_from_ptr(rope).remove();
-            Unique::new(rope as *mut Uninitialized<FreeRope>)
+            Unique::new(rope as _)
         })
     }
 
@@ -266,19 +153,5 @@ impl Freelist {
             self.by_addr.insert(UnsafeRef::from_raw(rope));
             self.by_size.insert(UnsafeRef::from_raw(rope));
         }
-    }
-}
-
-// ================================================================================================
-
-#[cfg(test)]
-mod tests {
-    use std::mem::size_of;
-
-    use super::Descriptor;
-
-    #[test]
-    fn descriptor_size() {
-        assert_eq!(size_of::<Descriptor>(), Descriptor::SIZE);
     }
 }
