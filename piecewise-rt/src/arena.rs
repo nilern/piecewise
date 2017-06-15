@@ -8,8 +8,8 @@ use nix::c_void;
 use nix::sys::mman::{mmap, munmap, PROT_READ, PROT_WRITE, MAP_ANON, MAP_PRIVATE};
 
 use util::{Init, Uninitialized, CeilDiv};
-use block;
-use freerope::{self, FreeRope};
+use block::{self, Block, Descriptor};
+use freerope::FreeRope;
 
 /// A number such that SIZE = 1^SHIFT
 pub const SHIFT: usize = 20;
@@ -25,7 +25,28 @@ pub const CAPACITY: usize = 252;
 
 /// At the start of an arena there are SLACK uninitialized bytes. The first block descriptor is at
 /// address `arena_start + SLACK`.
-pub const SLACK: usize = SIZE - CAPACITY*(freerope::SIZE + block::SIZE);
+pub const SLACK: usize = SIZE - CAPACITY*(Descriptor::SIZE + block::SIZE);
+
+#[repr(C)]
+pub struct Arena {
+    _slack: [u8; SLACK],
+    pub descriptors: [Descriptor; CAPACITY],
+    pub blocks: [Block; CAPACITY]
+}
+
+impl Arena {
+    pub fn containing<T>(ptr: *const T) -> *const Arena {
+        (ptr as usize & !self::MASK) as _
+    }
+
+    pub fn descriptor_index<T>(&self, descr: &T) -> usize { // TODO: ...<T: Descriptor>(...
+        unsafe {
+            let daddr: usize = transmute(descr);
+            let ds_addr: usize = transmute(&self.descriptors);
+            (daddr - ds_addr) / Descriptor::SIZE
+        }
+    }
+}
 
 pub struct ArenaAllocator {
     max_heap: usize,
@@ -89,7 +110,14 @@ unsafe fn os_free(ptr: *mut (), n: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{os_allocate, os_free};
+    use std::mem::size_of;
+
+    use super::{Arena, SIZE, os_allocate, os_free};
+
+    #[test]
+    fn arena_size() {
+        assert_eq!(size_of::<Arena>(), SIZE);
+    }
 
     #[test]
     fn os_layer() {

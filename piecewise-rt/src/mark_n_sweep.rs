@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
 use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
-use block::{self, BlockAllocator, MSBlock, MSBlockAdapter, LargeObjRope, LargeObjRopeAdapter};
+use block::{self, BlockAllocator, MSBlockAdapter, LargeObjRopeAdapter};
 use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject};
 
 // TODO: use singly linked .freelist?
@@ -121,11 +121,10 @@ impl Generation {
     {
         unsafe {
             let bsize = NonZero::new((*wsize).ceil_div(block::WSIZE));
-            self.block_allocator.allocate(bsize)
+            self.block_allocator.alloc_large_obj_rope(bsize)
                 .map(|rope| {
-                    let large_obj = LargeObjRope::init(rope, *bsize);
-                    self.large_objs.push_back(UnsafeRef::from_raw(*large_obj));
-                    Unique::new((**large_obj).start_mut() as _)
+                    self.large_objs.push_back(UnsafeRef::from_raw(*rope));
+                    Unique::new((**rope).start_mut() as _)
                 })
         }
     }
@@ -138,9 +137,8 @@ impl Generation {
                 self.release(slice.into_unique(), unsafe { NonZero::new(len) });
             }
         }
-        if let Some(uptr) = self.block_allocator.allocate(unsafe { NonZero::new(1) }) {
-            let block = MSBlock::init(uptr);
-            self.bumper = Some(unsafe { (**block).mem() });
+        if let Some((block, bumper)) = self.block_allocator.alloc_ms_block() {
+            self.bumper = Some(bumper);
             self.active_blocks.push_back(unsafe { UnsafeRef::from_raw(*block) });
             true
         } else {
@@ -179,11 +177,10 @@ impl Lengthy for SizedFreeObj {
 impl SplitOff<Unique<Uninitialized<usize>>> for SizedFreeObj {
     unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<usize>> {
         assert!(n <= self.len());
+        
         let rem = self.len() - n;
-        unsafe {
-            let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
-            self.set_len(rem);
-            Unique::new(ptr as _)
-        }
+        let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
+        self.set_len(rem);
+        Unique::new(ptr as _)
     }
 }

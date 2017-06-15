@@ -7,7 +7,7 @@ use std::cell::Cell;
 use intrusive_collections::{UnsafeRef, RBTreeLink, KeyAdapter};
 
 use util::{Lengthy, Uninitialized, Init, SplitOff};
-use arena;
+use arena::{self, Arena};
 
 #[cfg(target_pointer_width = "64")]
 pub const SIZE: usize = 64;
@@ -41,12 +41,14 @@ impl<'a> KeyAdapter<'a> for SizeFreeRope {
 
 impl FreeRope {
     fn offset(&self, n: usize) -> *const FreeRope {
-        let addr: usize = unsafe { transmute(self) };
-        let start = (addr & !arena::MASK) + arena::SLACK;
-        let tot_n = n + (addr - start) / self::SIZE;
-        let i = tot_n / arena::CAPACITY;
-        let j = tot_n % arena::CAPACITY;
-        (start + arena::SIZE*i + self::SIZE*j) as *const FreeRope
+        unsafe {
+            let arena = Arena::containing(self as *const Self);
+            let index: usize = (*arena).descriptor_index(self);
+            let tot_n = index + n;
+            let i = tot_n / arena::CAPACITY;
+            let j = tot_n % arena::CAPACITY;
+            transmute(&(*arena.offset(i as isize)).descriptors[j])
+        }
     }
 
     pub fn are_adjacent(l: &Self, r: &Self) -> bool {

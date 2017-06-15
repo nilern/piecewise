@@ -1,4 +1,4 @@
-#![feature(nonzero, unique, shared, offset_to, associated_consts)]
+#![feature(nonzero, unique, shared, associated_consts)]
 
 extern crate core;
 extern crate nix;
