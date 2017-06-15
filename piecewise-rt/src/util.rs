@@ -1,5 +1,4 @@
 use core::nonzero::NonZero;
-use std::mem::size_of;
 use std::ptr::Unique;
 use std::marker::PhantomData;
 use std::cell::Cell;
@@ -33,15 +32,13 @@ impl CeilDiv for usize {
     }
 }
 
-pub fn wsize_of<T>() -> usize { size_of::<T>().ceil_div(size_of::<usize>()) }
-
 pub struct OwnedSlice<T> {
     ptr: Unique<T>,
     len: Cell<usize>
 }
 
 impl<T> OwnedSlice<T> {
-    pub fn from_raw_parts(ptr: Unique<T>, len: usize) -> Self {
+    pub unsafe fn from_raw_parts(ptr: Unique<T>, len: usize) -> Self {
         OwnedSlice {
             ptr: ptr,
             len: Cell::new(len)
@@ -64,5 +61,37 @@ impl<T> SplitOff<OwnedSlice<T>> for OwnedSlice<T> {
         let rem = self.len() - n;
         self.set_len(rem);
         OwnedSlice::from_raw_parts(Unique::new(self.ptr.offset(rem as isize)), n)
+    }
+}
+
+pub struct Span<T> {
+    start: Unique<T>,
+    end: *const T
+}
+
+impl<T> Span<T> {
+    pub unsafe fn from_raw_parts(start: Unique<T>, end: *const T) -> Self {
+        Span {
+            start: start,
+            end: end
+        }
+    }
+
+    pub fn split_off(&mut self, n: usize) -> Option<Unique<T>> {
+        unsafe {
+            let new_start = self.start.offset(n as isize);
+            if new_start as *const T <= self.end {
+                let res = Some(Unique::new(*self.start));
+                self.start = Unique::new(new_start);
+                res
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn into_owned_slice(self) -> OwnedSlice<T> {
+        let len = self.end as usize - *self.start as usize;
+        unsafe { OwnedSlice::from_raw_parts(self.start, len) }
     }
 }

@@ -1,21 +1,20 @@
 use core::nonzero::NonZero;
-use std::mem::{transmute, size_of};
+use std::mem::transmute;
 use std::ptr;
 use std::ptr::{Unique, Shared};
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Init, Lengthy, SplitOff, Uninitialized, OwnedSlice};
-use freerope::FreeRope;
-use block::{self, BlockAllocator};
+use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
+use block::{self, BlockAllocator, MSBlock, MSBlockAdapter, LargeObjRope, LargeObjRopeAdapter};
 use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject};
 
 // TODO: use singly linked .freelist?
 
 pub struct Generation {
     freelist: LinkedList<SizedFreeAdapter>,
-    bumper: Option<Shared<MSBlock>>,
+    bumper: Option<Span<Uninitialized<usize>>>,
     block_allocator: BlockAllocator,
 
     active_blocks: LinkedList<MSBlockAdapter>,
@@ -56,15 +55,16 @@ impl Generation {
         if *wsize < LARGE_OBJ_THRESHOLD {
             self.freelist_allocate(walign, wsize)
                 .or_else(|| self.sequential_allocate(walign, wsize))
+                .or_else(|| {
+                    if self.refill_bumper() {
+                        self.sequential_allocate(walign, wsize)
+                    } else {
+                        None
+                    }
+                })
         } else {
             self.allocate_large(walign, wsize)
         }
-        // self.freelist.allocate_at_least(wsize)
-        //     .map(|ptr| transmute(ptr))
-        //     .or_else(|| {
-        //         self.ensure_bumper()
-        //             .and_then(|b| unsafe { (*b.as_mut_ptr()).allocate(walign, wsize) })
-        //     })
     }
 
     /// Collect garbage.
@@ -91,6 +91,7 @@ impl Generation {
         for block in self.active_blocks.iter() {
             block.sweep(&mut self.block_allocator, &mut self.freelist);
         }
+        // TODO: sweep large_objs
     }
 
     fn freelist_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
@@ -112,134 +113,51 @@ impl Generation {
     fn sequential_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
-        unsafe {
-            self.ensure_bumper();
-            (**self.bumper.unwrap()).allocate(walign, wsize)
-                .or_else(|| {
-                    let bumper = &**self.bumper.unwrap();
-                    let rest = bumper.split_off(bumper.allocatable());
-                    let rlen = rest.len();
-                    if rlen > 0 {
-                        self.release(transmute(rest.into_unique()), NonZero::new(rlen));
-                    }
-                    self.bumper = None;
-                    self.ensure_bumper();
-                    (**self.bumper.unwrap()).allocate(walign, wsize)
-                })
-        }
+        self.bumper.as_mut().and_then(|bumper| bumper.split_off(*wsize))
     }
 
     fn allocate_large(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
-        unimplemented!()
-    }
-
-    fn ensure_bumper(&mut self) {
-        if self.bumper.is_none() {
-            if let Some(uptr) = self.block_allocator.allocate(unsafe { NonZero::new(1) }) {
-                let block = MSBlock::init(uptr);
-                self.bumper = Some(unsafe { Shared::new(*block) });
-                self.active_blocks.push_back(unsafe { UnsafeRef::from_raw(*block) });
-            }
-        }
-    }
-}
-
-// ================================================================================================
-
-enum Block {
-    MSBlock(MSBlock),
-    LargeObjRope(LargeObjRope)
-}
-
-impl Block {
-    fn start(&self) -> *const usize {
-        unimplemented!()
-    }
-}
-
-// ================================================================================================
-
-struct MSBlock {
-    link: LinkedListLink,
-    free: RefCell<Unique<usize>>
-}
-
-intrusive_adapter!(MSBlockAdapter = UnsafeRef<MSBlock>: MSBlock { link: LinkedListLink });
-
-impl MSBlock {
-    fn init(uptr: Unique<Uninitialized<FreeRope>>) -> Unique<MSBlock> {
-        let ptr: *mut Block = *uptr as _;
         unsafe {
-            ptr::write(ptr, Block::MSBlock(MSBlock {
-                link: LinkedListLink::default(),
-                free: RefCell::new(Unique::new((*ptr).start() as _))
-            }));
-            if let &Block::MSBlock(ref block) = &*ptr {
-                Unique::new(transmute(block))
-            } else {
-                unreachable!()
-            }
+            let bsize = NonZero::new((*wsize).ceil_div(block::WSIZE));
+            self.block_allocator.allocate(bsize)
+                .map(|rope| {
+                    let large_obj = LargeObjRope::init(rope, *bsize);
+                    self.large_objs.push_back(UnsafeRef::from_raw(*large_obj));
+                    Unique::new((**large_obj).start_mut() as _)
+                })
         }
     }
 
-    fn upcast(&self) -> &Block {
-        unimplemented!()
-    }
-
-    fn allocatable(&self) -> usize {
-        ((self.upcast().start() as usize + block::SIZE) - **self.free.borrow() as usize)
-            / size_of::<usize>()
-    }
-
-    fn allocate(&self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<Uninitialized<usize>>>
-    {
-        if self.allocatable() >= *wsize {
-            unsafe {
-                let ptr: *mut usize = **self.free.borrow() as _;
-                let uptr = Unique::new(ptr as _);
-                *self.free.borrow_mut() =
-                    Unique::new(ptr.offset((*wsize * size_of::<usize>()) as isize));
-                Some(uptr)
+    fn refill_bumper(&mut self) -> bool {
+        if let Some(bumper) = self.bumper.take() {
+            let slice = bumper.into_owned_slice();
+            let len = slice.len();
+            if len > 0 {
+                self.release(slice.into_unique(), unsafe { NonZero::new(len) });
             }
+        }
+        if let Some(uptr) = self.block_allocator.allocate(unsafe { NonZero::new(1) }) {
+            let block = MSBlock::init(uptr);
+            self.bumper = Some(unsafe { (**block).mem() });
+            self.active_blocks.push_back(unsafe { UnsafeRef::from_raw(*block) });
+            true
         } else {
-            None
+            false
         }
     }
-
-    fn sweep(&self, block_allocator: &mut BlockAllocator,
-                    freelist: &mut LinkedList<SizedFreeAdapter>)
-    {
-        unimplemented!()
-    }
 }
-
-impl SplitOff<OwnedSlice<usize>> for MSBlock {
-    unsafe fn split_off(&self, n: usize) -> OwnedSlice<usize> {
-        unimplemented!()
-    }
-}
-
-// ================================================================================================
-
-struct LargeObjRope {
-    link: LinkedListLink
-}
-
-intrusive_adapter!(LargeObjRopeAdapter = UnsafeRef<LargeObjRope>:
-                   LargeObjRope { link: LinkedListLink });
 
 // ================================================================================================
 
 #[derive(Debug)]
-struct SizedFreeObj {
+pub struct SizedFreeObj {
     link: LinkedListLink,
     len: Cell<usize>
 }
 
-intrusive_adapter!(SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
+intrusive_adapter!(pub SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
 impl Init for SizedFreeObj {

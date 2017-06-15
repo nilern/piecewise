@@ -1,13 +1,16 @@
 use core::nonzero::NonZero;
-use std::mem::transmute;
-use std::ptr::Unique;
+use std::mem::{size_of, transmute};
+use std::ptr::{self, Unique};
 use std::cmp::Ordering;
-use intrusive_collections::{RBTree, Bound, IntrusivePointer, UnsafeRef};
+use std::cell::RefCell;
+use intrusive_collections::{RBTree, Bound, IntrusivePointer, UnsafeRef,
+                            LinkedList, LinkedListLink};
 
-use util::{Init, Lengthy, Uninitialized, SplitOff};
+use util::{Init, Lengthy, Uninitialized, SplitOff, OwnedSlice, Span};
 use arena::ArenaAllocator;
 use object_model::ValueRef;
 use freerope::{FreeRope, AddrFreeRope, SizeFreeRope};
+use mark_n_sweep::SizedFreeAdapter;
 
 /// A number such that SIZE = 1^SHIFT
 pub const SHIFT: usize = 12;
@@ -17,7 +20,104 @@ pub const SIZE: usize = 1 << SHIFT;
 
 pub const WSIZE: usize = SIZE >> ValueRef::SHIFT;
 
-pub type Block = [ValueRef; WSIZE];
+// ================================================================================================
+
+enum Descriptor {
+    MSBlock(MSBlock),
+    LargeObjRope(LargeObjRope)
+}
+
+impl Descriptor {
+    fn start(&self) -> *const usize {
+        unimplemented!()
+    }
+}
+
+// ================================================================================================
+
+pub struct MSBlock {
+    link: LinkedListLink,
+    free: RefCell<Unique<usize>>
+}
+
+intrusive_adapter!(pub MSBlockAdapter = UnsafeRef<MSBlock>: MSBlock { link: LinkedListLink });
+
+impl MSBlock {
+    pub fn init(uptr: Unique<Uninitialized<FreeRope>>) -> Unique<MSBlock> {
+        let ptr: *mut Descriptor = *uptr as _;
+        unsafe {
+            ptr::write(ptr, Descriptor::MSBlock(MSBlock {
+                link: LinkedListLink::default(),
+                free: RefCell::new(Unique::new((*ptr).start() as _))
+            }));
+            if let &Descriptor::MSBlock(ref block) = &*ptr {
+                Unique::new(transmute(block))
+            } else {
+                unreachable!()
+            }
+        }
+    }
+
+    fn upcast(&self) -> &Descriptor {
+        unimplemented!()
+    }
+
+    pub unsafe fn mem(&self) -> Span<Uninitialized<usize>> {
+        unimplemented!()
+    }
+
+    pub fn allocatable(&self) -> usize {
+        ((self.upcast().start() as usize + self::SIZE) - **self.free.borrow() as usize)
+            / size_of::<usize>()
+    }
+
+    pub fn allocate(&self, walign: NonZero<usize>, wsize: NonZero<usize>)
+        -> Option<Unique<Uninitialized<usize>>>
+    {
+        if self.allocatable() >= *wsize {
+            unsafe {
+                let ptr: *mut usize = **self.free.borrow() as _;
+                let uptr = Unique::new(ptr as _);
+                *self.free.borrow_mut() =
+                    Unique::new(ptr.offset((*wsize * size_of::<usize>()) as isize));
+                Some(uptr)
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn sweep(&self, block_allocator: &mut BlockAllocator,
+                    freelist: &mut LinkedList<SizedFreeAdapter>)
+    {
+        unimplemented!()
+    }
+}
+
+impl SplitOff<OwnedSlice<usize>> for MSBlock {
+    unsafe fn split_off(&self, n: usize) -> OwnedSlice<usize> {
+        unimplemented!()
+    }
+}
+
+// ================================================================================================
+
+pub struct LargeObjRope {
+    link: LinkedListLink
+}
+
+intrusive_adapter!(pub LargeObjRopeAdapter = UnsafeRef<LargeObjRope>:
+                   LargeObjRope { link: LinkedListLink });
+
+impl LargeObjRope {
+    pub fn init(uptr: Unique<Uninitialized<FreeRope>>, bsize: usize) -> Unique<LargeObjRope> {
+        unimplemented!()
+    }
+
+    pub fn start_mut(&mut self) -> *mut usize {
+        unimplemented!()
+    }
+}
 
 // ================================================================================================
 
