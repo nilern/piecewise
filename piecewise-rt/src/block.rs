@@ -34,6 +34,7 @@ impl BlockAllocator {
                     .or_else(|| if self.refill_markmaps() {
                         self.alloc_markmap()
                     } else {
+                        unsafe { self.release(Unique::new(*uptr as _), NonZero::new(1)); }
                         None
                     })
                     .map(|marks| unsafe { MSBlock::init(uptr, marks) }))
@@ -127,11 +128,14 @@ impl Freelist {
     }
 
     fn release(&mut self, uptr: Unique<Uninitialized<FreeRope>>, n: NonZero<usize>) {
+        // FIXME: DRY
         let lr = {
             let mut lcursor = self.by_addr.upper_bound_mut(Bound::Excluded(&(*uptr as _)));
             match lcursor.get() {
                 Some(lr) if FreeRope::are_adjacent(lr, unsafe { transmute(*uptr) }) => {
-                    lcursor.remove()
+                    let res: *mut FreeRope = lcursor.remove().unwrap().into_raw() as _;
+                    unsafe { self.by_size.cursor_mut_from_ptr(res).remove(); }
+                    Some(res)
                 },
                 _ => None
             }
@@ -140,20 +144,22 @@ impl Freelist {
             let mut rcursor = self.by_addr.lower_bound_mut(Bound::Excluded(&(*uptr as _)));
             match rcursor.get() {
                 Some(rr) if FreeRope::are_adjacent(unsafe { transmute(*uptr) }, rr) => {
-                    rcursor.remove()
+                    let res: *mut FreeRope = rcursor.remove().unwrap().into_raw() as _;
+                    unsafe { self.by_size.cursor_mut_from_ptr(res).remove(); }
+                    Some(res)
                 },
                 _ => None
             }
         };
+
         let rope = if let Some(lrope) = lr {
-            let lptr: *mut FreeRope = lrope.into_raw() as _;
-            unsafe { (*lptr).extend(n); }
-            lptr
+            unsafe { (*lrope).extend(n); }
+            lrope
         } else {
             unsafe { *FreeRope::init(uptr, n) }
         };
         if let Some(rrope) = rr {
-            unsafe { (*rope).extend(NonZero::new(rrope.len())); }
+            unsafe { (*rope).extend(NonZero::new((*rrope).len())); }
         }
 
         unsafe {

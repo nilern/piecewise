@@ -9,9 +9,10 @@ use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePoin
 use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
 use layout::{Block, GSize};
 use block::BlockAllocator;
-use descriptor::{MSBlockAdapter, LargeObjRopeAdapter};
-use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject};
+use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
+use object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject, Object};
 
+// FIXME: observe alignment
 // TODO: use singly linked .freelist?
 
 pub struct Generation {
@@ -46,8 +47,9 @@ impl Generation {
         unsafe {
             if let Some(ptr) = oref.ptr() {
                 if (**ptr).get_mark() != self.current_mark {
-                    (**ptr).set_mark(self.current_mark);
-                    if oref.is_pointy() {
+                    let pointy = oref.is_pointy();
+                    (**ptr).set_mark(pointy, self.current_mark);
+                    if pointy {
                         self.mark_stack.push(transmute(ptr));
                     }
                 }
@@ -103,14 +105,40 @@ impl Generation {
 
     unsafe fn sweep_all(&mut self) {
         for block in self.active_blocks.iter() {
-            block.sweep(&mut self.block_allocator, &mut self.freelist);
+            use self::SweepState::*;
+            let mut state = Det;
+            for (i, mark) in block.marks().iter().enumerate() {
+                match state {
+                    Det => if *mark == self.current_mark {
+                        state = Obj;
+                    } else {
+                        state = Free(block.get_obj(i), NonZero::new(GSize::from(1)));
+                    },
+                    Free(ptr, len) => if *mark == self.current_mark {
+                        if *len == GSize::from(Block::WSIZE) {
+                            let descr = Unique::new(Descriptor::of(&*ptr) as _);
+                            self.block_allocator.release(descr, NonZero::new(1));
+                        } else if *len >= GSize::of::<SizedFreeObj>() { // FIXME: DRY
+                            // TODO: is len is large enough, recycle as a bumper instead
+                            let node = SizedFreeObj::init(Unique::new(ptr as _), transmute(len));
+                            self.freelist.push_back(UnsafeRef::from_raw(*node));
+                        }
+                        // otherwise we just leak it (at least until the next sweep)
+                        state = Obj;
+                    } else {
+                        state = Free(ptr, NonZero::new(*len + GSize::from(1)));
+                    },
+                    Obj if *mark == self.current_mark => state = Det,
+                    Obj => ()
+                }
+            }
         }
 
         let mut cursor = self.large_objs.front_mut();
-        while let Some(obj) = cursor.get() {
-            if obj.get_mark() != self.current_mark {
-                cursor.remove();
-                // TODO: release obj to block allocator
+        while let Some(descr) = cursor.get() {
+            if descr.get_mark() != self.current_mark {
+                let udescr = Unique::new(cursor.remove().unwrap().into_raw() as _);
+                self.block_allocator.release(udescr, descr.len());
             } else {
                 cursor.move_next();
             }
@@ -147,7 +175,7 @@ impl Generation {
             self.block_allocator.alloc_large_obj_rope(bsize)
                 .map(|rope| {
                     self.large_objs.push_back(UnsafeRef::from_raw(*rope));
-                    Unique::new((**rope).start_mut() as _)
+                    Unique::new((**rope).upcast().start() as _)
                 })
         }
     }
@@ -168,6 +196,15 @@ impl Generation {
             false
         }
     }
+}
+
+// ================================================================================================
+
+#[derive(Clone, Copy)]
+enum SweepState {
+    Det,
+    Free(*const Object, NonZero<GSize>),
+    Obj
 }
 
 // ================================================================================================

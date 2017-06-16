@@ -3,12 +3,11 @@ use std::mem::transmute;
 use std::ptr::{self, Unique};
 use std::cell::Cell;
 use std::ops::Index;
-use intrusive_collections::{LinkedList, LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
+use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
 use util::{Init, Lengthy, Uninitialized, SplitOff, Span};
-use layout::{Arena, Block, DESCR_MASK, Markmap};
-use block::BlockAllocator;
-use mark_n_sweep::SizedFreeAdapter;
+use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
+use object_model::Object;
 
 // ================================================================================================
 
@@ -18,6 +17,37 @@ pub enum Descriptor {
 }
 
 impl Descriptor {
+    pub fn of(obj: &Object) -> *const Descriptor {
+        unsafe {
+            let addr: usize = transmute(obj);
+            let block_index = (addr & Arena::MASK) >> Block::SHIFT;
+            let arena_addr = addr & !Arena::MASK;
+            (arena_addr | block_index << DESCR_SHIFT) as _
+        }
+    }
+
+    pub fn mark_of(&self, obj: &Object) -> u8 {
+        match self {
+            &Descriptor::MSBlock(ref sd) => unsafe {
+                let obj_addr: usize = transmute(obj);
+                let index = (obj_addr & Block::MASK) >> Granule::SHIFT;
+                sd.get_mark(index)
+            },
+            &Descriptor::LargeObjRope(ref sd) => sd.get_mark()
+        }
+    }
+
+    pub fn set_mark_of(&mut self, obj: &Object, mark: u8, len: GSize) {
+        match self {
+            &mut Descriptor::MSBlock(ref mut sd) => unsafe {
+                let obj_addr: usize = transmute(obj);
+                let index = (obj_addr & Block::MASK) >> Granule::SHIFT;
+                sd.set_mark(index, mark, len)
+            },
+            &mut Descriptor::LargeObjRope(ref mut sd) => sd.set_mark(mark)
+        }
+    }
+
     pub unsafe fn mem(&self) -> Span<Uninitialized<usize>> {
         Span::from_raw_parts(Unique::new(self.start() as _), self.end() as _)
     }
@@ -26,7 +56,7 @@ impl Descriptor {
         Span::from_raw_parts(Unique::new(self.start() as _), self.end() as _)
     }
 
-    fn start(&self) -> *const usize {
+    pub fn start(&self) -> *const usize {
         unsafe {
             let arena = Arena::containing(self as *const Self);
             let index: usize = (*arena).descriptor_index(self);
@@ -34,7 +64,7 @@ impl Descriptor {
         }
     }
 
-    fn end(&self) -> *const usize {
+    pub fn end(&self) -> *const usize {
         unsafe { self.start().offset(Block::WSIZE as isize) }
     }
 }
@@ -74,18 +104,30 @@ impl MSBlock {
         }
     }
 
-    pub fn sweep(&self, block_allocator: &mut BlockAllocator,
-                        freelist: &mut LinkedList<SizedFreeAdapter>)
-    {
-        unimplemented!()
+    pub fn get_obj(&self, index: usize) -> *const Object {
+        unsafe { self.upcast().start().offset(index as isize) as _ }
     }
+
+    pub fn get_mark(&self, index: usize) -> u8 { unsafe { (**self.marks)[index] } }
+
+    pub fn set_mark(&mut self, index: usize, mark: u8, len: GSize) {
+        unsafe {
+            (**self.marks)[index] = mark;
+            (**self.marks)[index + usize::from(len)] = mark;
+        }
+    }
+
+    pub fn marks(&self) -> &Markmap { unsafe { &(**self.marks) } }
 }
 
 // ================================================================================================
 
 pub struct LargeObjRope {
     link: LinkedListLink,
-    _padding: [usize; 5]
+    len: NonZero<usize>,
+    mark: u8,
+    _bpadding: [u8; 3],
+    _padding: [usize; 3]
 }
 
 impl SubDescr for LargeObjRope {}
@@ -97,16 +139,26 @@ impl LargeObjRope {
     pub unsafe fn init(uptr: Unique<Uninitialized<Descriptor>>, n: NonZero<usize>)
         -> Unique<LargeObjRope>
     {
-        unimplemented!()
+        let ptr: *mut Descriptor = *uptr as _;
+        ptr::write(ptr, Descriptor::LargeObjRope(LargeObjRope {
+            link: LinkedListLink::default(),
+            len: n,
+            mark: 0,
+            _bpadding: Default::default(),
+            _padding: Default::default()
+        }));
+        if let &Descriptor::LargeObjRope(ref block) = &*ptr {
+            Unique::new(transmute(block))
+        } else {
+            unreachable!()
+        }
     }
 
-    pub fn start_mut(&mut self) -> *mut usize {
-        unimplemented!()
-    }
+    pub fn len(&self) -> NonZero<usize> { self.len }
 
-    pub fn get_mark(&self) -> u8 {
-        unimplemented!()
-    }
+    pub fn get_mark(&self) -> u8 { self.mark }
+
+    pub fn set_mark(&mut self, mark: u8) { self.mark = mark; }
 }
 
 // ================================================================================================

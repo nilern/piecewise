@@ -2,7 +2,8 @@ use std::ptr::Shared;
 use std::slice;
 use std::mem::transmute;
 
-use layout::Block;
+use layout::{Block, Granule, GSize};
+use descriptor::Descriptor;
 
 pub const LARGE_OBJ_THRESHOLD: usize = Block::WSIZE * 8 / 10;
 
@@ -60,12 +61,22 @@ pub struct Object {
 impl Object {
     const DATA_OFFSET: isize = 1;
 
-    pub fn get_mark(&self) -> u8 { unimplemented!() }
+    pub fn get_mark(&self) -> u8 {
+        unsafe { (*Descriptor::of(self)).mark_of(self) }
+    }
 
-    pub fn set_mark(&self, mark: u8)  { unimplemented!() }
+    pub fn set_mark(&self, pointy: bool, mark: u8) {
+        let descr: *mut Descriptor = Descriptor::of(self) as _;
+        unsafe { (*descr).set_mark_of(self, mark, self.glen(pointy)); }
+    }
 
     /// Length of the object (in words if `self.pointy()`, in bytes otherwise).
     pub fn len(&self) -> usize { self.header.obj_len() }
+
+    fn glen(&self, pointy: bool) -> GSize {
+        let len = self.len();
+        GSize::from(if pointy { len } else { len * Granule::SIZE })
+    }
 }
 
 #[repr(C)]

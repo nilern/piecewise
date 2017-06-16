@@ -1,5 +1,6 @@
 use core::nonzero::Zeroable;
 use std::mem::{size_of, transmute};
+use std::ops::Add;
 
 use util::CeilDiv;
 
@@ -54,6 +55,8 @@ impl Block {
     pub const SIZE: usize = 1 << Self::SHIFT;
 
     pub const WSIZE: usize = Self::SIZE / Granule::SIZE;
+
+    pub const MASK: usize = Self::SIZE - 1;
 }
 
 // ================================================================================================
@@ -62,7 +65,9 @@ pub struct Granule(usize);
 
 impl Granule {
     #[cfg(target_pointer_width = "64")]
-    const SIZE: usize = 8;
+    pub const SHIFT: usize = 3;
+
+    pub const SIZE: usize = 1 << Self::SHIFT;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,6 +87,20 @@ impl GSize {
 }
 
 unsafe impl Zeroable for GSize {}
+
+impl From<usize> for GSize {
+    fn from(n: usize) -> GSize { GSize(n) }
+}
+
+impl From<GSize> for usize {
+    fn from(n: GSize) -> usize { n.0 }
+}
+
+impl Add<GSize> for GSize {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self { GSize(self.0 + other.0) }
+}
 
 // ================================================================================================
 
