@@ -82,8 +82,11 @@ impl Generation {
     /// Calling this without marking all the roots first leads to undefined behaviour.
     pub unsafe fn collect(&mut self) {
         self.mark_all();
+
         self.freelist.fast_clear();
+        self.bumper = None;
         self.sweep_all();
+        
         self.current_mark.wrapping_add(2);
     }
 
