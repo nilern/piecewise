@@ -9,7 +9,7 @@ use std::ptr::{self, Shared};
 use std::sync::Mutex;
 use test::Bencher;
 
-use piecewise_rt::{Heap, ValueRef, Object, PointyObject,
+use piecewise_rt::{Heap, ValueRef, PointyObject,
                    pcws_new_heap, pcws_destroy_heap, pcws_allocate, pcws_mark_root, pcws_collect};
 
 #[repr(C)]
