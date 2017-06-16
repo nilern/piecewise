@@ -118,13 +118,14 @@ impl Freelist {
                 _ => (None, None)
             }
         };
+        let res = rope.map(|rope| unsafe {
+            self.by_addr.cursor_mut_from_ptr(rope).remove();
+            Unique::new(rope as _)
+        });
         if let Some((excess, rem)) = erm {
             self.release(excess, rem);
         }
-        rope.map(|rope| unsafe {
-            self.by_addr.cursor_mut_from_ptr(rope).remove();
-            Unique::new(rope as _)
-        })
+        res
     }
 
     fn release(&mut self, uptr: Unique<Uninitialized<FreeRope>>, n: NonZero<usize>) {
