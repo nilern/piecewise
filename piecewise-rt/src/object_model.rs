@@ -35,6 +35,12 @@ impl From<Shared<Object>> for ValueRef {
     }
 }
 
+impl From<Shared<PointyObject>> for ValueRef {
+    fn from(ptr: Shared<PointyObject>) -> ValueRef {
+        ValueRef(unsafe { ptr.as_mut_ptr() } as usize | Self::POINTY_BIT | Self::PTR_BIT)
+    }
+}
+
 impl From<isize> for ValueRef {
     fn from(n: isize) -> ValueRef {
         ValueRef((n as usize) << Self::SHIFT)

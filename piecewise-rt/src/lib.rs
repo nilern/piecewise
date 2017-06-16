@@ -18,7 +18,7 @@ use std::ptr::Unique;
 use std::sync::Mutex;
 
 use util::Uninitialized;
-use object_model::ValueRef;
+pub use object_model::{ValueRef, Object, PointyObject};
 use mark_n_sweep::Generation;
 
 pub type Heap = Generation;
