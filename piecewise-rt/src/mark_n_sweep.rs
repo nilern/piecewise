@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Init, Lengthy, SplitOff, Uninitialized, Span, CeilDiv};
+use util::{Init, Lengthy, Uninitialized, Span, CeilDiv};
 use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
@@ -156,7 +156,11 @@ impl Generation {
                 Ordering::Equal =>
                     return cursor.remove()
                                  .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
-                Ordering::Greater => return Some(unsafe { transmute(node.split_off(*wsize)) }),
+                Ordering::Greater =>
+                    return node.split_off(*wsize)
+                               .or_else(||
+                                   cursor.remove()
+                                         .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) })),
                 Ordering::Less => cursor.move_next()
             }
         }
@@ -220,6 +224,21 @@ pub struct SizedFreeObj {
 intrusive_adapter!(pub SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
+impl SizedFreeObj {
+    fn split_off(&self, n: usize) -> Option<Unique<Uninitialized<usize>>> {
+        if self.len() - n >= usize::from(GSize::of::<SizedFreeObj>()) {
+            let rem = self.len() - n;
+            unsafe {
+                let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
+                self.set_len(rem);
+                Some(Unique::new(ptr as _))
+            }
+        } else {
+            None
+        }
+    }
+}
+
 impl Init for SizedFreeObj {
     unsafe fn init(uptr: Unique<Uninitialized<Self>>, len: NonZero<usize>) -> Unique<Self> {
         let ptr = *uptr as *mut SizedFreeObj;
@@ -234,15 +253,4 @@ impl Init for SizedFreeObj {
 impl Lengthy for SizedFreeObj {
     fn len(&self) -> usize { self.len.get() }
     fn set_len(&self, new_len: usize) { self.len.set(new_len) }
-}
-
-impl SplitOff<Unique<Uninitialized<usize>>> for SizedFreeObj {
-    unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<usize>> {
-        assert!(n <= self.len());
-
-        let rem = self.len() - n;
-        let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
-        self.set_len(rem);
-        Unique::new(ptr as _)
-    }
 }
