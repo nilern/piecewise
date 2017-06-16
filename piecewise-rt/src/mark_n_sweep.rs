@@ -42,21 +42,7 @@ impl Generation {
         }
     }
 
-    /// Mark a single object reference.
-    pub fn mark_ref(&mut self, oref: ValueRef) {
-        unsafe {
-            if let Some(ptr) = oref.ptr() {
-                if (**ptr).get_mark() != self.current_mark {
-                    let pointy = oref.is_pointy();
-                    (**ptr).set_mark(pointy, self.current_mark);
-                    if pointy {
-                        self.mark_stack.push(transmute(ptr));
-                    }
-                }
-            }
-        }
-    }
-
+    // TODO: leave breathing room (don't wait until the very last moment before returning `None`)
     pub fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
@@ -73,6 +59,22 @@ impl Generation {
         } else {
             self.allocate_large(walign, wsize)
         }
+    }
+
+    /// Mark a single object reference.
+    pub fn mark_ref(&mut self, oref: ValueRef) -> ValueRef {
+        if let Some(ptr) = oref.ptr() {
+            unsafe {
+                if (**ptr).get_mark() != self.current_mark {
+                    let pointy = oref.is_pointy();
+                    (**ptr).set_mark(pointy, self.current_mark);
+                    if pointy {
+                        self.mark_stack.push(transmute(ptr));
+                    }
+                }
+            }
+        }
+        oref
     }
 
     /// Collect garbage.
@@ -97,8 +99,8 @@ impl Generation {
 
     unsafe fn mark_all(&mut self) {
         while let Some(oref) = self.mark_stack.pop() {
-            for fref in (**oref).fields() {
-                self.mark_ref(*fref);
+            for fref in (*(*oref as *mut PointyObject)).fields_mut() {
+                *fref = self.mark_ref(*fref);
             }
         }
     }

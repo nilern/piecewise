@@ -86,10 +86,11 @@ pub struct PointyObject {
 
 impl PointyObject {
     /// The fields of the object that may contain pointers.
-    pub fn fields(&self) -> &[ValueRef] {
+    pub fn fields_mut(&mut self) -> &mut[ValueRef] {
         unsafe {
-            let ptr = transmute::<_, *const ValueRef>(self).offset(Object::DATA_OFFSET);
-            slice::from_raw_parts(ptr, self.base.len())
+            let len = self.base.len();
+            let ptr = transmute::<_, *mut ValueRef>(self).offset(Object::DATA_OFFSET);
+            slice::from_raw_parts_mut(ptr, len)
         }
     }
 }
