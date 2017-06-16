@@ -1,9 +1,8 @@
 use core::nonzero::NonZero;
 use std::ptr::Unique;
-use std::marker::PhantomData;
 use std::cell::Cell;
 
-pub struct Uninitialized<T>(PhantomData<T>);
+pub struct Uninitialized<T>(T);
 
 pub trait Init: Sized {
     unsafe fn init(uptr: Unique<Uninitialized<Self>>, len: NonZero<usize>) -> Unique<Self>;
