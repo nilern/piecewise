@@ -1,5 +1,5 @@
+use std::mem::size_of;
 use std::ptr::Unique;
-use std::cell::Cell;
 use std::fmt;
 
 pub struct Uninitialized<T>(T);
@@ -18,25 +18,6 @@ impl CeilDiv for usize {
     }
 }
 
-// TODO: get rid of this
-pub struct OwnedSlice<T> {
-    ptr: Unique<T>,
-    len: Cell<usize>
-}
-
-impl<T> OwnedSlice<T> {
-    pub unsafe fn from_raw_parts(ptr: Unique<T>, len: usize) -> Self {
-        OwnedSlice {
-            ptr: ptr,
-            len: Cell::new(len)
-        }
-    }
-
-    pub fn into_unique(self) -> Unique<T> { self.ptr }
-
-    pub fn len(&self) -> usize { self.len.get() }
-}
-
 pub struct Span<T> {
     start: Unique<T>,
     end: *const T
@@ -48,6 +29,11 @@ impl<T> Span<T> {
             start: start,
             end: end
         }
+    }
+
+    pub fn len(&self) -> usize {
+        // TODO: use .offset_to()
+        (self.end as usize - *self.start as usize) / size_of::<T>()
     }
 
     pub fn satisfiability(&self, n: usize) -> Option<AllocSat> {
@@ -69,11 +55,6 @@ impl<T> Span<T> {
     }
 
     pub fn into_unique(self) -> Unique<T> { self.start }
-
-    pub fn into_owned_slice(self) -> OwnedSlice<T> {
-        let len = self.end as usize - *self.start as usize;
-        unsafe { OwnedSlice::from_raw_parts(self.start, len) }
-    }
 }
 
 impl<T> fmt::Debug for Span<T> {

@@ -197,10 +197,9 @@ impl Generation {
 
     fn refill_bumper(&mut self) -> bool {
         if let Some(bumper) = self.bumper.take() {
-            let slice = bumper.into_owned_slice();
-            let len = slice.len();
+            let len = bumper.len();
             if len > 0 {
-                self.release(slice.into_unique(), unsafe { NonZero::new(transmute(len)) });
+                self.release(bumper.into_unique(), unsafe { NonZero::new(transmute(len)) });
             }
         }
         if let Some((block, bumper)) = self.block_allocator.alloc_ms_block() {
