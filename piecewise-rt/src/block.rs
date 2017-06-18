@@ -3,7 +3,7 @@ use std::mem::transmute;
 use std::ptr::Unique;
 use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use util::{Uninitialized, Span, AllocSat};
+use util::{Uninitialized, Initializable, Span, AllocSat};
 use layout::Markmap;
 use arena::ArenaAllocator;
 use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope,
@@ -61,7 +61,7 @@ impl BlockAllocator {
             })
     }
 
-    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {
+    fn allocate(&mut self, n: NonZero<usize>) -> Option<Initializable<Descriptor>> {
         self.free_ropes.allocate(n)
             .or_else(|| {
                 self.arenas.allocate_at_least(n)
@@ -76,7 +76,7 @@ impl BlockAllocator {
             })
     }
 
-    pub fn release(&mut self, uptr: Unique<Uninitialized<FreeRope>>, n: NonZero<usize>) {
+    pub fn release(&mut self, uptr: Initializable<FreeRope>, n: NonZero<usize>) {
         self.free_ropes.release(uptr, n)
     }
 
@@ -106,7 +106,7 @@ impl Freelist {
         }
     }
 
-    fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {
+    fn allocate(&mut self, n: NonZero<usize>) -> Option<Initializable<Descriptor>> {
         use self::AllocSat::*;
 
         let (rope, erm) = {
@@ -134,7 +134,7 @@ impl Freelist {
         res
     }
 
-    fn release(&mut self, uptr: Unique<Uninitialized<FreeRope>>, n: NonZero<usize>) {
+    fn release(&mut self, uptr: Initializable<FreeRope>, n: NonZero<usize>) {
         // FIXME: DRY
         let lr = {
             let mut lcursor = self.by_addr.upper_bound_mut(Bound::Excluded(&(*uptr as _)));

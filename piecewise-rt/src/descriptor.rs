@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::ops::Index;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use util::{Uninitialized, Span, AllocSat};
+use util::{Uninitialized, Initializable, Span, AllocSat};
 use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
 use object_model::Object;
 
@@ -88,7 +88,7 @@ impl SubDescr for MSBlock {}
 intrusive_adapter!(pub MSBlockAdapter = UnsafeRef<MSBlock>: MSBlock { link: LinkedListLink });
 
 impl MSBlock {
-    pub unsafe fn init(uptr: Unique<Uninitialized<Descriptor>>, marks: Unique<Markmap>)
+    pub unsafe fn init(uptr: Initializable<Descriptor>, marks: Unique<Markmap>)
         -> (Unique<MSBlock>, Span<Uninitialized<usize>>)
     {
         let ptr: *mut Descriptor = *uptr as _;
@@ -136,7 +136,7 @@ intrusive_adapter!(pub LargeObjRopeAdapter = UnsafeRef<LargeObjRope>:
                    LargeObjRope { link: LinkedListLink });
 
 impl LargeObjRope {
-    pub unsafe fn init(uptr: Unique<Uninitialized<Descriptor>>, n: NonZero<usize>)
+    pub unsafe fn init(uptr: Initializable<Descriptor>, n: NonZero<usize>)
         -> Unique<LargeObjRope>
     {
         let ptr: *mut Descriptor = *uptr as _;
@@ -191,9 +191,7 @@ impl<'a> KeyAdapter<'a> for SizeFreeRope {
 }
 
 impl FreeRope {
-    pub unsafe fn init(uptr: Unique<Uninitialized<FreeRope>>, len: NonZero<usize>)
-        -> Unique<FreeRope>
-    {
+    pub unsafe fn init(uptr: Initializable<FreeRope>, len: NonZero<usize>) -> Unique<FreeRope> {
         let ptr = *uptr as *mut FreeRope;
         ptr::write(ptr, FreeRope {
             addr_link: RBTreeLink::default(),
@@ -238,7 +236,7 @@ impl FreeRope {
         }
     }
 
-    pub unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<FreeRope>> {
+    pub unsafe fn split_off(&self, n: usize) -> Initializable<FreeRope> {
         debug_assert!(n < self.len());
 
         let rem = self.len() - n;

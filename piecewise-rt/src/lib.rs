@@ -14,10 +14,9 @@ mod object_model;
 mod mark_n_sweep;
 
 use core::nonzero::NonZero;
-use std::ptr::Unique;
 use std::sync::Mutex;
 
-use util::Uninitialized;
+use util::Initializable;
 pub use object_model::{ValueRef, Object, PointyObject};
 use mark_n_sweep::Generation;
 
@@ -43,7 +42,7 @@ pub unsafe extern "C" fn pcws_destroy_heap(heap: *mut Mutex<Heap>) {
 /// `walign` and `wsize` must be nonzero.
 #[no_mangle]
 pub unsafe extern "C" fn pcws_allocate(heap: *mut Mutex<Heap>, walign: usize, wsize: usize)
-    -> Option<Unique<Uninitialized<usize>>>
+    -> Option<Initializable<usize>>
 {
     (*heap).lock().expect("poisoned heap lock")
            .allocate(NonZero::new(walign), NonZero::new(wsize))

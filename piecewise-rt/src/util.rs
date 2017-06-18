@@ -4,6 +4,8 @@ use std::fmt;
 
 pub struct Uninitialized<T>(T);
 
+pub type Initializable<T> = Unique<Uninitialized<T>>;
+
 pub trait CeilDiv {
     fn ceil_div(self, other: Self) -> Self;
 }

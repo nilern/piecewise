@@ -5,7 +5,7 @@ use std::ptr::{Unique, Shared};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Uninitialized, Span, CeilDiv, AllocSat};
+use util::{Uninitialized, Initializable, Span, CeilDiv, AllocSat};
 use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
@@ -43,7 +43,7 @@ impl Generation {
 
     // TODO: leave breathing room (don't wait until the very last moment before returning `None`)
     pub fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<Uninitialized<usize>>>
+        -> Option<Initializable<usize>>
     {
         if *wsize < LARGE_OBJ_THRESHOLD {
             self.freelist_allocate(walign, wsize)
@@ -87,7 +87,7 @@ impl Generation {
         self.current_mark.wrapping_add(2);
     }
 
-    fn release(&mut self, uptr: Unique<Uninitialized<usize>>, gsize: NonZero<GSize>) {
+    fn release(&mut self, uptr: Initializable<usize>, gsize: NonZero<GSize>) {
         // TODO: is gsize is large enough, recycle to bumper list instead (a la Immix)
         if *gsize >= GSize::of::<SizedFreeObj>() { // can we link it into the list?
             unsafe {
@@ -150,7 +150,7 @@ impl Generation {
     }
 
     fn freelist_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<Uninitialized<usize>>>
+        -> Option<Initializable<usize>>
     {
         use self::AllocSat::*;
 
@@ -170,7 +170,7 @@ impl Generation {
     }
 
     fn sequential_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<Uninitialized<usize>>>
+        -> Option<Initializable<usize>>
     {
         use self::AllocSat::*;
 
@@ -183,7 +183,7 @@ impl Generation {
     }
 
     fn allocate_large(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Unique<Uninitialized<usize>>>
+        -> Option<Initializable<usize>>
     {
         unsafe {
             let bsize = NonZero::new((*wsize).ceil_div(Block::WSIZE));
@@ -233,7 +233,7 @@ intrusive_adapter!(SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
 impl SizedFreeObj {
-    unsafe fn init(uptr: Unique<Uninitialized<Self>>, len: NonZero<usize>) -> Unique<Self> {
+    unsafe fn init(uptr: Initializable<Self>, len: NonZero<usize>) -> Unique<Self> {
         let ptr = *uptr as *mut SizedFreeObj;
         ptr::write(ptr, SizedFreeObj {
             link: LinkedListLink::default(),
@@ -257,7 +257,7 @@ impl SizedFreeObj {
         }
     }
 
-    unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<usize>> {
+    unsafe fn split_off(&self, n: usize) -> Initializable<usize> {
         let rem = self.len() - n;
         let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
         self.set_len(rem);
