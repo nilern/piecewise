@@ -106,6 +106,11 @@ impl Freelist {
         }
     }
 
+    fn insert(&mut self, rope: UnsafeRef<FreeRope>) {
+        self.by_addr.insert(rope.clone());
+        self.by_size.insert(rope);
+    }
+
     fn allocate(&mut self, n: NonZero<usize>) -> Option<Initializable<Descriptor>> {
         use self::AllocSat::*;
 
@@ -113,65 +118,71 @@ impl Freelist {
             let mut cursor = self.by_size.lower_bound_mut(Bound::Included(&*n));
             if let Some(sat) = cursor.get().and_then(|node| node.satisfiability(*n)) {
                 let rope = cursor.remove().unwrap().into_raw();
+                unsafe { self.by_addr.cursor_mut_from_ptr(rope).remove(); }
                 match sat {
                     Split => unsafe {
                         let rem = (*rope).len() - *n;
-                        (Some(rope), Some(((*rope).split_off(rem), NonZero::new(rem))))
+                        let erm = Some(((*rope).split_off(rem), NonZero::new(rem)));
+                        (Some(Unique::new(rope as _)), erm)
                     },
-                    Consume => (Some(rope), None)
+                    Consume => (Some(unsafe { Unique::new(rope as _) }), None)
                 }
             } else {
                 (None, None)
             }
         };
-        let res = rope.map(|rope| unsafe {
-            self.by_addr.cursor_mut_from_ptr(rope).remove();
-            Unique::new(rope as _)
-        });
         if let Some((excess, rem)) = erm {
             self.release(excess, rem);
         }
-        res
+        rope
     }
 
     fn release(&mut self, uptr: Initializable<FreeRope>, n: NonZero<usize>) {
-        // FIXME: DRY
-        let lr = {
-            let mut lcursor = self.by_addr.upper_bound_mut(Bound::Excluded(&(*uptr as _)));
-            match lcursor.get() {
-                Some(lr) if FreeRope::are_adjacent(lr, unsafe { transmute(*uptr) }) => {
-                    let res: *mut FreeRope = lcursor.remove().unwrap().into_raw() as _;
-                    unsafe { self.by_size.cursor_mut_from_ptr(res).remove(); }
-                    Some(res)
-                },
-                _ => None
+        if let Some(lr) = self.lower_adj(*uptr) {
+            unsafe {
+                (*lr).extend(n); // free space goes to `lr`
+                if let Some(rr) = self.upper_adj(*uptr) {
+                    // `rr` is removed and its free space goes to `lr`:
+                    (*lr).extend(NonZero::new((*rr).len()));
+                    self.by_addr.cursor_mut_from_ptr(rr).remove();
+                    self.by_size.cursor_mut_from_ptr(rr).remove();
+                }
+                // `lr` is now bigger so its position in `by_size` needs to change:
+                self.by_size.cursor_mut_from_ptr(lr)
+                    .remove()
+                    .map(|l| self.by_size.insert(l));
             }
-        };
-        let rr = {
-            let mut rcursor = self.by_addr.lower_bound_mut(Bound::Excluded(&(*uptr as _)));
-            match rcursor.get() {
-                Some(rr) if FreeRope::are_adjacent(unsafe { transmute(*uptr) }, rr) => {
-                    let res: *mut FreeRope = rcursor.remove().unwrap().into_raw() as _;
-                    unsafe { self.by_size.cursor_mut_from_ptr(res).remove(); }
-                    Some(res)
-                },
-                _ => None
+        } else if let Some(rr) = self.upper_adj(*uptr) {
+            unsafe {
+                // `rr` is removed and a new node created:
+                let m = NonZero::new(*n + (*rr).len());
+                self.insert(UnsafeRef::from_raw(*FreeRope::init(uptr, m)));
+                self.by_addr.cursor_mut_from_ptr(rr).remove();
+                self.by_size.cursor_mut_from_ptr(rr).remove();
             }
-        };
-
-        let rope = if let Some(lrope) = lr {
-            unsafe { (*lrope).extend(n); }
-            lrope
         } else {
-            unsafe { *FreeRope::init(uptr, n) }
-        };
-        if let Some(rrope) = rr {
-            unsafe { (*rope).extend(NonZero::new((*rrope).len())); }
+            unsafe {
+                // a new node is created (with no change to existing ones):
+                self.insert(UnsafeRef::from_raw(*FreeRope::init(uptr, n)));
+            }
         }
+    }
 
-        unsafe {
-            self.by_addr.insert(UnsafeRef::from_raw(rope));
-            self.by_size.insert(UnsafeRef::from_raw(rope));
+    fn lower_adj(&self, uptr: *mut Uninitialized<FreeRope>) -> Option<*mut FreeRope> {
+        let lcursor = self.by_addr.upper_bound(Bound::Excluded(&(uptr as _)));
+        match lcursor.get() {
+            Some(lr) if FreeRope::are_adjacent(lr, unsafe { &*(uptr as *mut FreeRope) }) =>
+                Some(unsafe { transmute(lr) }),
+            _ => None
+        }
+    }
+
+    fn upper_adj(&self, uptr: *mut Uninitialized<FreeRope>) -> Option<*mut FreeRope> {
+        let rcursor = self.by_addr.lower_bound(Bound::Excluded(&(uptr as _)));
+        match rcursor.get() {
+            Some(rr) if FreeRope::are_adjacent(unsafe { &*(uptr as *mut FreeRope) }, rr) =>
+                Some(unsafe { transmute(rr) }),
+            _ => None
         }
     }
 }
