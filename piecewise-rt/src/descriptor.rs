@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::ops::Index;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use util::{Uninitialized, Span};
+use util::{Uninitialized, Span, AllocSat};
 use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
 use object_model::Object;
 
@@ -225,6 +225,17 @@ impl FreeRope {
 
     pub unsafe fn extend(&mut self, n: NonZero<usize>) {
         self.set_len(self.len() + *n);
+    }
+
+    pub fn satisfiability(&self, n: usize) -> Option<AllocSat> {
+        use std::cmp::Ordering::*;
+        use self::AllocSat::*;
+
+        match self.len().cmp(&n) {
+            Greater => Some(Split),
+            Equal => Some(Consume),
+            Less => None
+        }
     }
 
     pub unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<FreeRope>> {

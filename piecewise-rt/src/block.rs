@@ -1,10 +1,9 @@
 use core::nonzero::NonZero;
 use std::mem::transmute;
 use std::ptr::Unique;
-use std::cmp::Ordering;
 use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use util::{Uninitialized, Span};
+use util::{Uninitialized, Span, AllocSat};
 use layout::Markmap;
 use arena::ArenaAllocator;
 use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope,
@@ -45,7 +44,14 @@ impl BlockAllocator {
     }
 
     fn alloc_markmap(&mut self) -> Option<Unique<Markmap>> {
-        self.markmaps.as_mut().and_then(|mmaps| mmaps.split_off(1))
+        use self::AllocSat::*;
+
+        self.markmaps.as_ref()
+            .and_then(|mmaps| mmaps.satisfiability(1))
+            .and_then(|sat| match sat {
+                Split => self.markmaps.as_mut().map(|b| unsafe { b.split_off(1) }),
+                Consume => self.markmaps.take().map(Span::into_unique)
+            })
             .map(|ummap| unsafe {
                 let mmap: *mut Markmap = *ummap as _;
                 for byte in (*mmap).iter_mut() {
@@ -101,21 +107,21 @@ impl Freelist {
     }
 
     fn allocate(&mut self, n: NonZero<usize>) -> Option<Unique<Uninitialized<Descriptor>>> {
+        use self::AllocSat::*;
+
         let (rope, erm) = {
             let mut cursor = self.by_size.lower_bound_mut(Bound::Included(&*n));
-            match cursor.get().map(|node| node.len().cmp(&*n)) {
-                Some(Ordering::Equal) => {
-                    let rope = cursor.remove().unwrap().into_raw();
-                    (Some(rope), None)
-                },
-                Some(Ordering::Greater) => {
-                    let rope = cursor.remove().unwrap().into_raw();
-                    unsafe {
+            if let Some(sat) = cursor.get().and_then(|node| node.satisfiability(*n)) {
+                let rope = cursor.remove().unwrap().into_raw();
+                match sat {
+                    Split => unsafe {
                         let rem = (*rope).len() - *n;
                         (Some(rope), Some(((*rope).split_off(rem), NonZero::new(rem))))
-                    }
-                },
-                _ => (None, None)
+                    },
+                    Consume => (Some(rope), None)
+                }
+            } else {
+                (None, None)
             }
         };
         let res = rope.map(|rope| unsafe {

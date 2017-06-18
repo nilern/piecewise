@@ -3,10 +3,9 @@ use std::mem::transmute;
 use std::ptr;
 use std::ptr::{Unique, Shared};
 use std::cell::Cell;
-use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Uninitialized, Span, CeilDiv};
+use util::{Uninitialized, Span, CeilDiv, AllocSat};
 use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
@@ -49,12 +48,10 @@ impl Generation {
         if *wsize < LARGE_OBJ_THRESHOLD {
             self.freelist_allocate(walign, wsize)
                 .or_else(|| self.sequential_allocate(walign, wsize))
-                .or_else(|| {
-                    if self.refill_bumper() {
-                        self.sequential_allocate(walign, wsize)
-                    } else {
-                        None
-                    }
+                .or_else(|| if self.refill_bumper() {
+                    self.sequential_allocate(walign, wsize)
+                } else {
+                    None
                 })
         } else {
             self.allocate_large(walign, wsize)
@@ -138,6 +135,7 @@ impl Generation {
                     Obj => ()
                 }
             }
+            // FIXME: if state is Free(..) at this point an additional release is needed
         }
 
         let mut cursor = self.large_objs.front_mut();
@@ -154,18 +152,18 @@ impl Generation {
     fn freelist_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
+        use self::AllocSat::*;
+
         let mut cursor = self.freelist.front_mut();
         while let Some(node) = cursor.get() {
-            match node.len().cmp(&*wsize) {
-                Ordering::Equal =>
+            match node.satisfiability(*wsize) {
+                Some(Split) =>
+                    return Some(unsafe { node.split_off(*wsize) }),
+                Some(Consume) =>
                     return cursor.remove()
                                  .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
-                Ordering::Greater =>
-                    return node.split_off(*wsize)
-                               .or_else(||
-                                   cursor.remove()
-                                         .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) })),
-                Ordering::Less => cursor.move_next()
+                None =>
+                    cursor.move_next()
             }
         }
         None
@@ -174,7 +172,14 @@ impl Generation {
     fn sequential_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
         -> Option<Unique<Uninitialized<usize>>>
     {
-        self.bumper.as_mut().and_then(|bumper| bumper.split_off(*wsize))
+        use self::AllocSat::*;
+
+        self.bumper.as_ref()
+            .and_then(|bumper| bumper.satisfiability(*wsize))
+            .and_then(|sat| match sat {
+                Split => self.bumper.as_mut().map(|b| unsafe { b.split_off(*wsize) }),
+                Consume => self.bumper.take().map(Span::into_unique)
+            })
     }
 
     fn allocate_large(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
@@ -220,12 +225,12 @@ enum SweepState {
 // ================================================================================================
 
 #[derive(Debug)]
-pub struct SizedFreeObj {
+struct SizedFreeObj {
     link: LinkedListLink,
     len: Cell<usize>
 }
 
-intrusive_adapter!(pub SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
+intrusive_adapter!(SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
 impl SizedFreeObj {
@@ -242,16 +247,21 @@ impl SizedFreeObj {
 
     fn set_len(&self, new_len: usize) { self.len.set(new_len) }
 
-    fn split_off(&self, n: usize) -> Option<Unique<Uninitialized<usize>>> {
-        if self.len() - n >= usize::from(GSize::of::<SizedFreeObj>()) {
-            let rem = self.len() - n;
-            unsafe {
-                let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
-                self.set_len(rem);
-                Some(Unique::new(ptr as _))
-            }
-        } else {
-            None
+    fn satisfiability(&self, n: usize) -> Option<AllocSat> {
+        use std::cmp::Ordering::*;
+        use self::AllocSat::*;
+
+        match self.len().cmp(&n) {
+            Greater if self.len() - n >= usize::from(GSize::of::<Self>()) => Some(Split),
+            Greater | Equal => Some(Consume),
+            Less => None
         }
+    }
+
+    unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<usize>> {
+        let rem = self.len() - n;
+        let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
+        self.set_len(rem);
+        Unique::new(ptr as _)
     }
 }
