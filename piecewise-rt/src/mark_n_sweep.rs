@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Init, Lengthy, Uninitialized, Span, CeilDiv};
+use util::{Uninitialized, Span, CeilDiv};
 use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
@@ -86,7 +86,7 @@ impl Generation {
         self.freelist.fast_clear();
         self.bumper = None;
         self.sweep_all();
-        
+
         self.current_mark.wrapping_add(2);
     }
 
@@ -229,6 +229,19 @@ intrusive_adapter!(pub SizedFreeAdapter = UnsafeRef<SizedFreeObj>:
                    SizedFreeObj { link: LinkedListLink });
 
 impl SizedFreeObj {
+    unsafe fn init(uptr: Unique<Uninitialized<Self>>, len: NonZero<usize>) -> Unique<Self> {
+        let ptr = *uptr as *mut SizedFreeObj;
+        ptr::write(ptr, SizedFreeObj {
+            link: LinkedListLink::default(),
+            len: Cell::new(*len)
+        });
+        Unique::new(ptr)
+    }
+
+    fn len(&self) -> usize { self.len.get() }
+
+    fn set_len(&self, new_len: usize) { self.len.set(new_len) }
+
     fn split_off(&self, n: usize) -> Option<Unique<Uninitialized<usize>>> {
         if self.len() - n >= usize::from(GSize::of::<SizedFreeObj>()) {
             let rem = self.len() - n;
@@ -241,20 +254,4 @@ impl SizedFreeObj {
             None
         }
     }
-}
-
-impl Init for SizedFreeObj {
-    unsafe fn init(uptr: Unique<Uninitialized<Self>>, len: NonZero<usize>) -> Unique<Self> {
-        let ptr = *uptr as *mut SizedFreeObj;
-        ptr::write(ptr, SizedFreeObj {
-            link: LinkedListLink::default(),
-            len: Cell::new(*len)
-        });
-        Unique::new(ptr)
-    }
-}
-
-impl Lengthy for SizedFreeObj {
-    fn len(&self) -> usize { self.len.get() }
-    fn set_len(&self, new_len: usize) { self.len.set(new_len) }
 }

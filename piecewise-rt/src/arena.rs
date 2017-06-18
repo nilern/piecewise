@@ -7,7 +7,7 @@ use nix::c_void;
 #[cfg(unix)]
 use nix::sys::mman::{mmap, munmap, PROT_READ, PROT_WRITE, MAP_ANON, MAP_PRIVATE};
 
-use util::{Init, Uninitialized, CeilDiv};
+use util::{Uninitialized, CeilDiv};
 use layout::{Arena, Block};
 use descriptor::FreeRope;
 

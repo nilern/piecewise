@@ -4,7 +4,7 @@ use std::ptr::Unique;
 use std::cmp::Ordering;
 use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use util::{Init, Lengthy, SplitOff, Uninitialized, Span};
+use util::{Uninitialized, Span};
 use layout::Markmap;
 use arena::ArenaAllocator;
 use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope,

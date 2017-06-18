@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::ops::Index;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use util::{Init, Lengthy, Uninitialized, SplitOff, Span};
+use util::{Uninitialized, Span};
 use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
 use object_model::Object;
 
@@ -191,6 +191,23 @@ impl<'a> KeyAdapter<'a> for SizeFreeRope {
 }
 
 impl FreeRope {
+    pub unsafe fn init(uptr: Unique<Uninitialized<FreeRope>>, len: NonZero<usize>)
+        -> Unique<FreeRope>
+    {
+        let ptr = *uptr as *mut FreeRope;
+        ptr::write(ptr, FreeRope {
+            addr_link: RBTreeLink::default(),
+            size_link: RBTreeLink::default(),
+            len: Cell::new(*len),
+            _padding: Default::default()
+        });
+        Unique::new(ptr)
+    }
+
+    pub fn len(&self) -> usize { self.len.get() }
+
+    fn set_len(&self, new_len: usize) { self.len.set(new_len) }
+
     fn offset(&self, n: usize) -> *const FreeRope {
         unsafe {
             let arena = Arena::containing(self as *const Self);
@@ -209,27 +226,15 @@ impl FreeRope {
     pub unsafe fn extend(&mut self, n: NonZero<usize>) {
         self.set_len(self.len() + *n);
     }
-}
 
-impl Init for FreeRope {
-    unsafe fn init(uptr: Unique<Uninitialized<FreeRope>>, len: NonZero<usize>)
-        -> Unique<FreeRope>
-    {
-        let ptr = *uptr as *mut FreeRope;
-        ptr::write(ptr, FreeRope {
-            addr_link: RBTreeLink::default(),
-            size_link: RBTreeLink::default(),
-            len: Cell::new(*len),
-            _padding: Default::default()
-        });
-        Unique::new(ptr)
+    pub unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<FreeRope>> {
+        debug_assert!(n < self.len());
+
+        let rem = self.len() - n;
+        let ptr: *mut () = transmute(&self[rem]);
+        self.set_len(rem);
+        Unique::new(ptr as _)
     }
-}
-
-impl Lengthy for FreeRope {
-    fn len(&self) -> usize { self.len.get() }
-
-    fn set_len(&self, new_len: usize) { self.len.set(new_len) }
 }
 
 impl Index<usize> for FreeRope  {
@@ -237,17 +242,6 @@ impl Index<usize> for FreeRope  {
 
     fn index(&self, index: usize) -> &Uninitialized<FreeRope> {
         unsafe { transmute(self.offset(index)) }
-    }
-}
-
-impl SplitOff<Unique<Uninitialized<FreeRope>>> for FreeRope {
-    unsafe fn split_off(&self, n: usize) -> Unique<Uninitialized<FreeRope>> {
-        debug_assert!(n < self.len());
-
-        let rem = self.len() - n;
-        let ptr: *mut () = transmute(&self[rem]);
-        self.set_len(rem);
-        Unique::new(ptr as _)
     }
 }
 
