@@ -51,7 +51,7 @@ fun applyNameRev pos name revExprs =
     | OP7 of string
     | PRIM of string
 
-    | NUM of string
+    | INT of string
     | STRING of string
     | CHAR of string
 
@@ -89,6 +89,7 @@ fun applyNameRev pos name revExprs =
        | simple of CST.expr
 
        | datum of CST.expr
+       | prim of CST.expr
        | compound of CST.expr
 
        | exprList of CST.expr list
@@ -139,9 +140,15 @@ simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
          (extractBlock LBRACEleft (List.rev blockItemList))
        | LEXID (CST.Var (LEXIDleft, Var.Lex (Name.Plain LEXID)))
+       | DYNID (CST.Var (DYNIDleft, Var.Dyn (Name.Plain DYNID)))
        | datum (datum)
 
-datum : compound (compound)
+datum : prim     (prim)
+      | compound (compound)
+
+prim : INT    (CST.Const (INTleft, Const.Int INT))
+     | STRING (CST.Const (STRINGleft, Const.String STRING))
+     | CHAR   (CST.Const (CHARleft, Const.Char CHAR))
 
 compound : LPAREN exprList RPAREN (applyNameRev LPARENleft "tuple" exprList)
          | LBRACKET exprList RBRACKET

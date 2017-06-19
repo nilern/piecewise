@@ -76,7 +76,7 @@ ws = [\r\ \t];
 # [^\n]* => (incCol (size yytext); continue());
 \n       => (incLine (); continue());
 
-{digit}{constituent}* => (Tokens.NUM (advance yytext fileName));
+{digit}{constituent}* => (Tokens.INT (advance yytext fileName));
 \" [^\"]* \"           =>
     (Tokens.STRING (advanceMap stripQuotes yytext fileName));
 ' [^\"]* '             =>

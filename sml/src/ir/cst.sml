@@ -4,7 +4,7 @@ structure CST = struct
                   | App of Pos.t * expr * expr vector
                   | PrimApp of Primop.t * expr vector
                   | Var of Pos.t * Var.t
-                  | Const of Const.t
+                  | Const of Pos.t * Const.t
 
     and stmt = Def of expr * expr
              | AugDef of expr * expr
@@ -16,6 +16,7 @@ structure CST = struct
       | exprPos (Block (pos, _)) = pos
       | exprPos (App (pos, _, _)) = pos
       | exprPos (Var (pos, _)) = pos
+      | exprPos (Const (pos, _)) = pos
 
     fun stmtPos (Def (pat, _)) = exprPos pat
       | stmtPos (AugDef (pat, _)) = exprPos pat
@@ -33,6 +34,7 @@ structure CST = struct
                              (exprToString f) args ^
                 ")"
       | exprToString (Var (_, v)) = Var.toString v
+      | exprToString (Const (_, c)) = Const.toString c
 
     and stmtToString (Def (pat, expr)) =
           exprToString pat ^ " = " ^ exprToString expr
