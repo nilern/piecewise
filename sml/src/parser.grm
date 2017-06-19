@@ -1,6 +1,10 @@
 datatype blockItem = Clause of CST.expr vector * CST.stmt
                    | Stmt of CST.stmt
 
+fun opApp pos opPos opStr l r =
+        CST.App (pos, CST.Var (opPos, Var.Lex (Name.Plain opStr)),
+                 Vector.fromList [l, r])
+
 fun extractApp _ [e] = e
   | extractApp pos (f::args) = CST.App (pos, f, Vector.fromList args)
   | extractApp _ [] = raise LrParser.ParseError
@@ -37,7 +41,14 @@ fun applyNameRev pos name revExprs =
 
 %term LEXID of string
     | DYNID of string
-    | OP of string * Name.prec
+    | OP0 of string
+    | OP1 of string
+    | OP2 of string
+    | OP3 of string
+    | OP4 of string
+    | OP5 of string
+    | OP6 of string
+    | OP7 of string
     | PRIM of string
 
     | NUM of string
@@ -66,6 +77,14 @@ fun applyNameRev pos name revExprs =
        | expr of CST.expr
        | blockItem of blockItem
 
+       | infix0 of CST.expr
+       | infix1 of CST.expr
+       | infix2 of CST.expr
+       | infix3 of CST.expr
+       | infix4 of CST.expr
+       | infix5 of CST.expr
+       | infix6 of CST.expr
+       | infix7 of CST.expr
        | app of CST.expr list
        | simple of CST.expr
 
@@ -89,10 +108,29 @@ stmt : expr EQ expr  (CST.Def (expr1, expr2))
      | expr AUG expr (CST.AugDef (expr1, expr2))
      | expr          (CST.Expr expr)
 
-expr : app (extractApp appleft(List.rev app))
-
 blockItem : app DARROW stmt (Clause (Vector.fromList (List.rev app), stmt))
-          | stmt            (Stmt stmt)
+        | stmt            (Stmt stmt)
+
+expr : infix0 (infix0)
+
+infix0 : infix0 OP0 infix1 (opApp infix0left OP0left OP0 infix0 infix1)
+       | infix1            (infix1)
+infix1 : infix1 OP1 infix2 (opApp infix1left OP1left OP1 infix1 infix2)
+       | infix2            (infix2)
+infix2 : infix2 OP2 infix3 (opApp infix2left OP2left OP2 infix2 infix3)
+       | infix3            (infix3)
+infix3 : infix3 OP3 infix4 (opApp infix3left OP3left OP3 infix3 infix4)
+       | infix4            (infix4)
+infix4 : infix4 OP4 infix5 (opApp infix4left OP4left OP4 infix4 infix5)
+       | infix5            (infix5)
+infix5 : infix5 OP5 infix6 (opApp infix5left OP5left OP5 infix5 infix6)
+       | infix6            (infix6)
+infix6 : infix6 OP6 infix7 (opApp infix6left OP6left OP6 infix6 infix7)
+       | infix7            (infix7)
+
+infix7 : infix7 OP7 app (opApp infix7left OP7left
+                               OP7 infix7 (extractApp appleft(List.rev app)))
+       | app            (extractApp appleft(List.rev app))
 
 app : simple     ([simple])
     | app simple (simple :: app)

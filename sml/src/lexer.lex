@@ -34,6 +34,20 @@ in
                 val _ = incCol (size cs)
                 val q = getPos fileName
             in (f cs, p, q) end
+    fun advanceOp cs fileName =
+            let val p = getPos fileName
+                val _ = incCol (size cs)
+                val q = getPos fileName
+                val make = case Name.precOf cs
+                           of Name.Zero  => Tokens.OP0
+                            | Name.One   => Tokens.OP1
+                            | Name.Two   => Tokens.OP2
+                            | Name.Three => Tokens.OP3
+                            | Name.Four  => Tokens.OP4
+                            | Name.Five  => Tokens.OP5
+                            | Name.Six   => Tokens.OP6
+                            | Name.Seven => Tokens.OP7
+            in make (cs, p, q) end
 end
 
 fun stripQuotes s = substring(s, 1, String.size s - 2)
@@ -49,12 +63,12 @@ fun error (e, p, _) = TextIO.output(TextIO.stdOut, Pos.toString p ^ "\n")
 %header (functor PcwsLexFun(structure Tokens: Pcws_TOKENS));
 %arg (fileName : string);
 
-constituent = [^\ \t'\"`\(\)\[\]\{\},\;];
+constituent = ([^\r\n\ \t'\"`\(\)\{\},\;]|\[|\]);
 digit = [0-9];
 idchar = [a-zA-Z\$@_];
 opchar = [\.!%&\*\+\-\/\<=\>\?\\^\|~];
 
-ws = [\ \t];
+ws = [\r\ \t];
 
 %%
 
@@ -63,15 +77,15 @@ ws = [\ \t];
 \n       => (incLine (); continue());
 
 {digit}{constituent}* => (Tokens.NUM (advance yytext fileName));
-\" [^\"]* \"          =>
+\" [^\"]* \"           =>
     (Tokens.STRING (advanceMap stripQuotes yytext fileName));
-' [^\"]* '            =>
+' [^\"]* '             =>
     (Tokens.CHAR (advanceMap stripQuotes yytext fileName));
 
 "__"{constituent}*     => (Tokens.PRIM (advanceMap (drop 2) yytext fileName));
 \${constituent}*       => (Tokens.DYNID (advanceMap (drop 1) yytext fileName));
 {idchar}{constituent}* => (Tokens.LEXID (advance yytext fileName));
-{opchar}{constituent}* => (Tokens.OP (advanceMap withPrec yytext fileName));
+{opchar}{constituent}* => (advanceOp yytext fileName);
 
 "="      => (Tokens.EQ (advance_ yytext fileName));
 "+="     => (Tokens.AUG (advance_ yytext fileName));
