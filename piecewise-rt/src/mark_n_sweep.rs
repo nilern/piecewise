@@ -5,7 +5,7 @@ use std::ptr::{Unique, Shared};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use util::{Uninitialized, Initializable, Span, CeilDiv, AllocSat};
+use util::{Uninitialized, Initializable, CeilDiv, Foam, Span, AllocSat};
 use layout::{Block, GSize};
 use block::BlockAllocator;
 use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
@@ -156,14 +156,10 @@ impl Generation {
 
         let mut cursor = self.freelist.front_mut();
         while let Some(node) = cursor.get() {
-            match node.satisfiability(*wsize) {
-                Some(Split) =>
-                    return Some(unsafe { node.split_off(*wsize) }),
-                Some(Consume) =>
-                    return cursor.remove()
-                                 .map(|ptr| unsafe { Unique::new(ptr.into_raw() as _) }),
-                None =>
-                    cursor.move_next()
+            match node.weigh_against(*wsize) {
+                Some(Split) => return Some(unsafe { node.split_off(*wsize) }),
+                Some(Consume) => return cursor.remove().map(SizedFreeObj::take),
+                None => cursor.move_next()
             }
         }
         None
@@ -175,10 +171,10 @@ impl Generation {
         use self::AllocSat::*;
 
         self.bumper.as_ref()
-            .and_then(|bumper| bumper.satisfiability(*wsize))
+            .and_then(|bumper| bumper.weigh_against(*wsize))
             .and_then(|sat| match sat {
                 Split => self.bumper.as_mut().map(|b| unsafe { b.split_off(*wsize) }),
-                Consume => self.bumper.take().map(Span::into_unique)
+                Consume => self.bumper.take().map(Span::take)
             })
     }
 
@@ -199,7 +195,7 @@ impl Generation {
         if let Some(bumper) = self.bumper.take() {
             let len = bumper.len();
             if len > 0 {
-                self.release(bumper.into_unique(), unsafe { NonZero::new(transmute(len)) });
+                self.release(Span::take(bumper), unsafe { NonZero::new(transmute(len)) });
             }
         }
         if let Some((block, bumper)) = self.block_allocator.alloc_ms_block() {
@@ -245,22 +241,33 @@ impl SizedFreeObj {
     fn len(&self) -> usize { self.len.get() }
 
     fn set_len(&self, new_len: usize) { self.len.set(new_len) }
+}
 
-    fn satisfiability(&self, n: usize) -> Option<AllocSat> {
+impl Foam for SizedFreeObj {
+    type Bubble = Uninitialized<usize>;
+    type Owner = UnsafeRef<SizedFreeObj>;
+
+    fn weigh_against(&self, request: usize) -> Option<AllocSat> {
         use std::cmp::Ordering::*;
         use self::AllocSat::*;
 
-        match self.len().cmp(&n) {
-            Greater if self.len() - n >= usize::from(GSize::of::<Self>()) => Some(Split),
+        match self.len().cmp(&request) {
+            Greater if self.len() - request >= usize::from(GSize::of::<Self>()) => Some(Split),
             Greater | Equal => Some(Consume),
             Less => None
         }
     }
 
-    unsafe fn split_off(&self, n: usize) -> Initializable<usize> {
-        let rem = self.len() - n;
-        let ptr = transmute::<_, *mut usize>(self).offset(rem as isize);
+    unsafe fn split_off(&self, request: usize) -> Initializable<usize> {
+        debug_assert!(self.len() - request >= usize::from(GSize::of::<Self>()));
+
+        let rem = self.len() - request;
+        let ptr = transmute::<_, *mut usize>(&*self).offset(rem as isize);
         self.set_len(rem);
         Unique::new(ptr as _)
+    }
+
+    fn take(obj: UnsafeRef<SizedFreeObj>) -> Initializable<usize> {
+        unsafe { Unique::new(obj.into_raw() as _) }
     }
 }

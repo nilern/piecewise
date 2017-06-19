@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::ops::Index;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use util::{Uninitialized, Initializable, Span, AllocSat};
+use util::{Uninitialized, Initializable, Foam, Span, AllocSat};
 use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
 use object_model::Object;
 
@@ -224,26 +224,6 @@ impl FreeRope {
     pub unsafe fn extend(&mut self, n: NonZero<usize>) {
         self.set_len(self.len() + *n);
     }
-
-    pub fn satisfiability(&self, n: usize) -> Option<AllocSat> {
-        use std::cmp::Ordering::*;
-        use self::AllocSat::*;
-
-        match self.len().cmp(&n) {
-            Greater => Some(Split),
-            Equal => Some(Consume),
-            Less => None
-        }
-    }
-
-    pub unsafe fn split_off(&self, n: usize) -> Initializable<FreeRope> {
-        debug_assert!(n < self.len());
-
-        let rem = self.len() - n;
-        let ptr: *mut () = transmute(&self[rem]);
-        self.set_len(rem);
-        Unique::new(ptr as _)
-    }
 }
 
 impl Index<usize> for FreeRope  {
@@ -251,6 +231,35 @@ impl Index<usize> for FreeRope  {
 
     fn index(&self, index: usize) -> &Uninitialized<FreeRope> {
         unsafe { transmute(self.offset(index)) }
+    }
+}
+
+impl Foam for FreeRope {
+    type Bubble = Uninitialized<FreeRope>;
+    type Owner = Unique<FreeRope>;
+
+    fn weigh_against(&self, request: usize) -> Option<AllocSat> {
+        use std::cmp::Ordering::*;
+        use self::AllocSat::*;
+
+        match self.len().cmp(&request) {
+            Greater => Some(Split),
+            Equal => Some(Consume),
+            Less => None
+        }
+    }
+
+    unsafe fn split_off(&self, request: usize) -> Initializable<FreeRope> {
+        debug_assert!(request < self.len());
+
+        let rem = self.len() - request;
+        let ptr: *mut () = transmute(&self[rem]);
+        self.set_len(rem);
+        Unique::new(ptr as _)
+    }
+
+    fn take(rope: Unique<FreeRope>) -> Initializable<FreeRope> {
+        unsafe { Unique::new(*rope as _) }
     }
 }
 

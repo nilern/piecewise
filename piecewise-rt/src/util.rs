@@ -1,5 +1,6 @@
 use std::mem::size_of;
 use std::ptr::Unique;
+use std::cell::RefCell;
 use std::fmt;
 
 pub struct Uninitialized<T>(T);
@@ -20,29 +21,57 @@ impl CeilDiv for usize {
     }
 }
 
+#[derive(Debug)]
+pub enum AllocSat {
+    Split,
+    Consume
+}
+
+pub trait Foam {
+    type Bubble;
+    type Owner;
+
+    fn weigh_against(&self, request: usize) -> Option<AllocSat>;
+
+    unsafe fn split_off(&self, request: usize) -> Unique<Self::Bubble>;
+
+    fn take(foam: Self::Owner) -> Unique<Self::Bubble>;
+}
+
 pub struct Span<T> {
-    start: Unique<T>,
+    start: RefCell<Unique<T>>,
     end: *const T
 }
 
 impl<T> Span<T> {
     pub unsafe fn from_raw_parts(start: Unique<T>, end: *const T) -> Self {
         Span {
-            start: start,
+            start: RefCell::new(start),
             end: end
         }
     }
 
     pub fn len(&self) -> usize {
         // TODO: use .offset_to()
-        (self.end as usize - *self.start as usize) / size_of::<T>()
+        (self.end as usize - **self.start.borrow() as usize) / size_of::<T>()
     }
+}
 
-    pub fn satisfiability(&self, n: usize) -> Option<AllocSat> {
+impl<T> fmt::Debug for Span<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Span {{ start: {:p}, end: {:p} }}", **self.start.borrow(), self.end)
+    }
+}
+
+impl<T> Foam for Span<T> {
+    type Bubble = T;
+    type Owner = Span<T>;
+
+    fn weigh_against(&self, request: usize) -> Option<AllocSat> {
         use std::cmp::Ordering::*;
         use self::AllocSat::*;
 
-        let new_start: *const T = unsafe { self.start.offset(n as isize) as _ };
+        let new_start: *const T = unsafe { self.start.borrow().offset(request as _) as _ };
         match self.end.cmp(&new_start) {
             Greater => Some(Split),
             Equal => Some(Consume),
@@ -50,23 +79,13 @@ impl<T> Span<T> {
         }
     }
 
-    pub unsafe fn split_off(&mut self, n: usize) -> Unique<T> {
-        let res = Unique::new(*self.start);
-        self.start = Unique::new(self.start.offset(n as isize));
-        res
+    unsafe fn split_off(&self, request: usize) -> Unique<T> {
+        debug_assert!(request <= self.len());
+
+        let old_start = **self.start.borrow();
+        *self.start.borrow_mut() = Unique::new(old_start.offset(request as _));
+        Unique::new(old_start)
     }
 
-    pub fn into_unique(self) -> Unique<T> { self.start }
-}
-
-impl<T> fmt::Debug for Span<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Span {{ start: {:p}, end: {:p} }}", self.start, self.end)
-    }
-}
-
-#[derive(Debug)]
-pub enum AllocSat {
-    Split,
-    Consume
+    fn take(span: Span<T>) -> Unique<T> { span.start.into_inner() }
 }

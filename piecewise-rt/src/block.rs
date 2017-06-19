@@ -3,11 +3,10 @@ use std::mem::transmute;
 use std::ptr::Unique;
 use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use util::{Uninitialized, Initializable, Span, AllocSat};
+use util::{Uninitialized, Initializable, Foam, Span, AllocSat};
 use layout::Markmap;
 use arena::ArenaAllocator;
-use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope,
-                 AddrFreeRope, SizeFreeRope};
+use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope, AddrFreeRope, SizeFreeRope};
 
 // ================================================================================================
 
@@ -47,10 +46,10 @@ impl BlockAllocator {
         use self::AllocSat::*;
 
         self.markmaps.as_ref()
-            .and_then(|mmaps| mmaps.satisfiability(1))
+            .and_then(|mmaps| mmaps.weigh_against(1))
             .and_then(|sat| match sat {
                 Split => self.markmaps.as_mut().map(|b| unsafe { b.split_off(1) }),
-                Consume => self.markmaps.take().map(Span::into_unique)
+                Consume => self.markmaps.take().map(Span::take)
             })
             .map(|ummap| unsafe {
                 let mmap: *mut Markmap = *ummap as _;
@@ -116,8 +115,8 @@ impl Freelist {
 
         let (rope, erm) = {
             let mut cursor = self.by_size.lower_bound_mut(Bound::Included(&*n));
-            if let Some(sat) = cursor.get().and_then(|node| node.satisfiability(*n)) {
-                let rope = cursor.remove().unwrap().into_raw();
+            if let Some(sat) = cursor.get().and_then(|node| node.weigh_against(*n)) {
+                let rope: *mut FreeRope = cursor.remove().unwrap().into_raw() as _;
                 unsafe { self.by_addr.cursor_mut_from_ptr(rope).remove(); }
                 match sat {
                     Split => unsafe {
