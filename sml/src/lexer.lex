@@ -29,7 +29,16 @@ in
                 val _ = incCol (size cs)
                 val q = getPos fileName
             in (p, q) end
+    fun advanceMap f cs fileName =
+            let val p = getPos fileName
+                val _ = incCol (size cs)
+                val q = getPos fileName
+            in (f cs, p, q) end
 end
+
+fun stripQuotes s = substring(s, 1, String.size s - 2)
+fun drop n s = String.extract(s, n, NONE)
+fun withPrec cs = (cs, Name.precOf cs)
 
 fun eof fileName = let val p = getPos fileName in Tokens.EOF(p, p) end
 
@@ -40,10 +49,11 @@ fun error (e, p, _) = TextIO.output(TextIO.stdOut, Pos.toString p ^ "\n")
 %header (functor PcwsLexFun(structure Tokens: Pcws_TOKENS));
 %arg (fileName : string);
 
-delimiter = ['\"`\(\)\[\]\{\}];
-separator = [,\;];
+constituent = [^\ \t'\"`\(\)\[\]\{\},\;];
+digit = [0-9];
+idchar = [a-zA-Z\$@_];
+opchar = [\.!%&\*\+\-\/\<=\>\?\\^\|~];
 
-alpha = [A-Za-z];
 ws = [\ \t];
 
 %%
@@ -52,7 +62,16 @@ ws = [\ \t];
 # [^\n]* => (incCol (size yytext); continue());
 \n       => (incLine (); continue());
 
-{alpha}+ => (Tokens.ID (advance yytext fileName));
+{digit}{constituent}* => (Tokens.NUM (advance yytext fileName));
+\" [^\"]* \"          =>
+    (Tokens.STRING (advanceMap stripQuotes yytext fileName));
+' [^\"]* '            =>
+    (Tokens.CHAR (advanceMap stripQuotes yytext fileName));
+
+"__"{constituent}*     => (Tokens.PRIM (advanceMap (drop 2) yytext fileName));
+\${constituent}*       => (Tokens.DYNID (advanceMap (drop 1) yytext fileName));
+{idchar}{constituent}* => (Tokens.LEXID (advance yytext fileName));
+{opchar}{constituent}* => (Tokens.OP (advanceMap withPrec yytext fileName));
 
 "="      => (Tokens.EQ (advance_ yytext fileName));
 "+="     => (Tokens.AUG (advance_ yytext fileName));

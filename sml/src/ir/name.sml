@@ -4,4 +4,25 @@ structure Name = struct
 
     fun toString (Plain cs) = cs
       | toString (Unique (cs, i)) = cs ^ Int.toString i
+
+    datatype prec = Zero | One | Two | Three | Four | Five | Six | Seven
+
+    exception UnprecedentedOp of string
+
+    fun precOf cs =
+        case String.sub(cs, 0)
+        of #"|" => Zero
+         | #"^" => One
+         | #"&" => Two
+         | #"=" => Three
+         | #"!" => Three
+         | #"<" => Four
+         | #">" => Four
+         | #"+" => Five
+         | #"-" => Five
+         | #"*" => Six
+         | #"/" => Six
+         | #"%" => Six
+         | #"." => Seven
+         | _ => raise UnprecedentedOp cs
 end

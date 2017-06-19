@@ -1,4 +1,3 @@
-
 datatype blockItem = Clause of CST.expr vector * CST.stmt
                    | Stmt of CST.stmt
 
@@ -36,7 +35,14 @@ fun applyNameRev pos name revExprs =
 
 %pos Pos.t
 
-%term ID of string
+%term LEXID of string
+    | DYNID of string
+    | OP of string * Name.prec
+    | PRIM of string
+
+    | NUM of string
+    | STRING of string
+    | CHAR of string
 
     | EQ
     | AUG
@@ -94,7 +100,7 @@ app : simple     ([simple])
 simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
          (extractBlock LBRACEleft (List.rev blockItemList))
-       | ID    (CST.Var (IDleft, Var.Lex (Name.Plain ID)))
+       | LEXID (CST.Var (LEXIDleft, Var.Lex (Name.Plain LEXID)))
        | datum (datum)
 
 datum : compound (compound)
