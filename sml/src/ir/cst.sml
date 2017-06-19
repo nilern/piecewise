@@ -2,7 +2,7 @@ structure CST = struct
     datatype expr = Fn of Pos.t * fnCase vector
                   | Block of Pos.t * stmt vector
                   | App of Pos.t * expr * expr vector
-                  | PrimApp of Primop.t * expr vector
+                  | PrimApp of Pos.t * Primop.t * expr vector
                   | Var of Pos.t * Var.t
                   | Const of Pos.t * Const.t
 
@@ -15,6 +15,7 @@ structure CST = struct
     fun exprPos (Fn (pos, _)) = pos
       | exprPos (Block (pos, _)) = pos
       | exprPos (App (pos, _, _)) = pos
+      | exprPos (PrimApp (pos, _, _)) = pos
       | exprPos (Var (pos, _)) = pos
       | exprPos (Const (pos, _)) = pos
 
@@ -32,6 +33,11 @@ structure CST = struct
             "(" ^
                 Vector.foldl (fn (arg, acc) => acc ^ " " ^ exprToString arg)
                              (exprToString f) args ^
+                ")"
+      | exprToString (PrimApp (_, opp, args)) =
+            "(" ^
+                Vector.foldl (fn (arg, acc) => acc ^ " " ^ exprToString arg)
+                             (Primop.toString opp) args ^
                 ")"
       | exprToString (Var (_, v)) = Var.toString v
       | exprToString (Const (_, c)) = Const.toString c

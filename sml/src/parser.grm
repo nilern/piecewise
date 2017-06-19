@@ -86,6 +86,7 @@ fun applyNameRev pos name revExprs =
        | infix6 of CST.expr
        | infix7 of CST.expr
        | app of CST.expr list
+       | primApp of CST.expr
        | simple of CST.expr
 
        | datum of CST.expr
@@ -129,12 +130,18 @@ infix5 : infix5 OP5 infix6 (opApp infix5left OP5left OP5 infix5 infix6)
 infix6 : infix6 OP6 infix7 (opApp infix6left OP6left OP6 infix6 infix7)
        | infix7            (infix7)
 
-infix7 : infix7 OP7 app (opApp infix7left OP7left
-                               OP7 infix7 (extractApp appleft(List.rev app)))
-       | app            (extractApp appleft(List.rev app))
+infix7 : infix7 OP7 app
+            (opApp infix7left OP7left
+                   OP7 infix7 (extractApp appleft(List.rev app)))
+       | app                (extractApp appleft(List.rev app))
+       | infix7 OP7 primApp (opApp infix7left OP7left OP7 infix7 primApp)
+       | primApp            (primApp)
 
 app : simple     ([simple])
     | app simple (simple :: app)
+
+primApp : PRIM app (CST.PrimApp (PRIMleft, Primop.fromString PRIM,
+                                 Vector.fromList (List.rev app)))
 
 simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
