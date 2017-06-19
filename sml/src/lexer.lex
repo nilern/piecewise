@@ -1,3 +1,5 @@
+(* FIXME: [] in constituent *)
+
 structure Tokens = Tokens
 
 type pos = Pos.t
@@ -63,10 +65,10 @@ fun error (e, p, _) = TextIO.output(TextIO.stdOut, Pos.toString p ^ "\n")
 %header (functor PcwsLexFun(structure Tokens: Pcws_TOKENS));
 %arg (fileName : string);
 
-constituent = ([^\r\n\ \t'\"`\(\)\{\},\;]|\[|\]);
+constituent = [^\n\ \t'\"`\(\)\{\},\;];
 digit = [0-9];
 idchar = [a-zA-Z\$@_];
-opchar = [\.!%&\*\+\-\/\<=\>\?\\^\|~];
+opchar = [\.!%&\*\+\/\<=\>\?\\^\|~-];
 
 ws = [\r\ \t];
 
@@ -75,17 +77,6 @@ ws = [\r\ \t];
 {ws}+    => (incCol (size yytext); continue());
 # [^\n]* => (incCol (size yytext); continue());
 \n       => (incLine (); continue());
-
-{digit}{constituent}* => (Tokens.INT (advance yytext fileName));
-\" [^\"]* \"           =>
-    (Tokens.STRING (advanceMap stripQuotes yytext fileName));
-' [^\"]* '             =>
-    (Tokens.CHAR (advanceMap stripQuotes yytext fileName));
-
-"__"{constituent}*     => (Tokens.PRIM (advanceMap (drop 2) yytext fileName));
-\${constituent}*       => (Tokens.DYNID (advanceMap (drop 1) yytext fileName));
-{idchar}{constituent}* => (Tokens.LEXID (advance yytext fileName));
-{opchar}{constituent}* => (advanceOp yytext fileName);
 
 "="      => (Tokens.EQ (advance_ yytext fileName));
 "+="     => (Tokens.AUG (advance_ yytext fileName));
@@ -101,3 +92,14 @@ ws = [\r\ \t];
 
 ,        => (Tokens.COMMA (advance_ yytext fileName));
 \;       => (Tokens.SEMI (advance_ yytext fileName));
+
+{digit}{constituent}* => (Tokens.INT (advance yytext fileName));
+\" [^\"]* \"           =>
+    (Tokens.STRING (advanceMap stripQuotes yytext fileName));
+' [^\"]* '             =>
+    (Tokens.CHAR (advanceMap stripQuotes yytext fileName));
+
+"__"{constituent}*     => (Tokens.PRIM (advanceMap (drop 2) yytext fileName));
+\${constituent}*       => (Tokens.DYNID (advanceMap (drop 1) yytext fileName));
+{idchar}{constituent}* => (Tokens.LEXID (advance yytext fileName));
+{opchar}{constituent}* => (advanceOp yytext fileName);

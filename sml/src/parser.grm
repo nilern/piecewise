@@ -146,6 +146,12 @@ primApp : PRIM app (CST.PrimApp (PRIMleft, Primop.fromString PRIM,
 simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
          (extractBlock LBRACEleft (List.rev blockItemList))
+       | LBRACKET stmtList RBRACKET
+         (CST.Fn (LBRACKETleft,
+                  Vector.fromList [
+                      (Vector.fromList [], NONE,
+                       CST.Block (LBRACKETleft,
+                                 (Vector.fromList (List.rev stmtList))))]))
        | LEXID (CST.Var (LEXIDleft, Var.Lex (Name.Plain LEXID)))
        | DYNID (CST.Var (DYNIDleft, Var.Dyn (Name.Plain DYNID)))
        | datum (datum)
