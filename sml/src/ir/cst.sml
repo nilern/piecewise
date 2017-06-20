@@ -68,7 +68,9 @@ structure CST = struct
                         val rpats = VectorSlice.slice(pats, 1, NONE)
                         val patsDoc = VectorSlice.foldl step patDoc rpats
                         val condDoc = case cond
-                                      of SOME ce => PP.space ^^ exprToDoc ce
+                                      of SOME ce =>
+                                             PP.space ^^ PP.text "|" <+>
+                                                 exprToDoc ce
                                        | NONE => PP.empty
                         val bodyDoc = exprToDoc body
                     in

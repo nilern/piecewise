@@ -4,6 +4,16 @@ structure Name = struct
     datatype t = Plain of string
                | Unique of string * int
 
+    local val counter = ref 0
+    in
+        fun fresh cs =
+            let val i = !counter
+            in
+                counter := i + 1;
+                Unique (cs, i)
+            end
+    end
+
     fun toString (Plain cs) = cs
       | toString (Unique (cs, i)) = cs ^ Int.toString i
 

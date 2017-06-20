@@ -32,15 +32,16 @@ end = struct
             fun loop lexer =
                 let val (result, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
+                    val fcst = FlatCST.fromCST result
                 in
                     Vector.app
-                        (fn cst =>
-                            let val doc = CST.stmtToDoc cst
-                                val str = PPrint.pretty 80 doc
-                            in
-                                TextIO.output(TextIO.stdOut, str)
-                            end)
+                        (fn cst => TextIO.output(TextIO.stdOut,
+                                                 PPrint.pretty 80
+                                                     (CST.stmtToDoc cst)))
                         result;
+                    TextIO.output(TextIO.stdOut, "\n\n");
+                    TextIO.output(TextIO.stdOut,
+                                  PPrint.pretty 80 (FlatCST.toDoc fcst));
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
                     else loop lexer
