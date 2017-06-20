@@ -1,12 +1,16 @@
 local
     $(SML_LIB)/basis/basis.mlb
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
+    $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
+    util/vector_ext.sml
+    util/pprint.sml
     pos.sml
     ir/name.sml
     primop.sml
     ir/var.sml
     ir/const.sml
     ir/cst.sml
+    ir/flat_cst.sml
     parser.grm.sig
     parser.grm.sml
     lexer.lex.sml
