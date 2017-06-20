@@ -4,7 +4,8 @@ default: target/pcws
 target/pcws: target src/main.mlb src/main.sml \
 	         src/primop.sml src/pos.sml \
 			 src/ir/const.sml src/ir/var.sml src/ir/name.sml src/ir/cst.sml \
-	         src/parser.grm.sig src/parser.grm.sml src/lexer.lex.sml
+	         src/parser.grm.sig src/parser.grm.sml src/lexer.lex.sml \
+			 src/util/pprint.sml
 	mlton -output target/pcws src/main.mlb
 
 src/parser.grm.sig: src/parser.grm

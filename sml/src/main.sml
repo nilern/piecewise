@@ -35,8 +35,11 @@ end = struct
                 in
                     Vector.app
                         (fn cst =>
-                             TextIO.output(TextIO.stdOut,
-                                           CST.stmtToString cst ^ "\n"))
+                            let val doc = CST.stmtToDoc cst
+                                val str = PPrint.pretty 80 doc
+                            in
+                                TextIO.output(TextIO.stdOut, str)
+                            end)
                         result;
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
