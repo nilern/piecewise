@@ -14,6 +14,9 @@ structure Name = struct
             end
     end
 
+    fun chars (Plain cs) = cs
+      | chars (Unique (cs, _)) = cs
+
     fun toString (Plain cs) = cs
       | toString (Unique (cs, i)) = cs ^ Int.toString i
 
