@@ -1,10 +1,10 @@
-(* FIXME: Add Var.t variant for fn ptrs *)
+(* TODO: Add Var.t variant (or something like that) for fn ptrs *)
 
 (* Like CST, but alphatized and closure converted. *)
 structure FlatCST = struct
 
-structure StringSet = BinarySetFn(type ord_key = string
-                                  val compare = String.compare)
+structure NameSet = BinarySetFn(type ord_key = Name.t
+                                val compare = Name.compare)
 
 structure PP = PPrint
 val op^^ = PP.^^
@@ -18,17 +18,19 @@ structure Env :> sig
 
     val empty : t
     val pushFnFrame : t -> Name.t -> t
-    val pushCaseFrame : t -> StringSet.set -> t
-    val pushBlockFrame : t -> StringSet.set -> t
+    val pushCaseFrame : t -> NameSet.set -> t
+    val pushBlockFrame : t -> NameSet.set -> t
 
-    val find : t -> string -> res option
+    val find : t -> Name.t -> res option
     val self : t -> Name.t option
     val clovers : t -> Name.t vector option
+
+    val toString : t -> string
 end = struct
     structure Frame :> sig
         type fn_frame
         val ffName : fn_frame -> Name.t
-        val index : fn_frame -> string -> int
+        val index : fn_frame -> Name.t -> int
 
         type bindings
 
@@ -37,19 +39,21 @@ end = struct
                    | Block of bindings
 
         val newFn : Name.t -> t
-        val newCase : StringSet.set -> t
-        val newBlock : StringSet.set -> t
+        val newCase : NameSet.set -> t
+        val newBlock : NameSet.set -> t
 
-        val find : t -> string -> Name.t option
+        val find : t -> Name.t -> Name.t option
         val self : t -> Name.t option
-        val clovers : t -> string vector option
+        val clovers : t -> Name.t vector option
+
+        val toString : t -> string
     end = struct
-        structure Bindings = BinaryMapFn(type ord_key = string
-                                         val compare = String.compare)
+        structure Bindings = BinaryMapFn(type ord_key = Name.t
+                                         val compare = Name.compare)
         type bindings = Name.t Bindings.map
 
-        structure ClIndices = HashTableFn(type hash_key = string
-                                          val hashVal = HashString.hashString
+        structure ClIndices = HashTableFn(type hash_key = Name.t
+                                          val hashVal = Name.hash
                                           val sameKey = op=)
         type cl_indices = int ClIndices.hash_table
 
@@ -60,7 +64,7 @@ end = struct
 
         val ffName: fn_frame -> Name.t = #1
 
-        fun index (ff as (_, clis, counter)) key =
+        fun index (_, clis, counter) key =
             case ClIndices.find clis key
             of SOME i => i
              | NONE => let val i = !counter
@@ -72,16 +76,18 @@ end = struct
 
         local
             fun newBindings names =
-                StringSet.foldl (fn (name, bs) =>
-                                    Bindings.insert (bs, name, Name.fresh name))
-                                Bindings.empty names
+                NameSet.foldl (fn (name, bs) =>
+                                  let val name' = Name.fresh (Name.chars name)
+                                  in Bindings.insert (bs, name, name')
+                                  end)
+                              Bindings.empty names
         in
             fun newFn self = Fn (self, ClIndices.mkTable (0, Subscript), ref 0)
             fun newCase names = Case (newBindings names)
             fun newBlock names = Block (newBindings names)
         end
 
-        fun find (Fn _) _ = NONE
+        fun find (Fn (self, _, _)) key = if key = self then SOME self else NONE
           | find (Case bs) key = Bindings.find (bs, key)
           | find (Block bs) key = Bindings.find (bs, key)
 
@@ -90,13 +96,24 @@ end = struct
           | self (Block _) = NONE
 
         fun clovers (Fn (_, cis, _)) =
-            let val arr = Array.tabulate (ClIndices.numItems cis, fn _ => "")
+            let val arr = Array.tabulate (ClIndices.numItems cis,
+                                          fn _ => Name.Plain "")
             in
                 ClIndices.appi (fn (s, i) => Array.update (arr, i, s)) cis;
                 SOME (Array.vector arr)
             end
           | clovers (Case _) = NONE
           | clovers (Block _) = NONE
+
+        fun bindingsToString bs =
+            Bindings.foldli (fn (k, v, acc) =>
+                                acc ^ Name.toString k ^ ": " ^
+                                Name.toString v ^ ", ")
+                            "" bs
+
+        fun toString (Fn (self, _, _)) = "Fn " ^ Name.toString self
+          | toString (Case bs) = "Case " ^ bindingsToString bs
+          | toString (Block bs) = "Block " ^ bindingsToString bs
     end (* structure Frame *)
 
     type t = Frame.t list
@@ -123,7 +140,8 @@ end = struct
             in Option.map newClover (findName env key)
             end
     in
-        fun find (frame :: env') key =
+        fun find _ (key as Name.Unique _) = SOME (Direct key)
+          | find (frame :: env') key =
             (case Frame.find frame key
              of SOME name => SOME (Direct name)
               | NONE => (case frame
@@ -141,13 +159,16 @@ end = struct
 
     fun clovers (frame :: env') =
         (case Frame.clovers frame
-         of SOME cls => (* HACK: *)
-                SOME (Vector.map (resToName o Option.valOf o find env') cls)
+         of SOME cls => SOME cls
           | NONE => clovers env')
       | clovers [] = NONE
+
+    fun toString frames =
+        List.foldl (fn (f, acc) => acc ^ Frame.toString f ^ "\n") "" frames ^
+            "\n"
 end (* structure Env *)
 
-exception Unbound of Name.t
+exception Unbound of Pos.t * Name.t
 
 datatype expr = Block of Pos.t * stmt vector
               | App of Pos.t * expr * expr vector
@@ -236,23 +257,23 @@ fun procToDoc {name = name, clovers = clovers, cases = cases} =
             in
                 (patsDoc ^^ condDoc) <+> PP.text "=>" <+> bodyDoc
             end
-    in case Vector.length cases
-        of 1 => PP.braces (caseToDoc (Vector.sub (cases, 0)))
-         | _ => let fun step (cs, acc) =
-                            acc ^^ PP.semi <$> caseToDoc cs
-                    val caseDoc = caseToDoc (Vector.sub (cases, 0))
-                    val rcases = VectorSlice.slice(cases, 1, NONE)
-                    val caseDocs = VectorSlice.foldl step caseDoc rcases
-                in
-                    Name.toDoc name ^^
-                        PP.braces
-                            (Vector.foldl
-                                (fn (cl, acc) => acc <+> Name.toDoc cl)
-                                PP.empty clovers) <+>
-                            PP.text "=" <+> PP.lBrace ^^
+    in Name.toDoc name ^^
+           PP.braces
+               (Vector.foldl (fn (cl, acc) => acc <+> Name.toDoc cl)
+                             PP.empty clovers) <+>
+           PP.text "=" <+>
+               (case Vector.length cases
+                of 1 => PP.braces (caseToDoc (Vector.sub (cases, 0)))
+                 | _ => let fun step (cs, acc) =
+                                    acc ^^ PP.semi <$> caseToDoc cs
+                            val caseDoc = caseToDoc (Vector.sub (cases, 0))
+                            val rcases = VectorSlice.slice(cases, 1, NONE)
+                            val caseDocs = VectorSlice.foldl step caseDoc rcases
+                        in
+                            PP.lBrace ^^
                                 PP.nest 4 (PP.line ^^ caseDocs) ^^
-                                    PP.line ^^ PP.rBrace
-                end
+                                PP.line ^^ PP.rBrace
+                        end)
     end
 
 fun toDoc (prog : (stmt vector) program) =
@@ -262,30 +283,29 @@ fun toDoc (prog : (stmt vector) program) =
             stmtsToDoc (#main prog)
     end
 
-fun patBindings (CST.Const _) = StringSet.empty
-  | patBindings (CST.Var (_, Var.Lex name)) =
-    StringSet.singleton (Name.toString name)
+fun patBindings (CST.Const _) = NameSet.empty
+  | patBindings (CST.Var (_, Var.Lex name)) = NameSet.singleton name
 
 fun stmtBindings (CST.Def (pat, _)) = patBindings pat
   | stmtBindings (CST.AugDef (pat, _)) = patBindings pat
-  | stmtBindings (CST.Expr _) = StringSet.empty
+  | stmtBindings (CST.Expr _) = NameSet.empty
 
 fun stmtVecBindings stmts =
-    Vector.foldl (fn (stmt, acc) => StringSet.union (acc, stmtBindings stmt))
-                 StringSet.empty stmts
+    Vector.foldl (fn (stmt, acc) => NameSet.union (acc, stmtBindings stmt))
+                 NameSet.empty stmts
 
 fun elabPat env (CST.Const (pos, c)) = trivial (Const (pos, c))
   | elabPat env (CST.Var (pos, var as Var.Lex name)) =
-    trivial (case Env.find env (Name.toString name)
+    trivial (case Env.find env name
              of SOME (Env.Direct name) => Var (pos, Var.Lex name)
               | SOME (Env.Clover (self, i)) =>
                     PrimApp (pos, Primop.FnGet,
                              Vector.fromList [
                                  Var (pos, Var.Lex self),
                                  Const (pos, Const.Int (Int.toString i))])
-              | NONE => raise Unbound name)
+              | NONE => raise Unbound (pos, name))
 
-and elabExpr env (CST.Fn (pos, cases)) =
+and elabExpr env (e as CST.Fn (pos, cases)) =
     let val name = Name.fresh "f"
         val env' = Env.pushFnFrame env name
         val cprogs = Vector.map (elabCase env') cases
@@ -319,24 +339,25 @@ and elabExpr env (CST.Fn (pos, cases)) =
     end
   | elabExpr _ (CST.Const (pos, c)) = trivial (Const (pos, c))
   | elabExpr env (CST.Var (pos, var as Var.Lex name)) =
-    trivial (case Env.find env (Name.chars name)
+    trivial (case Env.find env name
              of SOME (Env.Direct name) => Var (pos, Var.Lex name)
               | SOME (Env.Clover (self, i)) =>
                     PrimApp (pos, Primop.FnGet,
                              Vector.fromList [
                                  Var (pos, Var.Lex self),
                                  Const (pos, Const.Int (Int.toString i))])
-              | NONE => raise Unbound name)
+              | NONE => raise Unbound (pos, name))
 
 and elabCase env (pats, cond, body) =
-    let fun step (pat, acc) = StringSet.union (acc, patBindings pat)
-        val env' = Env.pushCaseFrame env (Vector.foldl step StringSet.empty pats)
+    let val self = Option.valOf (Env.self env)
+        fun step (pat, acc) = NameSet.union (acc, patBindings pat)
+        val names = Vector.foldl step (NameSet.singleton self) pats
+        val env' = Env.pushCaseFrame env names
         val pprogs = Vector.map (elabPat env') pats
         val pprocs = VectorExt.flatMap #procs pprogs
         val pats' =
             VectorExt.prepend (Vector.map #main pprogs)
-                              (Var (Pos.def,
-                                    Var.Lex (Option.valOf (Env.self env))))
+                              (Var (Pos.def, Var.Lex self))
         val bodyProg = elabExpr env' body
     in
         case cond

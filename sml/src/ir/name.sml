@@ -2,7 +2,7 @@ structure Name = struct
     structure PP = PPrint
 
     datatype t = Plain of string
-               | Unique of string * int
+             | Unique of string * int
 
     local val counter = ref 0
     in
@@ -16,6 +16,18 @@ structure Name = struct
 
     fun chars (Plain cs) = cs
       | chars (Unique (cs, _)) = cs
+
+    fun compare (Plain cs, Plain cs') = String.compare (cs, cs')
+      | compare (Unique (cs, i), Unique (cs', i')) =
+        (case String.compare (cs, cs')
+         of EQUAL => Int.compare (i, i')
+          | ord => ord)
+      | compare (Unique _, Plain _) = GREATER
+      | compare (Plain _, Unique _) = LESS
+
+    fun hash (Plain cs) = HashString.hashString cs
+      | hash (Unique (cs, i)) =
+        Word.orb(HashString.hashString cs, Word.fromInt i)
 
     fun toString (Plain cs) = cs
       | toString (Unique (cs, i)) = cs ^ Int.toString i

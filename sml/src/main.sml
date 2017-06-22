@@ -32,7 +32,6 @@ end = struct
             fun loop lexer =
                 let val (result, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
-                    val fcst = FlatCST.fromCST result
                 in
                     Vector.app
                         (fn cst => TextIO.output(TextIO.stdOut,
@@ -40,14 +39,19 @@ end = struct
                                                      (CST.stmtToDoc cst)))
                         result;
                     TextIO.output(TextIO.stdOut, "\n\n");
-                    TextIO.output(TextIO.stdOut,
-                                  PPrint.pretty 80 (FlatCST.toDoc fcst));
+                    let val fcst = FlatCST.fromCST result
+                    in TextIO.output(TextIO.stdOut,
+                                     PPrint.pretty 80 (FlatCST.toDoc fcst))
+                    end;
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
                     else loop lexer
                 end
         in
             loop lexer
+            handle FlatCST.Unbound (pos, name) =>
+                       print ("Unbound name: " ^ Name.toString name ^
+                              " at " ^ Pos.toString pos ^ "\n")
         end
 end (* structure Parser *)
 

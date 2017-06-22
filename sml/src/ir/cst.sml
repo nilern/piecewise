@@ -1,3 +1,5 @@
+(* TODO: use plain strings instead of Name.t:s *)
+
 structure CST = struct
     structure PP = PPrint
     val op^^ = PP.^^
