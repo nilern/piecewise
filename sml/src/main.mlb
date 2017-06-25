@@ -9,7 +9,8 @@ local
     primop.sml
     ir/var.sml
     ir/const.sml
-    ir/cst.sml
+    ir/stmt0.sml
+    ir/cst0.sml
     ir/flat_cst.sml
     parser.grm.sig
     parser.grm.sml

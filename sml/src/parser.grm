@@ -1,12 +1,12 @@
-datatype blockItem = Clause of CST.expr vector * CST.stmt
-                   | Stmt of CST.stmt
+datatype blockItem = Clause of CST0.expr vector * CST0.stmt
+                   | Stmt of CST0.stmt
 
 fun opApp pos opPos opStr l r =
-        CST.App (pos, CST.Var (opPos, Var.Lex (Name.Plain opStr)),
+        CST0.App (pos, CST0.Var (opPos, Var.Lex (Name.Plain opStr)),
                  Vector.fromList [l, r])
 
 fun extractApp _ [e] = e
-  | extractApp pos (f::args) = CST.App (pos, f, Vector.fromList args)
+  | extractApp pos (f::args) = CST0.App (pos, f, Vector.fromList args)
   | extractApp _ [] = raise LrParser.ParseError
 
 fun extractBlock pos (items as (Clause _ :: _)) =
@@ -17,20 +17,20 @@ fun extractBlock pos (items as (Clause _ :: _)) =
             fun clauses (Clause(formals, stmt)::items) =
                     let val (stmts, items') = stmtSplit items
                     in (formals, NONE,
-                        CST.Block(CST.stmtPos stmt,
+                        CST0.Block(CST0.stmtPos stmt,
                                   Vector.fromList (stmt::stmts)))
                        ::clauses items end
               | clauses [] = []
               | clauses _ = raise LrParser.ParseError
-        in CST.Fn (pos, Vector.fromList (clauses items)) end
+        in CST0.Fn (pos, Vector.fromList (clauses items)) end
   | extractBlock pos (items as (Stmt _ :: _)) =
         let fun unwrapStmt (Stmt stmt) = stmt
               | unwrapStmt (Clause _) = raise LrParser.ParseError
-        in CST.Block(pos, Vector.map unwrapStmt (Vector.fromList items)) end
+        in CST0.Block(pos, Vector.map unwrapStmt (Vector.fromList items)) end
   | extractBlock _ [] = raise LrParser.ParseError
 
 fun applyNameRev pos name revExprs =
-        CST.App(pos, CST.Var(pos, Var.Lex (Name.Plain name)),
+        CST0.App(pos, CST0.Var(pos, Var.Lex (Name.Plain name)),
                 Vector.fromList (List.rev revExprs))
 
 %%
@@ -72,31 +72,31 @@ fun applyNameRev pos name revExprs =
 
     | EOF
 
-%nonterm program of CST.stmt vector
-       | stmt of CST.stmt
-       | expr of CST.expr
+%nonterm program of CST0.stmt vector
+       | stmt of CST0.stmt
+       | expr of CST0.expr
        | blockItem of blockItem
 
-       | infix0 of CST.expr
-       | infix1 of CST.expr
-       | infix2 of CST.expr
-       | infix3 of CST.expr
-       | infix4 of CST.expr
-       | infix5 of CST.expr
-       | infix6 of CST.expr
-       | infix7 of CST.expr
-       | app of CST.expr list
-       | primApp of CST.expr
-       | simple of CST.expr
+       | infix0 of CST0.expr
+       | infix1 of CST0.expr
+       | infix2 of CST0.expr
+       | infix3 of CST0.expr
+       | infix4 of CST0.expr
+       | infix5 of CST0.expr
+       | infix6 of CST0.expr
+       | infix7 of CST0.expr
+       | app of CST0.expr list
+       | primApp of CST0.expr
+       | simple of CST0.expr
 
-       | datum of CST.expr
-       | prim of CST.expr
-       | compound of CST.expr
+       | datum of CST0.expr
+       | prim of CST0.expr
+       | compound of CST0.expr
 
-       | exprList of CST.expr list
-       | exprListTwoPlus of CST.expr list
-       | mapPairs of (CST.expr * CST.expr) list
-       | stmtList of CST.stmt list
+       | exprList of CST0.expr list
+       | exprListTwoPlus of CST0.expr list
+       | mapPairs of (CST0.expr * CST0.expr) list
+       | stmtList of CST0.stmt list
        | blockItemList of blockItem list
 
 %eop EOF
@@ -106,9 +106,9 @@ fun applyNameRev pos name revExprs =
 
 program : stmtList (Vector.fromList (List.rev stmtList))
 
-stmt : expr EQ expr  (CST.Def (expr1, expr2))
-     | expr AUG expr (CST.AugDef (expr1, expr2))
-     | expr          (CST.Expr expr)
+stmt : expr EQ expr  (Stmt0.Def (expr1, expr2))
+     | expr AUG expr (Stmt0.AugDef (expr1, expr2))
+     | expr          (Stmt0.Expr expr)
 
 blockItem : app DARROW stmt (Clause (Vector.fromList (List.rev app), stmt))
         | stmt            (Stmt stmt)
@@ -140,28 +140,28 @@ infix7 : infix7 OP7 app
 app : simple     ([simple])
     | app simple (simple :: app)
 
-primApp : PRIM app (CST.PrimApp (PRIMleft, Primop.fromString PRIM,
+primApp : PRIM app (CST0.PrimApp (PRIMleft, Primop.fromString PRIM,
                                  Vector.fromList (List.rev app)))
 
 simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
          (extractBlock LBRACEleft (List.rev blockItemList))
        | LBRACKET stmtList RBRACKET
-         (CST.Fn (LBRACKETleft,
+         (CST0.Fn (LBRACKETleft,
                   Vector.fromList [
                       (Vector.fromList [], NONE,
-                       CST.Block (LBRACKETleft,
+                       CST0.Block (LBRACKETleft,
                                  (Vector.fromList (List.rev stmtList))))]))
-       | LEXID (CST.Var (LEXIDleft, Var.Lex (Name.Plain LEXID)))
-       | DYNID (CST.Var (DYNIDleft, Var.Dyn (Name.Plain DYNID)))
+       | LEXID (CST0.Var (LEXIDleft, Var.Lex (Name.Plain LEXID)))
+       | DYNID (CST0.Var (DYNIDleft, Var.Dyn (Name.Plain DYNID)))
        | datum (datum)
 
 datum : prim     (prim)
       | compound (compound)
 
-prim : INT    (CST.Const (INTleft, Const.Int INT))
-     | STRING (CST.Const (STRINGleft, Const.String STRING))
-     | CHAR   (CST.Const (CHARleft, Const.Char CHAR))
+prim : INT    (CST0.Const (INTleft, Const.Int INT))
+     | STRING (CST0.Const (STRINGleft, Const.String STRING))
+     | CHAR   (CST0.Const (CHARleft, Const.Char CHAR))
 
 compound : LPAREN exprList RPAREN (applyNameRev LPARENleft "tuple" exprList)
          | LBRACKET exprList RBRACKET
@@ -171,7 +171,7 @@ compound : LPAREN exprList RPAREN (applyNameRev LPARENleft "tuple" exprList)
            (let val pos = LBRACEleft
                 val args = List.foldl (fn ((k, v), acc) => k::v::acc)
                                       [] mapPairs
-            in CST.App(pos, CST.Var(pos, Var.Lex (Name.Plain "hashMap")),
+            in CST0.App(pos, CST0.Var(pos, Var.Lex (Name.Plain "hashMap")),
                        Vector.fromList args) end)
 
 exprList :                 ([])

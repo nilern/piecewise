@@ -1,6 +1,6 @@
 (* TODO: use plain strings instead of Name.t:s *)
 
-structure CST = struct
+structure CST0 = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
@@ -12,12 +12,8 @@ structure CST = struct
                   | PrimApp of Pos.t * Primop.t * expr vector
                   | Var of Pos.t * Var.t
                   | Const of Pos.t * Const.t
-
-    and stmt = Def of expr * expr
-             | AugDef of expr * expr
-             | Expr of expr
-
-    withtype fnCase = expr vector * expr option * expr
+    withtype stmt = expr Stmt0.t
+    and fnCase = expr vector * expr option * expr
 
     fun exprPos (Fn (pos, _)) = pos
       | exprPos (Block (pos, _)) = pos
@@ -26,9 +22,7 @@ structure CST = struct
       | exprPos (Var (pos, _)) = pos
       | exprPos (Const (pos, _)) = pos
 
-    fun stmtPos (Def (pat, _)) = exprPos pat
-      | stmtPos (AugDef (pat, _)) = exprPos pat
-      | stmtPos (Expr expr) = exprPos expr
+    val stmtPos = Stmt0.pos exprPos
 
     fun exprToString (Fn (_, cases)) =
             Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ caseToString c)
@@ -49,11 +43,7 @@ structure CST = struct
       | exprToString (Var (_, v)) = Var.toString v
       | exprToString (Const (_, c)) = Const.toString c
 
-    and stmtToString (Def (pat, expr)) =
-          exprToString pat ^ " = " ^ exprToString expr
-      | stmtToString (AugDef (pat, expr)) =
-            exprToString pat ^ " += " ^ exprToString expr
-      | stmtToString (Expr expr) = exprToString expr
+    and stmtToString stmt = Stmt0.toString exprToString stmt
 
     and caseToString (pats, SOME cond, body) =
             Vector.foldl (fn (pat, acc) => acc ^ " " ^ exprToString pat)
@@ -116,9 +106,5 @@ structure CST = struct
             end
       | exprToDoc (Var (_, v)) = Var.toDoc v
       | exprToDoc (Const (_, c)) = Const.toDoc c
-    and stmtToDoc (Def (pat, expr)) =
-            exprToDoc pat <+> PP.text "=" <+> exprToDoc expr
-      | stmtToDoc (AugDef (pat, expr)) =
-            exprToDoc pat <+> PP.text "+=" <+> exprToDoc expr
-      | stmtToDoc (Expr expr) = exprToDoc expr
+    and stmtToDoc stmt = Stmt0.toDoc exprToDoc stmt
 end

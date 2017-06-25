@@ -36,12 +36,12 @@ end = struct
                     Vector.app
                         (fn cst => TextIO.output(TextIO.stdOut,
                                                  PPrint.pretty 80
-                                                     (CST.stmtToDoc cst)))
+                                                     (CST0.stmtToDoc cst)))
                         result;
                     TextIO.output(TextIO.stdOut, "\n\n");
-                    let val fcst = FlatCST.fromCST result
+                    let val fcst = FlatCST0.fromCST0 result
                     in TextIO.output(TextIO.stdOut,
-                                     PPrint.pretty 80 (FlatCST.toDoc fcst))
+                                     PPrint.pretty 80 (FlatCST0.toDoc fcst))
                     end;
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -49,7 +49,7 @@ end = struct
                 end
         in
             loop lexer
-            handle FlatCST.Unbound (pos, name) =>
+            handle FlatCST0.Unbound (pos, name) =>
                        print ("Unbound name: " ^ Name.toString name ^
                               " at " ^ Pos.toString pos ^ "\n")
         end
