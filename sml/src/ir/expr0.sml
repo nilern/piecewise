@@ -9,8 +9,6 @@ structure Expr0 :> sig
 
     val pos : ('expr, 'stmt) t -> Pos.t
 
-    val toString : ('e -> string) -> ('s -> string) -> ('e, 's) t -> string
-
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t
               -> PPrint.doc
 end = struct
@@ -33,34 +31,6 @@ end = struct
       | pos (PrimApp (pos, _, _)) = pos
       | pos (Var (pos, _)) = pos
       | pos (Const (pos, _)) = pos
-
-    fun toString toString' _ (Fn (_, cases)) =
-        let fun caseToString (pats, SOME cond, body) =
-                Vector.foldl (fn (pat, acc) => acc ^ " " ^ toString' pat)
-                             "" pats ^ " | " ^ toString' cond ^
-                             " => " ^ toString' body
-              | caseToString (pats, NONE, body) =
-                Vector.foldl (fn (pat, acc) => acc ^ " " ^ toString' pat)
-                             "" pats ^ " => " ^ toString' body
-        in
-            Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ caseToString c)
-                         "{" cases ^ "}"
-        end
-      | toString _ stmtToString (Block (_, stmts)) =
-        Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ stmtToString c)
-                     "{" stmts ^ "}"
-      | toString toString' _ (App (_, f, args)) =
-        "(" ^
-            Vector.foldl (fn (arg, acc) => acc ^ " " ^ toString' arg)
-                         (toString' f) args ^
-            ")"
-      | toString toString' _ (PrimApp (_, opp, args)) =
-        "(" ^
-            Vector.foldl (fn (arg, acc) => acc ^ " " ^ toString' arg)
-                         (Primop.toString opp) args ^
-            ")"
-      | toString _ _ (Var (_, v)) = Var.toString v
-      | toString _ _ (Const (_, c)) = Const.toString c
 
     fun toDoc toDoc' _ (Fn (_, cases)) =
         let fun caseToDoc (pats, cond, body) =

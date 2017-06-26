@@ -7,11 +7,6 @@ structure Primop = struct
       | fromString "fnPtr" = FnPtr
       | fromString "fnGet" = FnGet
 
-    fun toString IAdd = "__iadd"
-      | toString Close = "__close"
-      | toString FnPtr = "__fnPtr"
-      | toString FnGet = "__fnGet"
-
     fun toDoc IAdd = PP.text "__iadd"
       | toDoc Close = PP.text "__close"
       | toDoc FnPtr = PP.text "__fnPtr"
