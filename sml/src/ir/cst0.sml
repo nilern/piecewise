@@ -4,6 +4,9 @@ structure CST0 :> sig
     datatype expr = FixE of (expr, stmt) Expr0.t
     and stmt = FixS of expr Stmt0.t
 
+    val wrapE : (expr, stmt) Expr0.t -> expr
+    val wrapS : expr Stmt0.t -> stmt
+
     val unwrapE : expr -> (expr, stmt) Expr0.t
     val unwrapS : stmt -> expr Stmt0.t
 
@@ -15,6 +18,9 @@ structure CST0 :> sig
 end = struct
     datatype expr = FixE of (expr, stmt) Expr0.t
     and stmt = FixS of expr Stmt0.t
+
+    val wrapE = FixE
+    val wrapS = FixS
 
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt

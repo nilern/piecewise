@@ -39,9 +39,9 @@ end = struct
                                                      (CST0.stmtToDoc cst)))
                         result;
                     TextIO.output(TextIO.stdOut, "\n\n");
-                    let val fcst = FlatCST0.fromCST0 result
+                    let val fcst = LexFlatten.flatten result
                     in TextIO.output(TextIO.stdOut,
-                                     PPrint.pretty 80 (FlatCST0.toDoc fcst))
+                                     PPrint.pretty 80 (FlatCST.toDoc fcst))
                     end;
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -49,7 +49,7 @@ end = struct
                 end
         in
             loop lexer
-            handle FlatCST0.Unbound (pos, name) =>
+            handle LexFlatten.Unbound (pos, name) =>
                        print ("Unbound name: " ^ Name.toString name ^
                               " at " ^ Pos.toString pos ^ "\n")
         end
