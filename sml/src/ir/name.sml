@@ -10,7 +10,7 @@ structure Name = struct
             let val i = !counter
             in
                 counter := i + 1;
-                Unique (cs, i)
+                Unique (StringName.toString cs, i)
             end
     end
 
@@ -28,6 +28,8 @@ structure Name = struct
     fun hash (Plain cs) = HashString.hashString cs
       | hash (Unique (cs, i)) =
         Word.orb(HashString.hashString cs, Word.fromInt i)
+
+    fun fromString cs = Plain cs
 
     fun toString (Plain cs) = cs
       | toString (Unique (cs, i)) = cs ^ Int.toString i

@@ -1,11 +1,13 @@
 structure LexFlatten :> sig
-exception Unbound of Pos.t * Name.t
+exception Unbound of Pos.t * StringName.t
 
 val flatten : CST0.stmt vector -> FlatCST.stmt vector FlatCST.program
 end = struct
 
-structure NameSet = BinarySetFn(type ord_key = Name.t
-                                val compare = Name.compare)
+structure Name0Set: ORD_SET where type Key.ord_key = Expr0.Var.Name.t =
+    BinarySetFn(type ord_key = Expr0.Var.Name.t
+                val compare = Expr0.Var.Name.compare)
+structure Var = Expr1.Var
 val wrapE = FlatCST.wrapE
 val wrapS = FlatCST.wrapS
 val trivial = FlatCST.trivial
@@ -21,12 +23,13 @@ structure Env :> sig
                  | Clover of Name.t * int
 
     val empty : t
-    val pushFnFrame : t -> Name.t -> t
-    val pushCaseFrame : t -> NameSet.set -> t
-    val pushBlockFrame : t -> NameSet.set -> t
+    val pushFnFrame : t -> StringName.t -> t
+    val pushCaseFrame : t -> Name0Set.set -> t
+    val pushBlockFrame : t -> Name0Set.set -> t
 
-    val find : t -> Name.t -> res option
+    val find : t -> StringName.t -> res option
     val self : t -> Name.t option
+    val self0 : t -> StringName.t option
     val clovers : t -> Name.t vector option
 
     val toString : t -> string
@@ -42,18 +45,19 @@ end = struct
                    | Case of bindings
                    | Block of bindings
 
-        val newFn : Name.t -> t
-        val newCase : NameSet.set -> t
-        val newBlock : NameSet.set -> t
+        val newFn : StringName.t -> t
+        val newCase : Name0Set.set -> t
+        val newBlock : Name0Set.set -> t
 
-        val find : t -> Name.t -> Name.t option
+        val find : t -> StringName.t -> Name.t option
         val self : t -> Name.t option
+        val self0 : t -> StringName.t option
         val clovers : t -> Name.t vector option
 
         val toString : t -> string
     end = struct
-        structure Bindings = BinaryMapFn(type ord_key = Name.t
-                                         val compare = Name.compare)
+        structure Bindings = BinaryMapFn(type ord_key = StringName.t
+                                         val compare = StringName.compare)
         type bindings = Name.t Bindings.map
 
         structure ClIndices = HashTableFn(type hash_key = Name.t
@@ -61,14 +65,14 @@ end = struct
                                           val sameKey = op=)
         type cl_indices = int ClIndices.hash_table
 
-        type fn_frame = Name.t * cl_indices * int ref
+        type fn_frame = StringName.t * Name.t * cl_indices * int ref
         datatype t = Fn of fn_frame
                    | Case of bindings
                    | Block of bindings
 
-        val ffName: fn_frame -> Name.t = #1
+        val ffName: fn_frame -> Name.t = #2
 
-        fun index (_, clis, counter) key =
+        fun index (_, _, clis, counter) key =
             case ClIndices.find clis key
             of SOME i => i
              | NONE => let val i = !counter
@@ -80,26 +84,32 @@ end = struct
 
         local
             fun newBindings names =
-                NameSet.foldl (fn (name, bs) =>
-                                  let val name' = Name.fresh (Name.chars name)
-                                  in Bindings.insert (bs, name, name')
-                                  end)
-                              Bindings.empty names
+                Name0Set.foldl (fn (name, bs) =>
+                                    Bindings.insert (bs, name, Name.fresh name))
+                                Bindings.empty names
         in
-            fun newFn self = Fn (self, ClIndices.mkTable (0, Subscript), ref 0)
+            fun newFn self = Fn ( self
+                                , Name.fresh self
+                                , ClIndices.mkTable (0, Subscript)
+                                , ref 0 )
             fun newCase names = Case (newBindings names)
             fun newBlock names = Block (newBindings names)
         end
 
-        fun find (Fn (self, _, _)) key = if key = self then SOME self else NONE
+        fun find (Fn (selfStr, self, _, _)) key =
+            if key = selfStr then SOME self else NONE
           | find (Case bs) key = Bindings.find (bs, key)
           | find (Block bs) key = Bindings.find (bs, key)
 
-        fun self (Fn (s, _, _)) = SOME s
+        fun self (Fn (_, s, _, _)) = SOME s
           | self (Case _) = NONE
           | self (Block _) = NONE
 
-        fun clovers (Fn (_, cis, _)) =
+        fun self0 (Fn (s, _, _, _)) = SOME s
+          | self0 (Case _) = NONE
+          | self0 (Block _) = NONE
+
+        fun clovers (Fn (_, _, cis, _)) =
             let val arr = Array.tabulate (ClIndices.numItems cis,
                                           fn _ => Name.Plain "")
             in
@@ -111,11 +121,11 @@ end = struct
 
         fun bindingsToString bs =
             Bindings.foldli (fn (k, v, acc) =>
-                                acc ^ Name.toString k ^ ": " ^
-                                Name.toString v ^ ", ")
+                                acc ^ StringName.toString k ^ ": " ^
+                                    Name.toString v ^ ", ")
                             "" bs
 
-        fun toString (Fn (self, _, _)) = "Fn " ^ Name.toString self
+        fun toString (Fn (_, self, _, _)) = "Fn " ^ Name.toString self
           | toString (Case bs) = "Case " ^ bindingsToString bs
           | toString (Block bs) = "Block " ^ bindingsToString bs
     end (* structure Frame *)
@@ -139,13 +149,12 @@ end = struct
               | NONE => findName env' key)
           | findName [] _ = NONE
         fun findClover caller env key =
-            let fun newClover _ =
-                    Clover (Frame.ffName caller, Frame.index caller key)
+            let fun newClover name =
+                    Clover (Frame.ffName caller, Frame.index caller name)
             in Option.map newClover (findName env key)
             end
     in
-        fun find _ (key as Name.Unique _) = SOME (Direct key)
-          | find (frame :: env') key =
+        fun find (frame :: env') key =
             (case Frame.find frame key
              of SOME name => SOME (Direct name)
               | NONE => (case frame
@@ -161,6 +170,12 @@ end = struct
           | NONE => self env')
       | self [] = NONE
 
+    fun self0 (frame :: env') =
+        (case Frame.self0 frame
+         of SOME s => SOME s
+          | NONE => self0 env')
+      | self0 [] = NONE
+
     fun clovers (frame :: env') =
         (case Frame.clovers frame
          of SOME cls => SOME cls
@@ -172,24 +187,24 @@ end = struct
             "\n"
 end (* structure Env *)
 
-exception Unbound of Pos.t * Name.t
+exception Unbound of Pos.t * StringName.t
 
-fun patBindings (CST0.FixE (Expr0.Const _)) = NameSet.empty
-  | patBindings (CST0.FixE (Expr0.Var (_, Var.Lex name))) =
-    NameSet.singleton name
+fun patBindings (CST0.FixE (Expr0.Const _)) = Name0Set.empty
+  | patBindings (CST0.FixE (Expr0.Var (_, Expr0.Var.Lex name))) =
+    Name0Set.singleton name
 
 fun stmtBindings (CST0.FixS (Stmt0.Def (pat, _))) = patBindings pat
   | stmtBindings (CST0.FixS (Stmt0.AugDef (pat, _))) = patBindings pat
-  | stmtBindings (CST0.FixS (Stmt0.Expr _)) = NameSet.empty
+  | stmtBindings (CST0.FixS (Stmt0.Expr _)) = Name0Set.empty
 
 fun stmtVecBindings stmts =
-    Vector.foldl (fn (stmt, acc) => NameSet.union (acc, stmtBindings stmt))
-                 NameSet.empty stmts
+    Vector.foldl (fn (stmt, acc) => Name0Set.union (acc, stmtBindings stmt))
+                 Name0Set.empty stmts
 
 fun elabPat env (CST0.FixE expr) =
     case expr
     of Expr0.Const (pos, c) => trivialE (Expr1.Const (pos, c))
-     | Expr0.Var (pos, var as Var.Lex name) =>
+     | Expr0.Var (pos, var as Expr0.Var.Lex name) =>
        trivialE (case Env.find env name
                  of SOME (Env.Direct name) => Expr1.Var (pos, Var.Lex name)
                   | SOME (Env.Clover (self, i)) =>
@@ -202,8 +217,8 @@ fun elabPat env (CST0.FixE expr) =
 and elabExpr env (CST0.FixE expr) =
     case expr
     of Expr0.Fn (pos, cases) =>
-       let val name = Name.fresh "f"
-           val env' = Env.pushFnFrame env name
+       let val env' = Env.pushFnFrame env (StringName.fromString "f")
+           val name = Option.valOf (Env.self env')
            val cprogs = Vector.map (elabCase env') cases
            val cprocs = VectorExt.flatMap #procs cprogs
            val cases' = Vector.map #main cprogs
@@ -211,9 +226,13 @@ and elabExpr env (CST0.FixE expr) =
            val procs = VectorExt.conj cprocs { name = name
                                              , clovers = clovers
                                              , cases = cases' }
-           val cexprs =
-               Vector.map (fn name => CST0.wrapE (Expr0.Var (pos,
-                                                            Var.Lex name)))
+           val cexprs = (* HACK *)
+               Vector.map (fn name =>
+                              CST0.wrapE
+                                  (Expr0.Var (pos,
+                                              Expr0.Var.Lex
+                                                  (StringName.fromString
+                                                      (Name.chars name)))))
                           clovers
            val close =
                elabExpr env (CST0.wrapE (Expr0.PrimApp (pos, Primop.Close,
@@ -222,7 +241,7 @@ and elabExpr env (CST0.FixE expr) =
                         of FlatCST.FixE (Expr1.PrimApp (pos, Primop.Close, cexprs)) =>
                            wrapE (Expr1.PrimApp (pos, Primop.Close,
                                     VectorExt.prepend
-                                             cexprs (wrapE (Expr1.Var (pos, Var.Lex name)))))
+                                             cexprs (wrapE (Expr1.Var (pos, Expr1.Var.Lex name)))))
                          | _ => raise Fail "unreachable"
        in { procs = procs , main = close' }
        end
@@ -239,7 +258,7 @@ and elabExpr env (CST0.FixE expr) =
        in append makePrimApp (trivial po) (map (elabExpr env) args)
        end
      | Expr0.Const (pos, c) => trivialE (Expr1.Const (pos, c))
-     | Expr0.Var (pos, var as Var.Lex name) =>
+     | Expr0.Var (pos, var as Expr0.Var.Lex name) =>
        trivialE (case Env.find env name
                 of SOME (Env.Direct name) => Expr1.Var (pos, Var.Lex name)
                  | SOME (Env.Clover (self, i)) =>
@@ -251,14 +270,15 @@ and elabExpr env (CST0.FixE expr) =
 
 and elabCase env (pats, cond, body) =
     let val self = Option.valOf (Env.self env)
-        fun step (pat, acc) = NameSet.union (acc, patBindings pat)
-        val names = Vector.foldl step (NameSet.singleton self) pats
+        val self0 = Option.valOf (Env.self0 env)
+        fun step (pat, acc) = Name0Set.union (acc, patBindings pat)
+        val names = Vector.foldl step (Name0Set.singleton self0) pats
         val env' = Env.pushCaseFrame env names
         val pprogs = Vector.map (elabPat env') pats
         val pprocs = VectorExt.flatMap #procs pprogs
         val pats' =
             VectorExt.prepend (Vector.map #main pprogs)
-                              (wrapE (Expr1.Var (Pos.def, Var.Lex self)))
+                              (wrapE (Expr1.Var (Pos.def, Expr1.Var.Lex self)))
         val bodyProg = elabExpr env' body
     in
         case cond

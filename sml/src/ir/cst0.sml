@@ -1,5 +1,3 @@
-(* TODO: use plain strings instead of Name.t:s *)
-
 structure CST0 :> sig
     datatype expr = FixE of (expr, stmt) Expr0.t
     and stmt = FixS of expr Stmt0.t

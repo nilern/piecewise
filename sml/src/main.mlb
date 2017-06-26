@@ -5,6 +5,8 @@ local
     util/vector_ext.sml
     util/pprint.sml
     pos.sml
+    ir/name.sig
+    ir/string_name.sml
     ir/name.sml
     primop.sml
     ir/var.sml

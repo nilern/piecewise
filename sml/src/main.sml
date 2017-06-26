@@ -50,7 +50,7 @@ end = struct
         in
             loop lexer
             handle LexFlatten.Unbound (pos, name) =>
-                       print ("Unbound name: " ^ Name.toString name ^
+                       print ("Unbound name: " ^ StringName.toString name ^
                               " at " ^ Pos.toString pos ^ "\n")
         end
 end (* structure Parser *)
