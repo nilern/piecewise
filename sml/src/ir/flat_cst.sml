@@ -170,16 +170,10 @@ end (* structure Env *)
 
 exception Unbound of Pos.t * Name.t
 
-datatype expr = Block of Pos.t * stmt vector
-              | App of Pos.t * expr * expr vector
-              | PrimApp of Pos.t * Primop.t * expr vector
-              | Var of Pos.t * Var.t
-              | Const of Pos.t * Const.t
-and stmt = Def of expr * expr
-         | AugDef of expr * expr
-         | Expr of expr
+datatype expr = FixE of (expr, stmt) Expr1.t
+and stmt = FixS of expr Stmt0.t
 
-withtype procCase = expr vector * expr option * expr
+type procCase = expr vector * expr option * expr
 
 type proc = { name: Name.t
             , clovers: Name.t vector
@@ -187,6 +181,13 @@ type proc = { name: Name.t
 
 type 'a program = { procs: proc vector, main: 'a }
 
+val wrapE = FixE
+val wrapS = FixS
+
+fun unwrapE (FixE expr) = expr
+fun unwrapS (FixS stmt) = stmt
+
+fun trivialE v = { procs = VectorExt.empty (), main = wrapE v }
 fun trivial v = { procs = VectorExt.empty (), main = v }
 
 fun mapMain f prog = { procs = #procs prog, main = f (#main prog)}
@@ -209,31 +210,10 @@ fun flatMap f vs =
         , main = VectorExt.flatMap #main vs' }
     end
 
-fun exprToDoc (Block (_, stmts)) =
-    (case Vector.length stmts
-     of 1 => PP.braces (stmtsToDoc stmts)
-      | _ => PP.lBrace ^^ PP.nest 4 (PP.line ^^ stmtsToDoc stmts) ^^
-                 PP.line ^^ PP.rBrace)
-  | exprToDoc (App (_, f, args)) =
-    let fun step (arg, acc) = acc <+> exprToDoc arg
-        val argDocs = Vector.foldl step (exprToDoc f) args
-    in
-        PP.parens (PP.align argDocs)
-    end
-  | exprToDoc (PrimApp (_, po, args)) =
-    let fun step (arg, acc) = acc <+> exprToDoc arg
-        val argDocs = Vector.foldl step (Primop.toDoc po) args
-    in
-        PP.parens (PP.align argDocs)
-    end
-  | exprToDoc (Var (_, v)) = Var.toDoc v
-  | exprToDoc (Const (_, c)) = Const.toDoc c
-and stmtToDoc (Def (pat, expr)) =
-    exprToDoc pat <+> PP.text "=" <+> exprToDoc expr
-  | stmtToDoc (AugDef (pat, expr)) =
-    exprToDoc pat <+> PP.text "+=" <+> exprToDoc expr
-  | stmtToDoc (Expr expr) = exprToDoc expr
-and stmtsToDoc stmts =
+fun exprToDoc expr = Expr1.toDoc exprToDoc stmtToDoc (unwrapE expr)
+and stmtToDoc stmt = Stmt0.toDoc exprToDoc (unwrapS stmt)
+
+fun stmtsToDoc stmts =
     (case Vector.length stmts
      of 1 => stmtToDoc (Vector.sub (stmts, 0))
       | _ => let fun step (stmt, acc) =
@@ -297,15 +277,15 @@ fun stmtVecBindings stmts =
 
 fun elabPat env (CST0.FixE expr) =
     case expr
-    of Expr0.Const (pos, c) => trivial (Const (pos, c))
+    of Expr0.Const (pos, c) => trivialE (Expr1.Const (pos, c))
      | Expr0.Var (pos, var as Var.Lex name) =>
-       trivial (case Env.find env name
-                of SOME (Env.Direct name) => Var (pos, Var.Lex name)
-                 | SOME (Env.Clover (self, i)) =>
-                       PrimApp (pos, Primop.FnGet,
-                                Vector.fromList [
-                                    Var (pos, Var.Lex self),
-                                    Const (pos, Const.Int (Int.toString i))])
+       trivialE (case Env.find env name
+                 of SOME (Env.Direct name) => Expr1.Var (pos, Var.Lex name)
+                  | SOME (Env.Clover (self, i)) =>
+                       Expr1.PrimApp (pos, Primop.FnGet,
+                            Vector.fromList [
+                                    wrapE (Expr1.Var (pos, Var.Lex self)),
+                                    wrapE (Expr1.Const (pos, Const.Int (Int.toString i)))])
                  | NONE => raise Unbound (pos, name))
 
 and elabExpr env (CST0.FixE expr) =
@@ -328,34 +308,34 @@ and elabExpr env (CST0.FixE expr) =
                elabExpr env (CST0.FixE (Expr0.PrimApp (pos, Primop.Close,
                                                        cexprs)))
            val close' = case #main close (* HACK *)
-                        of PrimApp (pos, Primop.Close, cexprs) =>
-                           PrimApp (pos, Primop.Close,
+                        of FixE (Expr1.PrimApp (pos, Primop.Close, cexprs)) =>
+                           wrapE (Expr1.PrimApp (pos, Primop.Close,
                                     VectorExt.prepend
-                                             cexprs (Var (pos, Var.Lex name)))
+                                             cexprs (wrapE (Expr1.Var (pos, Var.Lex name)))))
                          | _ => raise Fail "unreachable"
        in { procs = procs , main = close' }
        end
      | Expr0.Block (pos, stmts) =>
-       mapMain (fn stmts => Block (pos, stmts)) (elabStmts env stmts)
+       mapMain (fn stmts => wrapE (Expr1.Block (pos, stmts))) (elabStmts env stmts)
      | Expr0.App (pos, f, args) =>
-       let fun makeApp f args = App (pos, PrimApp (pos, Primop.FnPtr,
-                                     VectorExt.singleton f),
-                                     VectorExt.prepend args f)
+       let fun makeApp f args = wrapE (Expr1.App (pos, wrapE (Expr1.PrimApp (pos, Primop.FnPtr,
+                                     VectorExt.singleton f)),
+                                     VectorExt.prepend args f))
        in append makeApp (elabExpr env f) (map (elabExpr env) args)
        end
      | Expr0.PrimApp (pos, po, args) =>
-       let fun makePrimApp po args = PrimApp (pos, po, args)
+       let fun makePrimApp po args = wrapE (Expr1.PrimApp (pos, po, args))
        in append makePrimApp (trivial po) (map (elabExpr env) args)
        end
-     | Expr0.Const (pos, c) => trivial (Const (pos, c))
+     | Expr0.Const (pos, c) => trivialE (Expr1.Const (pos, c))
      | Expr0.Var (pos, var as Var.Lex name) =>
-       trivial (case Env.find env name
-                of SOME (Env.Direct name) => Var (pos, Var.Lex name)
+       trivialE (case Env.find env name
+                of SOME (Env.Direct name) => Expr1.Var (pos, Var.Lex name)
                  | SOME (Env.Clover (self, i)) =>
-                       PrimApp (pos, Primop.FnGet,
-                                Vector.fromList [
-                                    Var (pos, Var.Lex self),
-                                    Const (pos, Const.Int (Int.toString i))])
+                   Expr1.PrimApp (pos, Primop.FnGet,
+                            Vector.fromList [
+                                wrapE (Expr1.Var (pos, Var.Lex self)),
+                                wrapE (Expr1.Const (pos, Const.Int (Int.toString i)))])
                  | NONE => raise Unbound (pos, name))
 
 and elabCase env (pats, cond, body) =
@@ -367,7 +347,7 @@ and elabCase env (pats, cond, body) =
         val pprocs = VectorExt.flatMap #procs pprogs
         val pats' =
             VectorExt.prepend (Vector.map #main pprogs)
-                              (Var (Pos.def, Var.Lex self))
+                              (wrapE (Expr1.Var (Pos.def, Var.Lex self)))
         val bodyProg = elabExpr env' body
     in
         case cond
@@ -385,15 +365,17 @@ and elabCase env (pats, cond, body) =
 and elabStmt env (CST0.FixS stmt) =
     case stmt
     of Stmt0.Def (pat, expr) =>
-       let fun makeMain pat expr = Vector.fromList [Def (pat, expr)]
+       let fun makeMain pat expr =
+               Vector.fromList [wrapS (Stmt0.Def (pat, expr))]
        in append makeMain (elabPat env pat) (elabExpr env expr)
        end
      | Stmt0.AugDef (pat, expr) =>
-       let fun makeMain pat expr = Vector.fromList [AugDef (pat, expr)]
+       let fun makeMain pat expr =
+               Vector.fromList [wrapS (Stmt0.AugDef (pat, expr))]
        in append makeMain (elabPat env pat) (elabExpr env expr)
        end
      | Stmt0.Expr expr =>
-       mapMain (VectorExt.singleton o Expr) (elabExpr env expr)
+       mapMain (VectorExt.singleton o wrapS o Stmt0.Expr) (elabExpr env expr)
 and elabStmts env stmts =
     let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
     in flatMap (elabStmt env') stmts
