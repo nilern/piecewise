@@ -1,4 +1,14 @@
-structure Stmt0 = struct
+structure Stmt0 :> sig
+    datatype 'expr t = Def of 'expr * 'expr
+                     | AugDef of 'expr * 'expr
+                     | Expr of 'expr
+
+    val pos : ('e -> Pos.t) -> 'e t -> Pos.t
+
+    val toString : ('e -> string) -> 'e t -> string
+
+    val toDoc : ('e -> PPrint.doc) -> 'e t -> PPrint.doc
+end = struct
     structure PP = PPrint
     val op<+> = PP.<+>
 

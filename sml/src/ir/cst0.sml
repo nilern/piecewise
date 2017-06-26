@@ -1,110 +1,34 @@
 (* TODO: use plain strings instead of Name.t:s *)
 
-structure CST0 = struct
-    structure PP = PPrint
-    val op^^ = PP.^^
-    val op<+> = PP.<+>
-    val op<$> = PP.<$>
+structure CST0 :> sig
+    datatype expr = FixE of (expr, stmt) Expr0.t
+    and stmt = FixS of expr Stmt0.t
 
-    datatype expr = Fn of Pos.t * fnCase vector
-                  | Block of Pos.t * stmt vector
-                  | App of Pos.t * expr * expr vector
-                  | PrimApp of Pos.t * Primop.t * expr vector
-                  | Var of Pos.t * Var.t
-                  | Const of Pos.t * Const.t
-    withtype stmt = expr Stmt0.t
-    and fnCase = expr vector * expr option * expr
+    val unwrapE : expr -> (expr, stmt) Expr0.t
+    val unwrapS : stmt -> expr Stmt0.t
 
-    fun exprPos (Fn (pos, _)) = pos
-      | exprPos (Block (pos, _)) = pos
-      | exprPos (App (pos, _, _)) = pos
-      | exprPos (PrimApp (pos, _, _)) = pos
-      | exprPos (Var (pos, _)) = pos
-      | exprPos (Const (pos, _)) = pos
+    val exprPos : expr -> Pos.t
+    val stmtPos : stmt -> Pos.t
 
-    val stmtPos = Stmt0.pos exprPos
+    val exprToString : expr -> string
+    val stmtToString : stmt -> string
 
-    fun exprToString (Fn (_, cases)) =
-            Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ caseToString c)
-                         "{" cases ^ "}"
-      | exprToString (Block (_, stmts)) =
-              Vector.foldl (fn (c, acc) => acc ^ ";\n" ^ stmtToString c)
-                           "{" stmts ^ "}"
-      | exprToString (App (_, f, args)) =
-            "(" ^
-                Vector.foldl (fn (arg, acc) => acc ^ " " ^ exprToString arg)
-                             (exprToString f) args ^
-                ")"
-      | exprToString (PrimApp (_, opp, args)) =
-            "(" ^
-                Vector.foldl (fn (arg, acc) => acc ^ " " ^ exprToString arg)
-                             (Primop.toString opp) args ^
-                ")"
-      | exprToString (Var (_, v)) = Var.toString v
-      | exprToString (Const (_, c)) = Const.toString c
+    val exprToDoc : expr -> PPrint.doc
+    val stmtToDoc : stmt -> PPrint.doc
+end = struct
+    datatype expr = FixE of (expr, stmt) Expr0.t
+    and stmt = FixS of expr Stmt0.t
 
-    and stmtToString stmt = Stmt0.toString exprToString stmt
+    fun unwrapE (FixE expr) = expr
+    fun unwrapS (FixS stmt) = stmt
 
-    and caseToString (pats, SOME cond, body) =
-            Vector.foldl (fn (pat, acc) => acc ^ " " ^ exprToString pat)
-                         "" pats ^ " | " ^ exprToString cond ^ " => " ^
-                         exprToString body
-      | caseToString (pats, NONE, body) =
-              Vector.foldl (fn (pat, acc) => acc ^ " " ^ exprToString pat)
-                           "" pats ^ " => " ^ exprToString body
+    val exprPos = Expr0.pos o unwrapE
+    val stmtPos = Stmt0.pos exprPos o unwrapS
 
-    fun exprToDoc (Fn (_, cases)) =
-            let fun caseToDoc ((pats, cond, body): fnCase) =
-                    let fun step (pat, acc) = acc <+> exprToDoc pat
-                        val patDoc = exprToDoc (Vector.sub (pats, 0))
-                        val rpats = VectorSlice.slice(pats, 1, NONE)
-                        val patsDoc = VectorSlice.foldl step patDoc rpats
-                        val condDoc = case cond
-                                      of SOME ce =>
-                                             PP.space ^^ PP.text "|" <+>
-                                                 exprToDoc ce
-                                       | NONE => PP.empty
-                        val bodyDoc = exprToDoc body
-                    in
-                        (patsDoc ^^ condDoc) <+> PP.text "=>" <+> bodyDoc
-                    end
-            in case Vector.length cases
-                of 1 => PP.braces (caseToDoc (Vector.sub (cases, 0)))
-                 | _ => let fun step (cs, acc) =
-                                    acc ^^ PP.semi <$> caseToDoc cs
-                            val caseDoc = caseToDoc (Vector.sub (cases, 0))
-                            val rcases = VectorSlice.slice(cases, 1, NONE)
-                            val caseDocs = VectorSlice.foldl step caseDoc rcases
-                        in
-                            PP.lBrace ^^ PP.align caseDocs ^^ PP.rBrace
-                        end
-            end
-      | exprToDoc (Block (_, stmts)) =
-              (case Vector.length stmts
-               of 1 => PP.braces (stmtToDoc (Vector.sub (stmts, 0)))
-                | _ => let fun step (stmt, acc) =
-                                   acc ^^ PP.semi <$> stmtToDoc stmt
-                           val stmtDoc = stmtToDoc (Vector.sub (stmts, 0))
-                           val rstmts = VectorSlice.slice(stmts, 1, NONE)
-                           val stmtDocs = VectorSlice.foldl step stmtDoc rstmts
-                       in
-                           PP.lBrace ^^
-                               PP.nest 4 (PP.line ^^ stmtDocs) ^^
-                                   PP.line ^^ PP.rBrace
-                       end)
-      | exprToDoc (App (_, f, args)) =
-            let fun step (arg, acc) = acc <+> exprToDoc arg
-                val argDocs = Vector.foldl step (exprToDoc f) args
-            in
-                PP.parens (PP.align argDocs)
-            end
-      | exprToDoc (PrimApp (_, po, args)) =
-            let fun step (arg, acc) = acc <+> exprToDoc arg
-                val argDocs = Vector.foldl step (Primop.toDoc po) args
-            in
-                PP.parens (PP.align argDocs)
-            end
-      | exprToDoc (Var (_, v)) = Var.toDoc v
-      | exprToDoc (Const (_, c)) = Const.toDoc c
-    and stmtToDoc stmt = Stmt0.toDoc exprToDoc stmt
+    fun exprToString expr =
+        Expr0.toString exprToString stmtToString (unwrapE expr)
+    and stmtToString stmt = Stmt0.toString exprToString (unwrapS stmt)
+
+    fun exprToDoc expr = Expr0.toDoc exprToDoc stmtToDoc (unwrapE expr)
+    and stmtToDoc stmt = Stmt0.toDoc exprToDoc (unwrapS stmt)
 end

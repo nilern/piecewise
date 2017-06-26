@@ -10,6 +10,7 @@ local
     ir/var.sml
     ir/const.sml
     ir/stmt0.sml
+    ir/expr0.sml
     ir/cst0.sml
     ir/flat_cst.sml
     parser.grm.sig

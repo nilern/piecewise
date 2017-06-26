@@ -283,70 +283,80 @@ fun toDoc (prog : (stmt vector) program) =
             stmtsToDoc (#main prog)
     end
 
-fun patBindings (CST0.Const _) = NameSet.empty
-  | patBindings (CST0.Var (_, Var.Lex name)) = NameSet.singleton name
+fun patBindings (CST0.FixE (Expr0.Const _)) = NameSet.empty
+  | patBindings (CST0.FixE (Expr0.Var (_, Var.Lex name))) =
+    NameSet.singleton name
 
-fun stmtBindings (Stmt0.Def (pat, _)) = patBindings pat
-  | stmtBindings (Stmt0.AugDef (pat, _)) = patBindings pat
-  | stmtBindings (Stmt0.Expr _) = NameSet.empty
+fun stmtBindings (CST0.FixS (Stmt0.Def (pat, _))) = patBindings pat
+  | stmtBindings (CST0.FixS (Stmt0.AugDef (pat, _))) = patBindings pat
+  | stmtBindings (CST0.FixS (Stmt0.Expr _)) = NameSet.empty
 
 fun stmtVecBindings stmts =
     Vector.foldl (fn (stmt, acc) => NameSet.union (acc, stmtBindings stmt))
                  NameSet.empty stmts
 
-fun elabPat env (CST0.Const (pos, c)) = trivial (Const (pos, c))
-  | elabPat env (CST0.Var (pos, var as Var.Lex name)) =
-    trivial (case Env.find env name
-             of SOME (Env.Direct name) => Var (pos, Var.Lex name)
-              | SOME (Env.Clover (self, i)) =>
-                    PrimApp (pos, Primop.FnGet,
-                             Vector.fromList [
-                                 Var (pos, Var.Lex self),
-                                 Const (pos, Const.Int (Int.toString i))])
-              | NONE => raise Unbound (pos, name))
+fun elabPat env (CST0.FixE expr) =
+    case expr
+    of Expr0.Const (pos, c) => trivial (Const (pos, c))
+     | Expr0.Var (pos, var as Var.Lex name) =>
+       trivial (case Env.find env name
+                of SOME (Env.Direct name) => Var (pos, Var.Lex name)
+                 | SOME (Env.Clover (self, i)) =>
+                       PrimApp (pos, Primop.FnGet,
+                                Vector.fromList [
+                                    Var (pos, Var.Lex self),
+                                    Const (pos, Const.Int (Int.toString i))])
+                 | NONE => raise Unbound (pos, name))
 
-and elabExpr env (e as CST0.Fn (pos, cases)) =
-    let val name = Name.fresh "f"
-        val env' = Env.pushFnFrame env name
-        val cprogs = Vector.map (elabCase env') cases
-        val cprocs = VectorExt.flatMap #procs cprogs
-        val cases' = Vector.map #main cprogs
-        val clovers = Option.valOf (Env.clovers env')
-        val procs = VectorExt.conj cprocs { name = name
-                                          , clovers = clovers
-                                          , cases = cases' }
-        val cexprs = Vector.map (fn name => CST0.Var (pos, Var.Lex name)) clovers
-        val close = elabExpr env (CST0.PrimApp (pos, Primop.Close, cexprs))
-        val close' = case #main close (* HACK *)
-                     of PrimApp (pos, Primop.Close, cexprs) =>
-                            PrimApp (pos, Primop.Close,
-                                     VectorExt.prepend cexprs
-                                                       (Var (pos, Var.Lex name)))
-                      | _ => raise Fail "unreachable"
-    in { procs = procs , main = close' }
-    end
-  | elabExpr env (CST0.Block (pos, stmts)) =
-    mapMain (fn stmts => Block (pos, stmts)) (elabStmts env stmts)
-  | elabExpr env (CST0.App (pos, f, args)) =
-    let fun makeApp f args = App (pos, PrimApp (pos, Primop.FnPtr,
-                                                VectorExt.singleton f),
-                                  VectorExt.prepend args f)
-    in append makeApp (elabExpr env f) (map (elabExpr env) args)
-    end
-  | elabExpr env (CST0.PrimApp (pos, po, args)) =
-    let fun makePrimApp po args = PrimApp (pos, po, args)
-    in append makePrimApp (trivial po) (map (elabExpr env) args)
-    end
-  | elabExpr _ (CST0.Const (pos, c)) = trivial (Const (pos, c))
-  | elabExpr env (CST0.Var (pos, var as Var.Lex name)) =
-    trivial (case Env.find env name
-             of SOME (Env.Direct name) => Var (pos, Var.Lex name)
-              | SOME (Env.Clover (self, i)) =>
-                    PrimApp (pos, Primop.FnGet,
-                             Vector.fromList [
-                                 Var (pos, Var.Lex self),
-                                 Const (pos, Const.Int (Int.toString i))])
-              | NONE => raise Unbound (pos, name))
+and elabExpr env (CST0.FixE expr) =
+    case expr
+    of Expr0.Fn (pos, cases) =>
+       let val name = Name.fresh "f"
+           val env' = Env.pushFnFrame env name
+           val cprogs = Vector.map (elabCase env') cases
+           val cprocs = VectorExt.flatMap #procs cprogs
+           val cases' = Vector.map #main cprogs
+           val clovers = Option.valOf (Env.clovers env')
+           val procs = VectorExt.conj cprocs { name = name
+                                             , clovers = clovers
+                                             , cases = cases' }
+           val cexprs =
+               Vector.map (fn name => CST0.FixE (Expr0.Var (pos,
+                                                            Var.Lex name)))
+                          clovers
+           val close =
+               elabExpr env (CST0.FixE (Expr0.PrimApp (pos, Primop.Close,
+                                                       cexprs)))
+           val close' = case #main close (* HACK *)
+                        of PrimApp (pos, Primop.Close, cexprs) =>
+                           PrimApp (pos, Primop.Close,
+                                    VectorExt.prepend
+                                             cexprs (Var (pos, Var.Lex name)))
+                         | _ => raise Fail "unreachable"
+       in { procs = procs , main = close' }
+       end
+     | Expr0.Block (pos, stmts) =>
+       mapMain (fn stmts => Block (pos, stmts)) (elabStmts env stmts)
+     | Expr0.App (pos, f, args) =>
+       let fun makeApp f args = App (pos, PrimApp (pos, Primop.FnPtr,
+                                     VectorExt.singleton f),
+                                     VectorExt.prepend args f)
+       in append makeApp (elabExpr env f) (map (elabExpr env) args)
+       end
+     | Expr0.PrimApp (pos, po, args) =>
+       let fun makePrimApp po args = PrimApp (pos, po, args)
+       in append makePrimApp (trivial po) (map (elabExpr env) args)
+       end
+     | Expr0.Const (pos, c) => trivial (Const (pos, c))
+     | Expr0.Var (pos, var as Var.Lex name) =>
+       trivial (case Env.find env name
+                of SOME (Env.Direct name) => Var (pos, Var.Lex name)
+                 | SOME (Env.Clover (self, i)) =>
+                       PrimApp (pos, Primop.FnGet,
+                                Vector.fromList [
+                                    Var (pos, Var.Lex self),
+                                    Const (pos, Const.Int (Int.toString i))])
+                 | NONE => raise Unbound (pos, name))
 
 and elabCase env (pats, cond, body) =
     let val self = Option.valOf (Env.self env)
@@ -372,16 +382,18 @@ and elabCase env (pats, cond, body) =
            , main = (pats', NONE, #main bodyProg) }
     end
 
-and elabStmt env (Stmt0.Def (pat, expr)) =
-    let fun makeMain pat expr = Vector.fromList [Def (pat, expr)]
-    in append makeMain (elabPat env pat) (elabExpr env expr)
-    end
-  | elabStmt env (Stmt0.AugDef (pat, expr)) =
-    let fun makeMain pat expr = Vector.fromList [AugDef (pat, expr)]
-    in append makeMain (elabPat env pat) (elabExpr env expr)
-    end
-  | elabStmt env (Stmt0.Expr expr) =
-    mapMain (VectorExt.singleton o Expr) (elabExpr env expr)
+and elabStmt env (CST0.FixS stmt) =
+    case stmt
+    of Stmt0.Def (pat, expr) =>
+       let fun makeMain pat expr = Vector.fromList [Def (pat, expr)]
+       in append makeMain (elabPat env pat) (elabExpr env expr)
+       end
+     | Stmt0.AugDef (pat, expr) =>
+       let fun makeMain pat expr = Vector.fromList [AugDef (pat, expr)]
+       in append makeMain (elabPat env pat) (elabExpr env expr)
+       end
+     | Stmt0.Expr expr =>
+       mapMain (VectorExt.singleton o Expr) (elabExpr env expr)
 and elabStmts env stmts =
     let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
     in flatMap (elabStmt env') stmts
