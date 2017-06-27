@@ -3,13 +3,12 @@
 (* Like CST0, but alphatized and closure converted. *)
 structure FlatCST :> sig
     datatype expr = FixE of (expr, stmt) Expr1.t
-    and stmt = FixS of expr Stmt0.t
-
-    type procCase = expr vector * expr option * expr
+    and stmt = FixS of (expr, bind) Stmt0.t
+    and bind = Bind of expr * expr option
 
     type proc = { name: Name.t
                 , clovers: Name.t vector
-                , cases: procCase vector }
+                , cases: (Name.t * bind * expr) vector }
 
     type 'a program = { procs: proc vector, main: 'a }
 
@@ -19,14 +18,14 @@ structure FlatCST :> sig
     val flatMap : ('a -> 'b vector program) -> 'a vector -> 'b vector program
 
     val wrapE : (expr, stmt) Expr1.t -> expr
-    val wrapS : expr Stmt0.t -> stmt
+    val wrapS : (expr, bind) Stmt0.t -> stmt
 
     val unwrapE : expr -> (expr, stmt) Expr1.t
-    val unwrapS : stmt -> expr Stmt0.t
+    val unwrapS : stmt -> (expr, bind) Stmt0.t
 
     val trivial : 'a -> 'a program
     val trivialE : (expr, stmt) Expr1.t -> expr program
-    val trivialS : expr Stmt0.t -> stmt program
+    val trivialS : (expr, bind) Stmt0.t -> stmt program
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
@@ -40,13 +39,12 @@ val op<+> = PP.<+>
 val op<$> = PP.<$>
 
 datatype expr = FixE of (expr, stmt) Expr1.t
-and stmt = FixS of expr Stmt0.t
-
-type procCase = expr vector * expr option * expr
+and stmt = FixS of (expr, bind) Stmt0.t
+and bind = Bind of expr * expr option
 
 type proc = { name: Name.t
             , clovers: Name.t vector
-            , cases: procCase vector }
+            , cases: (Name.t * bind * expr) vector }
 
 type 'a program = { procs: proc vector, main: 'a }
 
@@ -81,7 +79,11 @@ val trivialE = mapMain wrapE o trivial
 val trivialS = mapMain wrapS o trivial
 
 fun exprToDoc expr = Expr1.toDoc exprToDoc stmtToDoc (unwrapE expr)
-and stmtToDoc stmt = Stmt0.toDoc exprToDoc (unwrapS stmt)
+and stmtToDoc stmt = Stmt0.toDoc exprToDoc bindToDoc (unwrapS stmt)
+and bindToDoc (Bind (pat, cond)) =
+    exprToDoc pat ^^ (case cond
+                      of SOME ce => PP.space ^^ PP.text "|" <+> exprToDoc ce
+                       | NONE => PP.empty)
 
 fun stmtsToDoc stmts =
     (case Vector.length stmts
@@ -93,19 +95,12 @@ fun stmtsToDoc stmts =
              in VectorSlice.foldl step stmtDoc rstmts end)
 
 fun procToDoc {name = name, clovers = clovers, cases = cases} =
-    let fun caseToDoc ((pats, cond, body): procCase) =
-            let fun step (pat, acc) = acc <+> exprToDoc pat
-                val patDoc = exprToDoc (Vector.sub (pats, 0))
-                val rpats = VectorSlice.slice(pats, 1, NONE)
-                val patsDoc = VectorSlice.foldl step patDoc rpats
-                val condDoc = case cond
-                              of SOME ce =>
-                                     PP.space ^^ PP.text "|" <+>
-                                         exprToDoc ce
+    let fun caseToDoc (self, Bind (pat, cond), body) =
+            let val condDoc = case cond
+                              of SOME ce => PP.space ^^ PP.text "|" <+>
+                                                exprToDoc ce
                                | NONE => PP.empty
-                val bodyDoc = exprToDoc body
-            in
-                (patsDoc ^^ condDoc) <+> PP.text "=>" <+> bodyDoc
+            in Name.toDoc self ^^ condDoc <+> PP.text "=>" <+> exprToDoc body
             end
     in Name.toDoc name ^^
            PP.braces

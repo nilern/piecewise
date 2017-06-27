@@ -193,9 +193,11 @@ fun patBindings (CST0.FixE (Expr0.Const _)) = Name0Set.empty
   | patBindings (CST0.FixE (Expr0.Var (_, Expr0.Var.Lex name))) =
     Name0Set.singleton name
 
-fun stmtBindings (CST0.FixS (Stmt0.Def (pat, _))) = patBindings pat
-  | stmtBindings (CST0.FixS (Stmt0.AugDef (pat, _))) = patBindings pat
-  | stmtBindings (CST0.FixS (Stmt0.Expr _)) = Name0Set.empty
+fun stmtBindings stmt =
+    case stmt
+    of CST0.FixS (Stmt0.Def (CST0.Bind (pat, _), _)) => patBindings pat
+     | CST0.FixS (Stmt0.AugDef (CST0.Bind (pat, _), _)) => patBindings pat
+     | CST0.FixS (Stmt0.Expr _) => Name0Set.empty
 
 fun stmtVecBindings stmts =
     Vector.foldl (fn (stmt, acc) => Name0Set.union (acc, stmtBindings stmt))
@@ -268,48 +270,66 @@ and elabExpr env (CST0.FixE expr) =
                                 wrapE (Expr1.Const (pos, Const.Int (Int.toString i)))])
                  | NONE => raise Unbound (pos, name))
 
-and elabCase env (pats, cond, body) =
+and elabCase env (CST0.Bind (pat, cond), body) =
     let val self = Option.valOf (Env.self env)
         val self0 = Option.valOf (Env.self0 env)
-        fun step (pat, acc) = Name0Set.union (acc, patBindings pat)
-        val names = Vector.foldl step (Name0Set.singleton self0) pats
+        val names = Name0Set.union (Name0Set.singleton self0, patBindings pat)
         val env' = Env.pushCaseFrame env names
-        val pprogs = Vector.map (elabPat env') pats
-        val pprocs = VectorExt.flatMap #procs pprogs
-        val pats' =
-            VectorExt.prepend (Vector.map #main pprogs)
-                              (wrapE (Expr1.Var (Pos.def, Expr1.Var.Lex self)))
+        val pprog = elabPat env' pat
         val bodyProg = elabExpr env' body
     in
         case cond
         of SOME c =>
            let val cp = elabExpr env' c
            in
-               { procs = Vector.concat [pprocs, #procs cp, #procs bodyProg]
-               , main = (pats', SOME (#main cp), #main bodyProg) }
+               { procs =
+                   Vector.concat [#procs pprog, #procs cp, #procs bodyProg]
+               , main =
+                   (self, FlatCST.Bind (#main pprog, SOME (#main cp)),
+                    #main bodyProg) }
            end
          | NONE =>
-           { procs = Vector.concat [pprocs, #procs bodyProg]
-           , main = (pats', NONE, #main bodyProg) }
+           { procs = Vector.concat [#procs pprog, #procs bodyProg]
+           , main = (self, FlatCST.Bind (#main pprog, NONE), #main bodyProg) }
     end
 
 and elabStmt env (CST0.FixS stmt) =
     case stmt
-    of Stmt0.Def (pat, expr) =>
-       let fun makeMain pat expr =
-               Vector.fromList [wrapS (Stmt0.Def (pat, expr))]
-       in append makeMain (elabPat env pat) (elabExpr env expr)
+    of Stmt0.Def (CST0.Bind (pat, SOME cond), expr) =>
+       let val pprog = elabPat env pat
+           val cprog = elabExpr env cond
+           val eprog = elabExpr env expr
+       in
+           { procs = Vector.concat [#procs pprog, #procs cprog, #procs eprog]
+           , main = Stmt0.Def (FlatCST.Bind (#main pprog, SOME (#main cprog)), #main eprog) }
        end
-     | Stmt0.AugDef (pat, expr) =>
-       let fun makeMain pat expr =
-               Vector.fromList [wrapS (Stmt0.AugDef (pat, expr))]
-       in append makeMain (elabPat env pat) (elabExpr env expr)
+     | Stmt0.Def (CST0.Bind (pat, NONE), expr) =>
+       let val pprog = elabPat env pat
+           val eprog = elabExpr env expr
+       in
+           { procs = Vector.concat [#procs pprog, #procs eprog]
+           , main = Stmt0.Def (FlatCST.Bind (#main pprog, NONE), #main eprog) }
        end
+     | Stmt0.AugDef (CST0.Bind (pat, SOME cond), expr) =>
+        let val pprog = elabPat env pat
+            val cprog = elabExpr env cond
+            val eprog = elabExpr env expr
+        in
+            { procs = Vector.concat [#procs pprog, #procs cprog, #procs eprog]
+            , main = Stmt0.AugDef (FlatCST.Bind (#main pprog, SOME (#main cprog)), #main eprog) }
+        end
+      | Stmt0.AugDef (CST0.Bind (pat, NONE), expr) =>
+        let val pprog = elabPat env pat
+            val eprog = elabExpr env expr
+        in
+            { procs = Vector.concat [#procs pprog, #procs eprog]
+            , main = Stmt0.AugDef (FlatCST.Bind (#main pprog, NONE), #main eprog) }
+        end
      | Stmt0.Expr expr =>
-       mapMain (VectorExt.singleton o wrapS o Stmt0.Expr) (elabExpr env expr)
+       mapMain (Stmt0.Expr) (elabExpr env expr)
 and elabStmts env stmts =
     let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
-    in flatMap (elabStmt env') stmts
+    in flatMap (mapMain (VectorExt.singleton o wrapS) o elabStmt env') stmts
     end
 
 fun flatten stmts = elabStmts Env.empty stmts
