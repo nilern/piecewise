@@ -14,6 +14,9 @@ local
     ir/stmt0.sml
     ir/expr0.sml
     ir/cst0.sml
+    ir/dnf.sml
+    ir/stmt1.sml
+    ir/dnf_cst.sml
     ir/expr1.sml
     ir/flat_cst.sml
     ir/lex_flatten.sml
