@@ -218,7 +218,7 @@ fun elabPat env (CST0.FixE expr) =
 
 and elabExpr env (CST0.FixE expr) =
     case expr
-    of Expr0.Fn (pos, cases) =>
+    of Expr0.Fn (pos, _, cases) =>
        let val env' = Env.pushFnFrame env (StringName.fromString "f")
            val name = Option.valOf (Env.self env')
            val cprogs = Vector.map (elabCase env') cases

@@ -2,14 +2,14 @@ structure Expr0 :> sig
     structure Var : VAR
 
     datatype ('expr, 'stmt, 'bind) t =
-      Fn of Pos.t * ('bind * 'expr) vector
+      Fn of Pos.t * Var.Name.t * ('bind * 'expr) vector
     | Block of Pos.t * 'stmt vector
     | App of Pos.t * 'expr * 'expr vector
     | PrimApp of Pos.t * Primop.t * 'expr vector
     | Var of Pos.t * Var.t
     | Const of Pos.t * Const.t
 
-    val pos : ('expr, 'stmt, 'bind) t -> Pos.t
+    val pos : ('e, 's, 'b) t -> Pos.t
 
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('b -> PPrint.doc)
               -> ('e, 's, 'b) t -> PPrint.doc
@@ -22,32 +22,31 @@ end where type Var.Name.t = StringName.t = struct
     structure Var = Var(StringName)
 
     datatype ('expr, 'stmt, 'bind) t =
-      Fn of Pos.t * ('bind * 'expr) vector
+      Fn of Pos.t * Var.Name.t * ('bind * 'expr) vector
     | Block of Pos.t * 'stmt vector
     | App of Pos.t * 'expr * 'expr vector
     | PrimApp of Pos.t * Primop.t * 'expr vector
     | Var of Pos.t * Var.t
     | Const of Pos.t * Const.t
 
-    fun pos (Fn (pos, _)) = pos
+    fun pos (Fn (pos, _, _)) = pos
       | pos (Block (pos, _)) = pos
       | pos (App (pos, _, _)) = pos
       | pos (PrimApp (pos, _, _)) = pos
       | pos (Var (pos, _)) = pos
       | pos (Const (pos, _)) = pos
 
-    fun toDoc toDoc' _ bindToDoc (Fn (_, cases)) =
+    fun toDoc toDoc' _ bindToDoc (Fn (_, formals, cases)) =
         let fun caseToDoc (bind, body) =
                 bindToDoc bind <+> PP.text "=>" <+> toDoc' body
-        in case Vector.length cases
-            of 1 => PP.braces (caseToDoc (Vector.sub (cases, 0)))
-             | _ => let fun step (cs, acc) = acc ^^ PP.semi <$> caseToDoc cs
-                        val caseDoc = caseToDoc (Vector.sub (cases, 0))
-                        val rcases = VectorSlice.slice(cases, 1, NONE)
-                        val caseDocs = VectorSlice.foldl step caseDoc rcases
-                    in
-                        PP.lBrace ^^ PP.align caseDocs ^^ PP.rBrace
-                    end
+            val c = Vector.sub (cases, 0)
+            val rcs = VectorSlice.slice(cases, 1, NONE)
+            fun step (cs, acc) = acc ^^ PP.semi <$> caseToDoc cs
+        in
+            PP.braces
+                (PP.align
+                    (PP.text "|" ^^ Var.Name.toDoc formals ^^ PP.text "|" <$>
+                        VectorSlice.foldl step (caseToDoc c) rcs))
         end
       | toDoc _ stmtToDoc _ (Block (_, stmts)) =
         (case Vector.length stmts

@@ -1,3 +1,5 @@
+(* TODO: get rid of this, doesn't support gensym *)
+
 structure StringName :> NAME = struct
     type t = string
     val compare = String.compare

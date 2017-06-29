@@ -37,7 +37,8 @@ fun extractBlock pos (items as (Clause _ :: _)) =
                        ::clauses items end
               | clauses [] = []
               | clauses _ = raise LrParser.ParseError
-        in CST0.FixE (Expr0.Fn (pos, Vector.fromList (clauses items))) end
+        in CST0.FixE (Expr0.Fn (pos, StringName.fromString "", (* HACK *)
+                                Vector.fromList (clauses items))) end
   | extractBlock pos (items as (Stmt _ :: _)) =
         let fun unwrapStmt (Stmt stmt) = stmt
               | unwrapStmt (Clause _) = raise LrParser.ParseError
@@ -168,6 +169,7 @@ simple : LPAREN expr RPAREN (expr)
                            LBRACKETleft (StringName.fromString "tuple") [],
                        NONE)
           in CST0.FixE (Expr0.Fn (LBRACKETleft,
+                  StringName.fromString "", (* HACK *)
                   Vector.fromList [
                       (bind, CST0.FixE (Expr0.Block (LBRACKETleft,
                                  (Vector.fromList (List.rev stmtList)))))]))

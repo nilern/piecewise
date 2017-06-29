@@ -1,3 +1,6 @@
+(* TODO: atom dependencies *)
+(* TODO: replace vecs with sets *)
+
 structure DNF :> sig
 
 type 'expr t
