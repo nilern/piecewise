@@ -38,20 +38,35 @@ end = struct
                                                  PPrint.pretty 80
                                                      (CST0.stmtToDoc cst)))
                         result;
+
                     TextIO.output(TextIO.stdOut, "\n\n");
+
+                    let val dcst = PatExpand.expand result
+                    in TextIO.output(TextIO.stdOut,
+                                     PPrint.pretty 80 (DnfCst.toDoc dcst))
+                    end;
+
+                    TextIO.output(TextIO.stdOut, "\n\n");
+
                     let val fcst = LexFlatten.flatten result
                     in TextIO.output(TextIO.stdOut,
                                      PPrint.pretty 80 (FlatCST.toDoc fcst))
                     end;
+
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
                     else loop lexer
                 end
         in
             loop lexer
-            handle LexFlatten.Unbound (pos, name) =>
-                       print ("Unbound name: " ^ Name.toString name ^
-                              " at " ^ Pos.toString pos ^ "\n")
+            handle
+                LexFlatten.Unbound (pos, name) =>
+                    print ("Unbound name: " ^ Name.toString name ^
+                           " at " ^ Pos.toString pos ^ "\n")
+              | PatExpand.Pattern (pos, pat) =>
+                    print ("Invalid pattern: " ^
+                           PPrint.pretty 80 (CST0.exprToDoc pat) ^
+                           " at " ^ Pos.toString pos ^ "\n")
         end
 end (* structure Parser *)
 

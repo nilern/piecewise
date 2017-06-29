@@ -1,12 +1,12 @@
-(* TODO: atom dependencies *)
 (* TODO: replace vecs with sets *)
 
 structure DNF :> sig
 
 type 'expr t
+type id
 
 val always : unit -> 'expr t
-val require : 'expr -> 'expr t
+val require : 'expr -> id list -> 'expr t * id
 
 val disj : 'expr t vector -> 'expr t
 val conj : 'expr t vector-> 'expr t
@@ -21,34 +21,36 @@ val op^^ = PP.^^
 val op<+> = PP.<+>
 
 structure Atom :> sig
-    datatype 'expr t = Require of word * 'expr
-                     | Forbid of word * 'expr
+    type id
+    datatype 'expr t = Require of id * id vector * 'expr
+                     | Forbid of id * id vector * 'expr
 
-    val require : 'expr -> 'expr t
+    val require : 'expr -> id list -> 'expr t * id
 
     val neg : 'expr t -> 'expr t
 
     val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
 end = struct
-    datatype 'expr t = Require of word * 'expr
-                     | Forbid of word * 'expr
+    type id = word
+    datatype 'expr t = Require of id * id vector * 'expr
+                     | Forbid of id * id vector * 'expr
 
     local
         val counter = ref 0w0
     in
-        fun require expr =
+        fun require expr deplist =
             let val i = !counter
             in
                 counter := i + 0w1;
-                Require (i, expr)
+                (Require (i, Vector.fromList deplist, expr), i)
             end
     end
 
     fun neg (Require ie) = Forbid ie
       | neg (Forbid ie) = Require ie
 
-    fun toDoc exprToDoc (Require (_, expr)) = exprToDoc expr
-      | toDoc exprToDoc (Forbid (_, expr)) =
+    fun toDoc exprToDoc (Require (_, _, expr)) = exprToDoc expr
+      | toDoc exprToDoc (Forbid (_, _, expr)) =
         PP.text "@!" ^^ PP.parens (exprToDoc expr)
 end (* structure Atom *)
 
@@ -58,7 +60,7 @@ structure Clause : sig
     val return : 'expr Atom.t -> 'expr t
 
     val always : unit -> 'expr t
-    val require : 'expr -> 'expr t
+    val require : 'expr -> Atom.id list -> 'expr t * Atom.id
 
     val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
 end = struct
@@ -67,7 +69,10 @@ end = struct
     val return = VectorExt.singleton
 
     fun always () = VectorExt.empty ()
-    fun require expr = VectorExt.singleton (Atom.require expr)
+    fun require expr deplist =
+        let val (atom, i) = Atom.require expr deplist
+        in (VectorExt.singleton atom, i)
+        end
 
     fun toDoc exprToDoc atoms =
         case Vector.length atoms
@@ -82,11 +87,15 @@ end = struct
 end (* structure Clause *)
 
 type 'expr t = 'expr Clause.t vector
+type id = Atom.id
 
 val return = VectorExt.singleton
 
 fun always () = VectorExt.singleton (Clause.always ())
-fun require expr = VectorExt.singleton (Clause.require expr)
+fun require expr deplist =
+    let val (clause, i) = Clause.require expr deplist
+    in (VectorExt.singleton clause, i)
+    end
 
 fun disj dnfs = VectorExt.flatten dnfs
 

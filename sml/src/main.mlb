@@ -3,6 +3,7 @@ local
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
     util/vector_ext.sml
+    util/option_ext.sml
     util/pprint.sml
     pos.sml
     ir/name.sml
@@ -15,6 +16,7 @@ local
     ir/dnf.sml
     ir/stmt1.sml
     ir/dnf_cst.sml
+    ir/pat_expand.sml
     ir/expr1.sml
     ir/flat_cst.sml
     ir/lex_flatten.sml

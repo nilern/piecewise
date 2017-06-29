@@ -2,13 +2,13 @@
 default: target/pcws
 
 target/pcws: target src/main.mlb src/main.sml \
-	         src/primop.sml src/pos.sml \
+	         src/util/option_ext.sml src/primop.sml src/pos.sml \
 			 src/ir/const.sml src/ir/var.sml src/ir/name.sml src/ir/cst0.sml \
 	         src/parser.grm.sig src/parser.grm.sml src/lexer.lex.sml \
 			 src/util/pprint.sml src/util/vector_ext.sml src/ir/flat_cst.sml \
 			 src/ir/stmt0.sml src/ir/expr0.sml src/ir/expr1.sml \
 			 src/ir/lex_flatten.sml src/ir/dnf.sml src/ir/dnf_cst.sml \
-			 src/ir/stmt1.sml
+			 src/ir/stmt1.sml src/ir/pat_expand.sml
 	mlton -const 'Exn.keepHistory true' -output target/pcws src/main.mlb
 
 src/parser.grm.sig: src/parser.grm

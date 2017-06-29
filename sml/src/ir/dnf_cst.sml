@@ -13,6 +13,7 @@ structure DnfCst :> sig
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
+    val toDoc : stmt vector -> PPrint.doc
 end = struct
     structure PP = PPrint
     val op^^ = PP.^^
@@ -38,7 +39,8 @@ end = struct
         let val bindingToDoc = Stmt0.toDoc exprToDoc Expr0.Var.toDoc o unwrapBS
             val bindingDocs =
                 case Vector.length bs
-                of 1 => PP.braces (bindingToDoc (Vector.sub (bs, 0)))
+                of 0 => PP.text "{}"
+                 | 1 => PP.braces (bindingToDoc (Vector.sub (bs, 0)))
                  | _ => let fun step (binding, acc) =
                                 acc ^^ PP.semi <$> bindingToDoc binding
                             val bDoc = bindingToDoc (Vector.sub (bs, 0))
@@ -49,5 +51,13 @@ end = struct
                         end
         in
             bindingDocs <+> PP.text "|" <+> DNF.toDoc exprToDoc cond
+        end
+
+    fun toDoc stmts =
+        let val stmt = Vector.sub (stmts, 0)
+            val rstmts = VectorSlice.slice (stmts, 1, NONE)
+            fun step (stmt, acc) = acc ^^ PP.semi <$> stmtToDoc stmt
+        in
+            VectorSlice.foldl step (stmtToDoc stmt) rstmts
         end
 end
