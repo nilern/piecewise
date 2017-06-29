@@ -4,18 +4,20 @@ structure Name = struct
     datatype t = Plain of string
              | Unique of string * int
 
+    fun chars (Plain cs) = cs
+      | chars (Unique (cs, _)) = cs
+
     local val counter = ref 0
     in
-        fun fresh cs =
+        fun freshFromString cs =
             let val i = !counter
             in
                 counter := i + 1;
-                Unique (StringName.toString cs, i)
+                Unique (cs, i)
             end
-    end
 
-    fun chars (Plain cs) = cs
-      | chars (Unique (cs, _)) = cs
+        val fresh = freshFromString o chars
+    end
 
     fun compare (Plain cs, Plain cs') = String.compare (cs, cs')
       | compare (Unique (cs, i), Unique (cs', i')) =

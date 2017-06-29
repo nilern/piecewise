@@ -12,13 +12,13 @@ structure Expr1 :> sig
 
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t
               -> PPrint.doc
-end where type Var.Name.t = Name.t = struct
+end = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Var = Var(Name)
+    structure Var = Var
 
     type 'expr fnCase = 'expr vector * 'expr option * 'expr
     datatype ('expr, 'stmt) t = Block of Pos.t * 'stmt vector

@@ -1,15 +1,13 @@
 signature VAR = sig
-    structure Name : NAME
     datatype t = Lex of Name.t
                | Dyn of Name.t
 
     val toDoc : t -> PPrint.doc
 end
 
-functor Var(Name : NAME) : VAR = struct
+structure Var : VAR = struct
     structure PP = PPrint
     val op^^ = PPrint.^^
-    structure Name = Name
 
     datatype t = Lex of Name.t
                | Dyn of Name.t

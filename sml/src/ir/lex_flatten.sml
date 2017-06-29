@@ -1,12 +1,11 @@
 structure LexFlatten :> sig
-exception Unbound of Pos.t * StringName.t
+exception Unbound of Pos.t * Name.t
 
 val flatten : CST0.stmt vector -> FlatCST.stmt vector FlatCST.program
 end = struct
 
-structure Name0Set: ORD_SET where type Key.ord_key = Expr0.Var.Name.t =
-    BinarySetFn(type ord_key = Expr0.Var.Name.t
-                val compare = Expr0.Var.Name.compare)
+structure Name0Set = BinarySetFn(type ord_key = Name.t
+                                 val compare = Name.compare)
 structure Var = Expr1.Var
 val wrapE = FlatCST.wrapE
 val wrapS = FlatCST.wrapS
@@ -23,13 +22,13 @@ structure Env :> sig
                  | Clover of Name.t * int
 
     val empty : t
-    val pushFnFrame : t -> StringName.t -> t
+    val pushFnFrame : t -> Name.t -> t
     val pushCaseFrame : t -> Name0Set.set -> t
     val pushBlockFrame : t -> Name0Set.set -> t
 
-    val find : t -> StringName.t -> res option
+    val find : t -> Name.t -> res option
     val self : t -> Name.t option
-    val self0 : t -> StringName.t option
+    val self0 : t -> Name.t option
     val clovers : t -> Name.t vector option
 
     val toString : t -> string
@@ -45,19 +44,19 @@ end = struct
                    | Case of bindings
                    | Block of bindings
 
-        val newFn : StringName.t -> t
+        val newFn : Name.t -> t
         val newCase : Name0Set.set -> t
         val newBlock : Name0Set.set -> t
 
-        val find : t -> StringName.t -> Name.t option
+        val find : t -> Name.t -> Name.t option
         val self : t -> Name.t option
-        val self0 : t -> StringName.t option
+        val self0 : t -> Name.t option
         val clovers : t -> Name.t vector option
 
         val toString : t -> string
     end = struct
-        structure Bindings = BinaryMapFn(type ord_key = StringName.t
-                                         val compare = StringName.compare)
+        structure Bindings = BinaryMapFn(type ord_key = Name.t
+                                         val compare = Name.compare)
         type bindings = Name.t Bindings.map
 
         structure ClIndices = HashTableFn(type hash_key = Name.t
@@ -65,7 +64,7 @@ end = struct
                                           val sameKey = op=)
         type cl_indices = int ClIndices.hash_table
 
-        type fn_frame = StringName.t * Name.t * cl_indices * int ref
+        type fn_frame = Name.t * Name.t * cl_indices * int ref
         datatype t = Fn of fn_frame
                    | Case of bindings
                    | Block of bindings
@@ -121,7 +120,7 @@ end = struct
 
         fun bindingsToString bs =
             Bindings.foldli (fn (k, v, acc) =>
-                                acc ^ StringName.toString k ^ ": " ^
+                                acc ^ Name.toString k ^ ": " ^
                                     Name.toString v ^ ", ")
                             "" bs
 
@@ -187,7 +186,7 @@ end = struct
             "\n"
 end (* structure Env *)
 
-exception Unbound of Pos.t * StringName.t
+exception Unbound of Pos.t * Name.t
 
 fun patBindings (CST0.FixE (Expr0.Const _)) = Name0Set.empty
   | patBindings (CST0.FixE (Expr0.Var (_, Expr0.Var.Lex name))) =
@@ -219,7 +218,7 @@ fun elabPat env (CST0.FixE expr) =
 and elabExpr env (CST0.FixE expr) =
     case expr
     of Expr0.Fn (pos, _, cases) =>
-       let val env' = Env.pushFnFrame env (StringName.fromString "f")
+       let val env' = Env.pushFnFrame env (Name.fromString "f")
            val name = Option.valOf (Env.self env')
            val cprogs = Vector.map (elabCase env') cases
            val cprocs = VectorExt.flatMap #procs cprogs
@@ -233,7 +232,7 @@ and elabExpr env (CST0.FixE expr) =
                               CST0.wrapE
                                   (Expr0.Var (pos,
                                               Expr0.Var.Lex
-                                                  (StringName.fromString
+                                                  (Name.fromString
                                                       (Name.chars name)))))
                           clovers
            val close =

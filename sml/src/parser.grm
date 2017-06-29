@@ -7,7 +7,7 @@ fun opApp pos opPos opStr l r =
         CST0.FixE (Expr0.App (pos,
                               CST0.FixE (Expr0.Var (opPos,
                                                     Var.Lex
-                                                        (StringName.fromString
+                                                        (Name.fromString
                                                              opStr))),
                    Vector.fromList [l, r]))
 
@@ -30,14 +30,14 @@ fun extractBlock pos (items as (Clause _ :: _)) =
             fun clauses (Clause(formals, cond, stmt)::items) =
                     let val (stmts, items') = stmtSplit items
                         val pos = CST0.exprPos (Vector.sub(formals, 0))
-                        val tuple = StringName.fromString "tuple"
+                        val tuple = Name.fromString "tuple"
                     in (CST0.Bind (applyName pos tuple formals, cond),
                         CST0.FixE (Expr0.Block(CST0.stmtPos stmt,
                                    Vector.fromList (stmt::stmts))))
                        ::clauses items end
               | clauses [] = []
               | clauses _ = raise LrParser.ParseError
-        in CST0.FixE (Expr0.Fn (pos, StringName.fromString "", (* HACK *)
+        in CST0.FixE (Expr0.Fn (pos, Name.freshFromString "formals",
                                 Vector.fromList (clauses items))) end
   | extractBlock pos (items as (Stmt _ :: _)) =
         let fun unwrapStmt (Stmt stmt) = stmt
@@ -166,18 +166,18 @@ simple : LPAREN expr RPAREN (expr)
          (let val bind =
                   CST0.Bind
                       (applyNameRev
-                           LBRACKETleft (StringName.fromString "tuple") [],
+                           LBRACKETleft (Name.fromString "tuple") [],
                        NONE)
           in CST0.FixE (Expr0.Fn (LBRACKETleft,
-                  StringName.fromString "", (* HACK *)
+                  Name.freshFromString "formals",
                   Vector.fromList [
                       (bind, CST0.FixE (Expr0.Block (LBRACKETleft,
                                  (Vector.fromList (List.rev stmtList)))))]))
           end)
        | LEXID (CST0.FixE (Expr0.Var (LEXIDleft,
-                                      Var.Lex (StringName.fromString LEXID))))
+                                      Var.Lex (Name.fromString LEXID))))
        | DYNID (CST0.FixE (Expr0.Var (DYNIDleft,
-                                      Var.Dyn (StringName.fromString DYNID))))
+                                      Var.Dyn (Name.fromString DYNID))))
        | datum (datum)
 
 datum : prim     (prim)
@@ -188,11 +188,11 @@ prim : INT    (CST0.FixE (Expr0.Const (INTleft, Const.Int INT)))
      | CHAR   (CST0.FixE (Expr0.Const (CHARleft, Const.Char CHAR)))
 
 compound : LPAREN exprList RPAREN
-           (applyNameRev LPARENleft (StringName.fromString "tuple") exprList)
+           (applyNameRev LPARENleft (Name.fromString "tuple") exprList)
          | LBRACKET exprList RBRACKET
-           (applyNameRev LBRACKETleft (StringName.fromString "array") exprList)
+           (applyNameRev LBRACKETleft (Name.fromString "array") exprList)
          | LBRACE exprList RBRACE
-           (applyNameRev LBRACEleft (StringName.fromString "set") exprList)
+           (applyNameRev LBRACEleft (Name.fromString "set") exprList)
          | LBRACE mapPairs RBRACE
            (let val pos = LBRACEleft
                 val args = List.foldl (fn ((k, v), acc) => k::v::acc)
@@ -201,7 +201,7 @@ compound : LPAREN exprList RPAREN
                                     CST0.FixE
                                         (Expr0.Var (pos,
                                                     Var.Lex
-                                                        (StringName.fromString
+                                                        (Name.fromString
                                                             "hashMap"))),
                        Vector.fromList args)) end)
 

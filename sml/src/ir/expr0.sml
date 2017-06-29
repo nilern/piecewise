@@ -2,7 +2,7 @@ structure Expr0 :> sig
     structure Var : VAR
 
     datatype ('expr, 'stmt, 'bind) t =
-      Fn of Pos.t * Var.Name.t * ('bind * 'expr) vector
+      Fn of Pos.t * Name.t * ('bind * 'expr) vector
     | Block of Pos.t * 'stmt vector
     | App of Pos.t * 'expr * 'expr vector
     | PrimApp of Pos.t * Primop.t * 'expr vector
@@ -13,16 +13,16 @@ structure Expr0 :> sig
 
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('b -> PPrint.doc)
               -> ('e, 's, 'b) t -> PPrint.doc
-end where type Var.Name.t = StringName.t = struct
+end = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Var = Var(StringName)
+    structure Var = Var
 
     datatype ('expr, 'stmt, 'bind) t =
-      Fn of Pos.t * Var.Name.t * ('bind * 'expr) vector
+      Fn of Pos.t * Name.t * ('bind * 'expr) vector
     | Block of Pos.t * 'stmt vector
     | App of Pos.t * 'expr * 'expr vector
     | PrimApp of Pos.t * Primop.t * 'expr vector
@@ -45,7 +45,7 @@ end where type Var.Name.t = StringName.t = struct
         in
             PP.braces
                 (PP.align
-                    (PP.text "|" ^^ Var.Name.toDoc formals ^^ PP.text "|" <$>
+                    (PP.text "|" ^^ Name.toDoc formals ^^ PP.text "|" <$>
                         VectorSlice.foldl step (caseToDoc c) rcs))
         end
       | toDoc _ stmtToDoc _ (Block (_, stmts)) =
