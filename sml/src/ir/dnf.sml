@@ -12,6 +12,8 @@ val disj : 'expr t vector -> 'expr t
 val conj : 'expr t vector-> 'expr t
 val neg : 'expr t -> 'expr t
 
+val map : ('e -> 'f) -> 'e t -> 'f t
+
 val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
 
 end = struct
@@ -28,6 +30,8 @@ structure Atom :> sig
     val require : 'expr -> id list -> 'expr t * id
 
     val neg : 'expr t -> 'expr t
+
+    val map : ('e -> 'f) -> 'e t -> 'f t
 
     val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
 end = struct
@@ -49,6 +53,9 @@ end = struct
     fun neg (Require ie) = Forbid ie
       | neg (Forbid ie) = Require ie
 
+    fun map f (Require (id, deps, expr)) = Require (id, deps, f expr)
+      | map f (Forbid (id, deps, expr)) = Forbid (id, deps, f expr)
+
     fun toDoc exprToDoc (Require (_, _, expr)) = exprToDoc expr
       | toDoc exprToDoc (Forbid (_, _, expr)) =
         PP.text "@!" ^^ PP.parens (exprToDoc expr)
@@ -62,6 +69,8 @@ structure Clause : sig
     val always : unit -> 'expr t
     val require : 'expr -> Atom.id list -> 'expr t * Atom.id
 
+    val map : ('e -> 'f) -> 'e t -> 'f t
+
     val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
 end = struct
     type 'expr t = 'expr Atom.t vector
@@ -73,6 +82,8 @@ end = struct
         let val (atom, i) = Atom.require expr deplist
         in (VectorExt.singleton atom, i)
         end
+
+    fun map f atoms = Vector.map (Atom.map f) atoms
 
     fun toDoc exprToDoc atoms =
         case Vector.length atoms
@@ -111,6 +122,8 @@ fun neg dnf =
     let val negClause = disj o (Vector.map (return o Clause.return o Atom.neg))
     in conj (Vector.map negClause dnf)
     end
+
+fun map f clauses = Vector.map (Clause.map f) clauses
 
 fun toDoc exprToDoc clauses =
     case Vector.length clauses

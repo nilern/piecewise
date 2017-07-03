@@ -1,12 +1,14 @@
-structure DnfCst :> sig
+(* HACK: mostly copypasted from DnfCst. A functor should be used instead. *)
+
+structure AuglessCst :> sig
     datatype expr = FixE of (expr, stmt, bind) Expr0.t
     and stmt = FixS of (expr, bind) Stmt1.t
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-    and bind_stmt = FixBS of (expr, Var.t) Stmt0.t
+    and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
 
     val unwrapE : expr -> (expr, stmt, bind) Expr0.t
     val unwrapS : stmt -> (expr, bind) Stmt1.t
-    val unwrapBS : bind_stmt -> (expr, Var.t) Stmt0.t
+    val unwrapBS : bind_stmt -> (expr, Var.t) BindStmt1.t
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
@@ -23,7 +25,7 @@ end = struct
     datatype expr = FixE of (expr, stmt, bind) Expr0.t
     and stmt = FixS of (expr, bind) Stmt1.t
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-    and bind_stmt = FixBS of (expr, Var.t) Stmt0.t
+    and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
 
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
@@ -36,7 +38,8 @@ end = struct
     fun exprToDoc (FixE expr) = Expr0.toDoc exprToDoc stmtToDoc bindToDoc expr
     and stmtToDoc (FixS stmt) = Stmt1.toDoc exprToDoc bindToDoc stmt
     and bindToDoc (Bind (_, cond, bs)) =
-        let val bindingToDoc = Stmt0.toDoc exprToDoc Var.toDoc o unwrapBS
+        let val bindingToDoc = BindStmt1.toDoc exprToDoc Var.toDoc
+                             o unwrapBS
             val bindingDocs =
                 case Vector.length bs
                 of 0 => PP.text "{}"

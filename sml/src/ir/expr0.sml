@@ -1,6 +1,4 @@
 structure Expr0 :> sig
-    structure Var : VAR
-
     datatype ('expr, 'stmt, 'bind) t =
       Fn of Pos.t * Name.t * ('bind * 'expr) vector
     | Block of Pos.t * 'stmt vector
@@ -18,8 +16,6 @@ end = struct
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
-
-    structure Var = Var
 
     datatype ('expr, 'stmt, 'bind) t =
       Fn of Pos.t * Name.t * ('bind * 'expr) vector

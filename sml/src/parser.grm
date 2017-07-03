@@ -1,5 +1,3 @@
-structure Var = Expr0.Var
-
 datatype blockItem = Clause of CST0.expr vector * CST0.expr option * CST0.stmt
                    | Stmt of CST0.stmt
 

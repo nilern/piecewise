@@ -2,24 +2,34 @@ local
     $(SML_LIB)/basis/basis.mlb
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
+
     util/vector_ext.sml
     util/option_ext.sml
     util/pprint.sml
+
     pos.sml
     ir/name.sml
     primop.sml
     ir/var.sml
     ir/const.sml
+
     ir/stmt0.sml
     ir/expr0.sml
     ir/cst0.sml
+
     ir/dnf.sml
     ir/stmt1.sml
     ir/dnf_cst.sml
     ir/pat_expand.sml
-    ir/expr1.sml
+
+    ir/bind_stmt1.sml
+    ir/augless_cst.sml
+    ir/desugar_augs.sml
+
+    (*ir/expr1.sml
     ir/flat_cst.sml
-    ir/lex_flatten.sml
+    ir/lex_flatten.sml*)
+
     parser.grm.sig
     parser.grm.sml
     lexer.lex.sml

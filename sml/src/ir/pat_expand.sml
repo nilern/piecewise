@@ -1,9 +1,10 @@
+(* TODO: formals is guaranteed to be a tuple so matching it can be optimized *)
+
 structure PatExpand :> sig
     val expand : CST0.stmt vector -> DnfCst.stmt vector
 
     exception Pattern of Pos.t * CST0.expr
 end = struct
-    structure Var = Expr0.Var
     val Def = Stmt1.Def
     val Expr = Stmt1.Expr
     val FixE = DnfCst.FixE
@@ -48,7 +49,7 @@ end = struct
                    end
                val argCbs = Vector.mapi expandArg args
                val argConds = Vector.map #1 argCbs
-               val cond'' = DNF.conj (VectorExt.prepend argConds cond')
+               val cond'' = DNF.conj argConds
                fun step ((_, bs), acc) = VectorExt.concat acc bs
                val binds' = Vector.foldl step binds argCbs
            in
@@ -58,8 +59,7 @@ end = struct
          | Expr0.Var (_, var) =>
            (cond, VectorExt.conj binds (newBinding (var, access)))
          | Expr0.Const (pos, c) =>
-           let val eq = FixE (Expr0.Var (pos,
-                                         Expr0.Var.Lex (Name.fromString "==")))
+           let val eq = FixE (Expr0.Var (pos, Var.Lex (Name.fromString "==")))
                val c' = FixE (Expr0.Const (pos, c))
                val newCondExpr =
                    FixE (Expr0.App (pos, eq, Vector.fromList [access, c']))
@@ -98,18 +98,36 @@ end = struct
 
     and expandStmt (CST0.FixS stmt) =
         let fun expandDef newDef bind expr =
-                let val triv = Name.freshFromString "v"
-                    val taccess =
-                        FixE (Expr0.Var (CST0.exprPos expr, Var.Lex triv))
-                in
-                    Def (triv, expandBind (FixBS o newDef) bind taccess,
-                         expandExpr expr)
-                end
+                case bind
+                of CST0.Bind (CST0.FixE (Expr0.App (pos, f, args)), cond) =>
+                   let val tuple =
+                           CST0.FixE
+                               (Expr0.Var
+                                   (pos,
+                                    Var.Lex (Name.freshFromString "tuple")))
+                       val ftup = CST0.FixE (Expr0.App (pos, tuple, args))
+                       val cs = (CST0.Bind (ftup, cond), expr)
+                   in
+                       expandDef newDef (CST0.Bind (f, NONE))
+                           (CST0.FixE
+                               (Expr0.Fn (pos, Name.freshFromString "formals",
+                                         VectorExt.singleton cs)))
+                   end
+                 | _ =>
+                   let val triv = Name.freshFromString "v"
+                       val taccess =
+                           FixE (Expr0.Var (CST0.exprPos expr, Var.Lex triv))
+                   in
+                       Def (triv, expandBind (FixBS o newDef) bind taccess,
+                            expandExpr expr)
+                   end
         in
             FixS
                 (case stmt
-                 of Stmt0.Def (bind, expr) => expandDef Stmt0.Def bind expr
-                  | Stmt0.Def (bind, expr) => expandDef Stmt0.AugDef bind expr
+                 of Stmt0.Def (bind, expr) =>
+                    expandDef Stmt0.Def bind expr
+                  | Stmt0.AugDef (bind, expr) =>
+                    expandDef Stmt0.AugDef bind expr
                   | Stmt0.Expr e => Expr (expandExpr e))
         end
 
