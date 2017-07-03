@@ -1,13 +1,13 @@
-structure CST0 :> sig
-    datatype expr = FixE of (expr, stmt, bind) Expr0.t
-    and stmt = FixS of (expr, bind) Stmt0.t
+structure Cst :> sig
+    datatype expr = FixE of (expr, stmt, bind) Expr.t
+    and stmt = FixS of (expr, bind) CStmt.t
     and bind = Bind of expr * expr option
 
-    val wrapE : (expr, stmt, bind) Expr0.t -> expr
-    val wrapS : (expr, bind) Stmt0.t -> stmt
+    val wrapE : (expr, stmt, bind) Expr.t -> expr
+    val wrapS : (expr, bind) CStmt.t -> stmt
 
-    val unwrapE : expr -> (expr, stmt, bind) Expr0.t
-    val unwrapS : stmt -> (expr, bind) Stmt0.t
+    val unwrapE : expr -> (expr, stmt, bind) Expr.t
+    val unwrapS : stmt -> (expr, bind) CStmt.t
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
@@ -19,8 +19,8 @@ end = struct
     val op^^ = PP.^^
     val op<+> = PP.<+>
 
-    datatype expr = FixE of (expr, stmt, bind) Expr0.t
-    and stmt = FixS of (expr, bind) Stmt0.t
+    datatype expr = FixE of (expr, stmt, bind) Expr.t
+    and stmt = FixS of (expr, bind) CStmt.t
     and bind = Bind of expr * expr option
 
     val wrapE = FixE
@@ -29,14 +29,14 @@ end = struct
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
 
-    val exprPos = Expr0.pos o unwrapE
+    val exprPos = Expr.pos o unwrapE
     fun bindPos (Bind (pat, _)) = exprPos pat
-    val stmtPos = Stmt0.pos exprPos bindPos o unwrapS
+    val stmtPos = CStmt.pos exprPos bindPos o unwrapS
 
     fun exprToDoc expr =
-        Expr0.toDoc exprToDoc stmtToDoc bindToDoc (unwrapE expr)
+        Expr.toDoc exprToDoc stmtToDoc bindToDoc (unwrapE expr)
     and stmtToDoc stmt =
-        Stmt0.toDoc exprToDoc bindToDoc (unwrapS stmt)
+        CStmt.toDoc exprToDoc bindToDoc (unwrapS stmt)
     and bindToDoc (Bind (pat, cond)) =
         exprToDoc pat ^^ (case cond
                           of SOME ce => PP.space ^^ PP.text "|" <+> exprToDoc ce

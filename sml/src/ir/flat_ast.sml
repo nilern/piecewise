@@ -1,7 +1,7 @@
 (* TODO: Add Var.t variant (or something like that) for fn ptrs *)
 
 (* Like CST0, but alphatized and closure converted. *)
-structure FlatCST :> sig
+structure FlatAst :> sig
     datatype expr = FixE of (expr, stmt) Expr1.t
     and stmt = FixS of (expr, bind) Stmt0.t
     and bind = Bind of expr * expr option

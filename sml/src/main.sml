@@ -36,17 +36,16 @@ end = struct
                     Vector.app
                         (fn cst => TextIO.output(TextIO.stdOut,
                                                  PPrint.pretty 80
-                                                     (CST0.stmtToDoc cst)))
+                                                     (Cst.stmtToDoc cst)))
                         result;
 
                     TextIO.output(TextIO.stdOut, "\n\n");
 
-                    let val dcst = PatExpand.expand result
-                        val _ = print (PPrint.pretty 80 (DnfCst.toDoc dcst))
+                    let val dcst = DesugarBinds.expand result
+                        val _ = print (PPrint.pretty 80 (Ast.toDoc dcst))
                         val _ = print "\n\n"
                         val acst = DesugarAugs.desugar dcst
-                    in
-                        print (PPrint.pretty 80 (AuglessCst.toDoc acst))
+                    in print (PPrint.pretty 80 (AuglessAst.toDoc acst))
                     end;
 
                     TextIO.output(TextIO.stdOut, "\n\n");
@@ -66,9 +65,9 @@ end = struct
                 (*LexFlatten.Unbound (pos, name) =>
                     print ("Unbound name: " ^ Name.toString name ^
                            " at " ^ Pos.toString pos ^ "\n")
-              |*) PatExpand.Pattern (pos, pat) =>
+              |*) DesugarBinds.Pattern (pos, pat) =>
                     print ("Invalid pattern: " ^
-                           PPrint.pretty 80 (CST0.exprToDoc pat) ^
+                           PPrint.pretty 80 (Cst.exprToDoc pat) ^
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarAugs.ReAssignment (pos, var) =>
                     print ("Reassignment of " ^

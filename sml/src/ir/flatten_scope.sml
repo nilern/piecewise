@@ -1,4 +1,4 @@
-structure LexFlatten :> sig
+structure FlattenScope :> sig
 exception Unbound of Pos.t * Name.t
 
 val flatten : CST0.stmt vector -> FlatCST.stmt vector FlatCST.program

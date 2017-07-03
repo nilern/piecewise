@@ -1,14 +1,12 @@
-(* HACK: mostly copypasted from DnfCst. A functor should be used instead. *)
-
-structure AuglessCst :> sig
-    datatype expr = FixE of (expr, stmt, bind) Expr0.t
-    and stmt = FixS of (expr, bind) Stmt1.t
+structure Ast :> sig
+    datatype expr = FixE of (expr, stmt, bind) Expr.t
+    and stmt = FixS of (expr, bind) AuglessStmt.t
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-    and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
+    and bind_stmt = FixBS of (expr, Var.t) CStmt.t
 
-    val unwrapE : expr -> (expr, stmt, bind) Expr0.t
-    val unwrapS : stmt -> (expr, bind) Stmt1.t
-    val unwrapBS : bind_stmt -> (expr, Var.t) BindStmt1.t
+    val unwrapE : expr -> (expr, stmt, bind) Expr.t
+    val unwrapS : stmt -> (expr, bind) AuglessStmt.t
+    val unwrapBS : bind_stmt -> (expr, Var.t) CStmt.t
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
@@ -22,24 +20,23 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    datatype expr = FixE of (expr, stmt, bind) Expr0.t
-    and stmt = FixS of (expr, bind) Stmt1.t
+    datatype expr = FixE of (expr, stmt, bind) Expr.t
+    and stmt = FixS of (expr, bind) AuglessStmt.t
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-    and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
+    and bind_stmt = FixBS of (expr, Var.t) CStmt.t
 
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
     fun unwrapBS (FixBS stmt) = stmt
 
-    val exprPos = Expr0.pos o unwrapE
+    val exprPos = Expr.pos o unwrapE
     fun bindPos (Bind (pos, _, _)) = pos
-    val stmtPos = Stmt1.pos exprPos bindPos o unwrapS
+    val stmtPos = AuglessStmt.pos exprPos bindPos o unwrapS
 
-    fun exprToDoc (FixE expr) = Expr0.toDoc exprToDoc stmtToDoc bindToDoc expr
-    and stmtToDoc (FixS stmt) = Stmt1.toDoc exprToDoc bindToDoc stmt
+    fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc bindToDoc expr
+    and stmtToDoc (FixS stmt) = AuglessStmt.toDoc exprToDoc bindToDoc stmt
     and bindToDoc (Bind (_, cond, bs)) =
-        let val bindingToDoc = BindStmt1.toDoc exprToDoc Var.toDoc
-                             o unwrapBS
+        let val bindingToDoc = CStmt.toDoc exprToDoc Var.toDoc o unwrapBS
             val bindingDocs =
                 case Vector.length bs
                 of 0 => PP.text "{}"

@@ -1,7 +1,7 @@
 structure DesugarAugs :> sig
 exception ReAssignment of Pos.t * Var.t
 
-val desugar : DnfCst.stmt vector -> AuglessCst.stmt vector
+val desugar : Ast.stmt vector -> AuglessAst.stmt vector
 
 end = struct
 
@@ -32,23 +32,23 @@ end = struct
         end
 end (* structure Env *)
 
-val FixE = AuglessCst.FixE
-val FixS = AuglessCst.FixS
-val FixBS = AuglessCst.FixBS
+val FixE = AuglessAst.FixE
+val FixS = AuglessAst.FixS
+val FixBS = AuglessAst.FixBS
 
-fun analyzeBind env i (DnfCst.Bind (pos, _, bstmts)) =
-    let fun analyzeBStmt (j, DnfCst.FixBS stmt, env) =
+fun analyzeBind env i (Ast.Bind (pos, _, bstmts)) =
+    let fun analyzeBStmt (j, Ast.FixBS stmt, env) =
             case stmt
-            of Stmt0.Def (var, _) => Env.init env var i j
-             | Stmt0.AugDef (var, _) => Env.init env var i j
-             | Stmt0.Expr _ => env
+            of CStmt.Def (var, _) => Env.init env var i j
+             | CStmt.AugDef (var, _) => Env.init env var i j
+             | CStmt.Expr _ => env
     in Vector.foldli analyzeBStmt env bstmts
     end
 
-fun elabBind env i (DnfCst.Bind (pos, dnf, bstmts)) =
-    let fun elabBStmt (j, DnfCst.FixBS stmt, (stmts', env)) =
+fun elabBind env i (Ast.Bind (pos, dnf, bstmts)) =
+    let fun elabBStmt (j, Ast.FixBS stmt, (stmts', env)) =
             case stmt
-            of Stmt0.Def (var, expr) =>
+            of CStmt.Def (var, expr) =>
                let val (envVar, fi, fj) = Env.lookup env var
                in
                    if Option.isSome envVar
@@ -64,7 +64,7 @@ fun elabBind env i (DnfCst.Bind (pos, dnf, bstmts)) =
                         in (VectorExt.conj stmts' stmt', env')
                         end
                end
-             | Stmt0.AugDef (var, expr) =>
+             | CStmt.AugDef (var, expr) =>
                let val (envVar, fi, fj) = Env.lookup env var
                    val (var', env') =
                        if i = fi andalso j = fj
@@ -73,60 +73,60 @@ fun elabBind env i (DnfCst.Bind (pos, dnf, bstmts)) =
                             in (var', Env.insert env var var')
                             end
                    val oldVar = Option.getOpt (envVar, Var.upper var)
-                   val ovExpr = FixE (Expr0.Var (pos, oldVar))
+                   val ovExpr = FixE (Expr.Var (pos, oldVar))
                    val fnMerge =
-                       FixE (Expr0.Var (pos,
+                       FixE (Expr.Var (pos,
                                         Var.Lex (Name.fromString "fnMerge")))
                    val merge =
                        FixE
-                           (Expr0.App (pos, fnMerge,
+                           (Expr.App (pos, fnMerge,
                                        Vector.fromList [ovExpr, elabExpr expr]))
                    val stmt' = FixBS (BindStmt1.Def (var', merge))
                in (VectorExt.conj stmts' stmt', env')
                end
-             | Stmt0.Expr expr =>
+             | CStmt.Expr expr =>
                let val stmt' = FixBS (BindStmt1.Expr (elabExpr expr))
                in (VectorExt.conj stmts' stmt', env)
                end
         val (bstmts', env') =
             Vector.foldli elabBStmt (VectorExt.empty (), env) bstmts
-    in (AuglessCst.Bind (pos, DNF.map elabExpr dnf, bstmts'), env')
+    in (AuglessAst.Bind (pos, DNF.map elabExpr dnf, bstmts'), env')
     end
 
 and elabExpr expr =
     FixE
-        (case DnfCst.unwrapE expr
-         of Expr0.Fn (pos, name, cases) =>
+        (case Ast.unwrapE expr
+         of Expr.Fn (pos, name, cases) =>
             let fun elabCase (bind, body) =
                     let val env = analyzeBind Env.empty 0 bind
                         val (bind', _) = elabBind env 0 bind
                     in (bind', elabExpr body)
                     end
-            in Expr0.Fn (pos, name, Vector.map elabCase cases)
+            in Expr.Fn (pos, name, Vector.map elabCase cases)
             end
-          | Expr0.Block (pos, stmts) =>
-            Expr0.Block (pos, elabStmts stmts)
-          | Expr0.App (pos, f, args) =>
-            Expr0.App (pos, elabExpr f, Vector.map elabExpr args)
-          | Expr0.PrimApp (pos, po, args) =>
-            Expr0.PrimApp (pos, po, Vector.map elabExpr args)
-          | Expr0.Var (pos, v) => Expr0.Var (pos, v)
-          | Expr0.Const (pos, c) => Expr0.Const (pos, c))
+          | Expr.Block (pos, stmts) =>
+            Expr.Block (pos, elabStmts stmts)
+          | Expr.App (pos, f, args) =>
+            Expr.App (pos, elabExpr f, Vector.map elabExpr args)
+          | Expr.PrimApp (pos, po, args) =>
+            Expr.PrimApp (pos, po, Vector.map elabExpr args)
+          | Expr.Var (pos, v) => Expr.Var (pos, v)
+          | Expr.Const (pos, c) => Expr.Const (pos, c))
 
 and elabStmts stmts =
-    let fun analyzeStmt (i, DnfCst.FixS stmt, env) =
+    let fun analyzeStmt (i, Ast.FixS stmt, env) =
             case stmt
-            of Stmt1.Def (_, bind, _) => analyzeBind env i bind
-             | Stmt1.Expr _ => env
-        fun elabStmt (i, DnfCst.FixS stmt, (stmts', env)) =
+            of AuglessStmt.Def (_, bind, _) => analyzeBind env i bind
+             | AuglessStmt.Expr _ => env
+        fun elabStmt (i, Ast.FixS stmt, (stmts', env)) =
             case stmt
-            of Stmt1.Def (temp, bind, expr) =>
+            of AuglessStmt.Def (temp, bind, expr) =>
                let val (bind', env') = elabBind env i bind
-                   val stmt' = FixS (Stmt1.Def (temp, bind', elabExpr expr))
+                   val stmt' = FixS (AuglessStmt.Def (temp, bind', elabExpr expr))
                in (VectorExt.conj stmts' stmt', env')
                end
-             | Stmt1.Expr expr =>
-               let val stmt' = FixS (Stmt1.Expr (elabExpr expr))
+             | AuglessStmt.Expr expr =>
+               let val stmt' = FixS (AuglessStmt.Expr (elabExpr expr))
                in (VectorExt.conj stmts' stmt', env)
                end
         val env = Vector.foldli analyzeStmt Env.empty stmts

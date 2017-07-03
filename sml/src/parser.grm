@@ -1,23 +1,23 @@
-datatype blockItem = Clause of CST0.expr vector * CST0.expr option * CST0.stmt
-                   | Stmt of CST0.stmt
+datatype blockItem = Clause of Cst.expr vector * Cst.expr option * Cst.stmt
+                   | Stmt of Cst.stmt
 
 fun opApp pos opPos opStr l r =
-        CST0.FixE (Expr0.App (pos,
-                              CST0.FixE (Expr0.Var (opPos,
+        Cst.FixE (Expr.App (pos,
+                              Cst.FixE (Expr.Var (opPos,
                                                     Var.Lex
                                                         (Name.fromString
                                                              opStr))),
                    Vector.fromList [l, r]))
 
 fun applyName pos name exprs =
-    CST0.FixE (Expr0.App(pos, CST0.FixE (Expr0.Var (pos, Var.Lex name)), exprs))
+    Cst.FixE (Expr.App(pos, Cst.FixE (Expr.Var (pos, Var.Lex name)), exprs))
 
 fun applyNameRev pos name revExprs =
     applyName pos name (Vector.fromList (List.rev revExprs))
 
 fun extractApp _ [e] = e
   | extractApp pos (f::args) =
-    CST0.FixE (Expr0.App (pos, f, Vector.fromList args))
+    Cst.FixE (Expr.App (pos, f, Vector.fromList args))
   | extractApp _ [] = raise LrParser.ParseError
 
 fun extractBlock pos (items as (Clause _ :: _)) =
@@ -27,21 +27,21 @@ fun extractBlock pos (items as (Clause _ :: _)) =
               | stmtSplit items = ([], items)
             fun clauses (Clause(formals, cond, stmt)::items) =
                     let val (stmts, items') = stmtSplit items
-                        val pos = CST0.exprPos (Vector.sub(formals, 0))
+                        val pos = Cst.exprPos (Vector.sub(formals, 0))
                         val tuple = Name.fromString "tuple"
-                    in (CST0.Bind (applyName pos tuple formals, cond),
-                        CST0.FixE (Expr0.Block(CST0.stmtPos stmt,
+                    in (Cst.Bind (applyName pos tuple formals, cond),
+                        Cst.FixE (Expr.Block(Cst.stmtPos stmt,
                                    Vector.fromList (stmt::stmts))))
                        ::clauses items end
               | clauses [] = []
               | clauses _ = raise LrParser.ParseError
-        in CST0.FixE (Expr0.Fn (pos, Name.freshFromString "formals",
+        in Cst.FixE (Expr.Fn (pos, Name.freshFromString "formals",
                                 Vector.fromList (clauses items))) end
   | extractBlock pos (items as (Stmt _ :: _)) =
         let fun unwrapStmt (Stmt stmt) = stmt
               | unwrapStmt (Clause _) = raise LrParser.ParseError
-        in CST0.FixE
-               (Expr0.Block (pos,
+        in Cst.FixE
+               (Expr.Block (pos,
                              Vector.map unwrapStmt (Vector.fromList items)))
         end
   | extractBlock _ [] = raise LrParser.ParseError
@@ -85,31 +85,31 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
     | EOF
 
-%nonterm program of CST0.stmt vector
-       | stmt of CST0.stmt
-       | expr of CST0.expr
+%nonterm program of Cst.stmt vector
+       | stmt of Cst.stmt
+       | expr of Cst.expr
        | blockItem of blockItem
 
-       | infix0 of CST0.expr
-       | infix1 of CST0.expr
-       | infix2 of CST0.expr
-       | infix3 of CST0.expr
-       | infix4 of CST0.expr
-       | infix5 of CST0.expr
-       | infix6 of CST0.expr
-       | infix7 of CST0.expr
-       | app of CST0.expr list
-       | primApp of CST0.expr
-       | simple of CST0.expr
+       | infix0 of Cst.expr
+       | infix1 of Cst.expr
+       | infix2 of Cst.expr
+       | infix3 of Cst.expr
+       | infix4 of Cst.expr
+       | infix5 of Cst.expr
+       | infix6 of Cst.expr
+       | infix7 of Cst.expr
+       | app of Cst.expr list
+       | primApp of Cst.expr
+       | simple of Cst.expr
 
-       | datum of CST0.expr
-       | prim of CST0.expr
-       | compound of CST0.expr
+       | datum of Cst.expr
+       | prim of Cst.expr
+       | compound of Cst.expr
 
-       | exprList of CST0.expr list
-       | exprListTwoPlus of CST0.expr list
-       | mapPairs of (CST0.expr * CST0.expr) list
-       | stmtList of CST0.stmt list
+       | exprList of Cst.expr list
+       | exprListTwoPlus of Cst.expr list
+       | mapPairs of (Cst.expr * Cst.expr) list
+       | stmtList of Cst.stmt list
        | blockItemList of blockItem list
 
 %eop EOF
@@ -119,9 +119,9 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
 program : stmtList (Vector.fromList (List.rev stmtList))
 
-stmt : expr EQ expr  (CST0.FixS (Stmt0.Def (CST0.Bind (expr1, NONE), expr2)))
-     | expr AUG expr (CST0.FixS (Stmt0.AugDef (CST0.Bind (expr1, NONE), expr2)))
-     | expr          (CST0.FixS (Stmt0.Expr expr))
+stmt : expr EQ expr  (Cst.FixS (CStmt.Def (Cst.Bind (expr1, NONE), expr2)))
+     | expr AUG expr (Cst.FixS (CStmt.AugDef (Cst.Bind (expr1, NONE), expr2)))
+     | expr          (Cst.FixS (CStmt.Expr expr))
 
 blockItem : app DARROW stmt
             (Clause (Vector.fromList (List.rev app), NONE, stmt))
@@ -154,7 +154,7 @@ infix7 : infix7 OP7 app
 app : simple     ([simple])
     | app simple (simple :: app)
 
-primApp : PRIM app (CST0.FixE (Expr0.PrimApp (PRIMleft, Primop.fromString PRIM,
+primApp : PRIM app (Cst.FixE (Expr.PrimApp (PRIMleft, Primop.fromString PRIM,
                                  Vector.fromList (List.rev app))))
 
 simple : LPAREN expr RPAREN (expr)
@@ -162,28 +162,28 @@ simple : LPAREN expr RPAREN (expr)
          (extractBlock LBRACEleft (List.rev blockItemList))
        | LBRACKET stmtList RBRACKET
          (let val bind =
-                  CST0.Bind
+                  Cst.Bind
                       (applyNameRev
                            LBRACKETleft (Name.fromString "tuple") [],
                        NONE)
-          in CST0.FixE (Expr0.Fn (LBRACKETleft,
+          in Cst.FixE (Expr.Fn (LBRACKETleft,
                   Name.freshFromString "formals",
                   Vector.fromList [
-                      (bind, CST0.FixE (Expr0.Block (LBRACKETleft,
+                      (bind, Cst.FixE (Expr.Block (LBRACKETleft,
                                  (Vector.fromList (List.rev stmtList)))))]))
           end)
-       | LEXID (CST0.FixE (Expr0.Var (LEXIDleft,
+       | LEXID (Cst.FixE (Expr.Var (LEXIDleft,
                                       Var.Lex (Name.fromString LEXID))))
-       | DYNID (CST0.FixE (Expr0.Var (DYNIDleft,
+       | DYNID (Cst.FixE (Expr.Var (DYNIDleft,
                                       Var.Dyn (Name.fromString DYNID))))
        | datum (datum)
 
 datum : prim     (prim)
       | compound (compound)
 
-prim : INT    (CST0.FixE (Expr0.Const (INTleft, Const.Int INT)))
-     | STRING (CST0.FixE (Expr0.Const (STRINGleft, Const.String STRING)))
-     | CHAR   (CST0.FixE (Expr0.Const (CHARleft, Const.Char CHAR)))
+prim : INT    (Cst.FixE (Expr.Const (INTleft, Const.Int INT)))
+     | STRING (Cst.FixE (Expr.Const (STRINGleft, Const.String STRING)))
+     | CHAR   (Cst.FixE (Expr.Const (CHARleft, Const.Char CHAR)))
 
 compound : LPAREN exprList RPAREN
            (applyNameRev LPARENleft (Name.fromString "tuple") exprList)
@@ -195,9 +195,9 @@ compound : LPAREN exprList RPAREN
            (let val pos = LBRACEleft
                 val args = List.foldl (fn ((k, v), acc) => k::v::acc)
                                       [] mapPairs
-            in CST0.FixE (Expr0.App(pos,
-                                    CST0.FixE
-                                        (Expr0.Var (pos,
+            in Cst.FixE (Expr.App(pos,
+                                    Cst.FixE
+                                        (Expr.Var (pos,
                                                     Var.Lex
                                                         (Name.fromString
                                                             "hashMap"))),

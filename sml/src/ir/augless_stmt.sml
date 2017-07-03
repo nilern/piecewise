@@ -1,4 +1,4 @@
-structure Stmt1 :> sig
+structure AuglessStmt :> sig
     datatype ('expr, 'bind) t = Def of Name.t * 'bind * 'expr
                               | Expr of 'expr
 

@@ -1,4 +1,4 @@
-structure Expr1 :> sig
+structure FlatExpr :> sig
     structure Var : VAR
 
     type 'expr fnCase = 'expr vector * 'expr option * 'expr

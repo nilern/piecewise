@@ -1,4 +1,4 @@
-structure Stmt0 :> sig
+structure CStmt :> sig
     datatype ('expr, 'bind) t = Def of 'bind * 'expr
                               | AugDef of 'bind * 'expr
                               | Expr of 'expr
