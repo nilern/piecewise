@@ -45,7 +45,11 @@ end = struct
                         val _ = print (PPrint.pretty 80 (Ast.toDoc dcst))
                         val _ = print "\n\n"
                         val acst = DesugarAugs.desugar dcst
-                    in print (PPrint.pretty 80 (AuglessAst.toDoc acst))
+                        val _ = print (PPrint.pretty 80 (AuglessAst.toDoc acst))
+                        val _ = print "\n\n"
+                        val saast = StraightenScope.straighten acst
+                    in
+                        print (PPrint.pretty 80 (AuglessAst.toDoc saast))
                     end;
 
                     TextIO.output(TextIO.stdOut, "\n\n");

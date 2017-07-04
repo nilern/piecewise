@@ -26,6 +26,8 @@ local
     ir/augless_ast.sml
     ir/desugar_augs.sml
 
+    ir/straighten_scope.sml
+
     (*ir/flat_expr.sml
     ir/flat_cst.sml
     ir/lex_flatten.sml*)

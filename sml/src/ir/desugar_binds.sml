@@ -98,6 +98,7 @@ end = struct
 
     and expandStmt (Cst.FixS stmt) =
         let fun expandDef newDef bind expr =
+                (* FIXME: tuple etc. pats get treated as fn definitions *)
                 case bind
                 of Cst.Bind (Cst.FixE (Expr.App (pos, f, args)), cond) =>
                    let val tuple =
