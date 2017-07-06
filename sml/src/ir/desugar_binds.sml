@@ -105,7 +105,7 @@ end = struct
                            Cst.FixE
                                (Expr.Var
                                    (pos,
-                                    Var.Lex (Name.freshFromString "tuple")))
+                                    Var.Lex (Name.fromString "tuple")))
                        val ftup = Cst.FixE (Expr.App (pos, tuple, args))
                        val cs = (Cst.Bind (ftup, cond), expr)
                    in

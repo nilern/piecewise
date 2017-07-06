@@ -28,9 +28,9 @@ local
 
     ir/straighten_scope.sml
 
-    (*ir/flat_expr.sml
-    ir/flat_cst.sml
-    ir/lex_flatten.sml*)
+    ir/flat_expr.sml
+    ir/flat_ast.sml
+    ir/flatten_scope.sml
 
     parser.grm.sig
     parser.grm.sml

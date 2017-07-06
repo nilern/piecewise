@@ -19,8 +19,18 @@ end = struct
     fun elabExpr (AuglessAst.FixE expr) =
         FixE (case expr
               of Expr.Fn (pos, name, cases) =>
-                 let fun elabCase (bind, body) =
-                         (#1 (elabBind bind), elabExpr body)
+                 let fun elabCase (AuglessAst.Bind (pos, dnf, bstmts), body) =
+                         let fun elabBStmt (AuglessAst.FixBS bstmt) =
+                                 FixBS (case bstmt
+                                        of BindStmt1.Def (var, expr) =>
+                                           BindStmt1.Def (var, elabExpr expr)
+                                         | BindStmt1.Expr expr =>
+                                           BindStmt1.Expr (elabExpr expr))
+                         in ( AuglessAst.Bind ( pos
+                                              , DNF.map elabExpr dnf
+                                              , Vector.map elabBStmt bstmts )
+                            , elabExpr body )
+                         end
                  in Fn (pos, name, Vector.map elabCase cases)
                  end
                | Expr.Block (pos, stmts) => Block (pos, elabStmts stmts)

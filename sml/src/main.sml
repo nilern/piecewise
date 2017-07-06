@@ -48,16 +48,12 @@ end = struct
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc acst))
                         val _ = print "\n\n"
                         val saast = StraightenScope.straighten acst
+                        val _ = print (PPrint.pretty 80 (AuglessAst.toDoc saast))
+                        val _ = print "\n\n"
+                        val fast = FlattenScope.flatten saast
                     in
-                        print (PPrint.pretty 80 (AuglessAst.toDoc saast))
+                        print (PPrint.pretty 80 (FlatAst.toDoc fast))
                     end;
-
-                    TextIO.output(TextIO.stdOut, "\n\n");
-
-                    (*let val fcst = LexFlatten.flatten result
-                    in TextIO.output(TextIO.stdOut,
-                                     PPrint.pretty 80 (FlatCST.toDoc fcst))
-                    end;*)
 
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -66,10 +62,10 @@ end = struct
         in
             loop lexer
             handle
-                (*LexFlatten.Unbound (pos, name) =>
+                FlattenScope.Unbound (pos, name) =>
                     print ("Unbound name: " ^ Name.toString name ^
                            " at " ^ Pos.toString pos ^ "\n")
-              |*) DesugarBinds.Pattern (pos, pat) =>
+              | DesugarBinds.Pattern (pos, pat) =>
                     print ("Invalid pattern: " ^
                            PPrint.pretty 80 (Cst.exprToDoc pat) ^
                            " at " ^ Pos.toString pos ^ "\n")
