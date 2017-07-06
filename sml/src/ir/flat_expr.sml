@@ -1,3 +1,5 @@
+(* TODO: use Name.t instead of Var.t *)
+
 structure FlatExpr :> sig
     type 'expr fnCase = 'expr vector * 'expr option * 'expr
     datatype ('expr, 'stmt) t = Block of Pos.t * 'stmt vector

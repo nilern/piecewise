@@ -1,4 +1,4 @@
-(* TODO: also make dynamic env explicit *)
+(* FIXME: __denv links to the denv being defined, not the previous one *)
 
 structure FlattenScope :> sig
 exception Unbound of Pos.t * Name.t
@@ -18,7 +18,7 @@ val append = FlatAst.append
 val map = FlatAst.map
 val flatMap = FlatAst.flatMap
 
-structure Env :> sig
+structure LexEnv :> sig
     type t
     datatype res = Direct of Name.t
                  | Clover of Name.t * int
@@ -216,7 +216,7 @@ end = struct
     fun toString frames =
         List.foldl (fn (f, acc) => acc ^ Frame.toString f ^ "\n") "" frames ^
             "\n"
-end (* structure Env *)
+end (* structure LexEnv *)
 
 exception Unbound of Pos.t * Name.t
 
@@ -238,30 +238,62 @@ fun stmtVecBindings stmts =
     in Vector.foldl stmtBindings NameSet.empty stmts
     end
 
-fun elabExpr env (AuglessAst.FixE expr) =
+(* TODO: make this function unnecessary *)
+fun caseDynEnv lenv denv (AuglessAst.Bind (_, _, bstmts)) =
+    let fun bstmtDynEnv (AuglessAst.FixBS bstmt, denv) =
+            case bstmt
+            of BindStmt1.Def (Var.Lex denv'
+                             , AuglessAst.FixE
+                                   (Expr.PrimApp (_, Primop.DEnv, _))) =>
+               let val SOME (LexEnv.Direct denv'') = LexEnv.find lenv denv'
+               in denv''
+               end
+             | _ => denv
+    in Vector.foldl bstmtDynEnv denv bstmts
+    end
+
+(* TODO: make this function unnecessary *)
+fun stmtVecDynEnv lenv denv stmts =
+    let fun stmtDynEnv (AuglessAst.FixS stmt, denv) =
+            case stmt
+            of AuglessStmt.Def (_, AuglessAst.Bind (_, _, bstmts)
+                               , AuglessAst.FixE
+                                     (Expr.PrimApp (_, Primop.DEnv, _))) =>
+               let val AuglessAst.FixBS (BindStmt1.Def (Var.Lex denv', _)) =
+                       Vector.sub (bstmts, 0)
+                   val SOME (LexEnv.Direct denv'') = LexEnv.find lenv denv'
+               in denv''
+               end
+             | _ => denv
+    in Vector.foldl stmtDynEnv denv stmts
+    end
+
+fun elabExpr lenv denv (AuglessAst.FixE expr) =
     case expr
     of Expr.Fn (pos, formals, cases) =>
-       let fun elabCase env (bind, body) =
-               let val self = Option.valOf (Env.self env)
-                   val oldnames = NameSet.fromList [ valOf (Env.self0 env)
-                                                   , valOf (Env.formals0 env) ]
+       let fun elabCase lenv denv (bind, body) =
+               let val self = Option.valOf (LexEnv.self lenv)
+                   val oldnames = NameSet.fromList [ valOf (LexEnv.self0 lenv)
+                                                   , valOf (LexEnv.formals0 lenv) ]
                    val names = bindBindings (bind, oldnames)
-                   val env' = Env.pushCaseFrame env names
+                   val lenv' = LexEnv.pushCaseFrame lenv names
+                   val denv' = caseDynEnv lenv' denv bind
                in
                    FlatAst.append (fn bind' => fn body' =>
                                       ( self
-                                      , valOf (Env.formals env')
+                                      , valOf (LexEnv.formals lenv')
+                                      , denv' (* FIXME: should be fresh and used in the entry `__denv` op *)
                                       , bind'
                                       , body' ))
-                                  (elabBind env' bind)
-                                  (elabExpr env' body)
+                                  (elabBind lenv' denv' bind)
+                                  (elabExpr lenv' denv' body)
                end
-           val env' = Env.pushFnFrame env (Name.fromString "f") formals
-           val name = Option.valOf (Env.self env')
-           val cprogs = Vector.map (elabCase env') cases
+           val lenv' = LexEnv.pushFnFrame lenv (Name.fromString "f") formals
+           val name = Option.valOf (LexEnv.self lenv')
+           val cprogs = Vector.map (elabCase lenv' denv) cases
            val cprocs = VectorExt.flatMap #procs cprogs
            val cases' = Vector.map #main cprogs
-           val clovers = Option.valOf (Env.clovers env')
+           val clovers = Option.valOf (LexEnv.clovers lenv')
            val procs = VectorExt.conj cprocs { name = name
                                              , clovers = clovers
                                              , cases = cases' }
@@ -274,8 +306,9 @@ fun elabExpr env (AuglessAst.FixE expr) =
                                                       (Name.chars name)))))
                           clovers
            val close =
-               elabExpr env (AuglessAst.FixE (Expr.PrimApp (pos, Primop.Close,
-                                                       cexprs)))
+               elabExpr lenv denv
+                        (AuglessAst.FixE (Expr.PrimApp (pos, Primop.Close,
+                                                        cexprs)))
            val close' = case #main close (* HACK *)
                         of FlatAst.FixE (FlatExpr.PrimApp (pos, Primop.Close, cexprs)) =>
                            FixE (FlatExpr.PrimApp (pos, Primop.Close,
@@ -285,58 +318,77 @@ fun elabExpr env (AuglessAst.FixE expr) =
        in { procs = procs , main = close' }
        end
      | Expr.Block (pos, stmts) =>
-       mapMain (fn stmts => FixE (FlatExpr.Block (pos, stmts))) (elabStmts env stmts)
+       mapMain (fn stmts => FixE (FlatExpr.Block (pos, stmts))) (elabStmts lenv denv stmts)
      | Expr.App (pos, f, args) =>
-       let fun makeApp f args = FixE (FlatExpr.App (pos, FixE (FlatExpr.PrimApp (pos, Primop.FnPtr,
-                                     VectorExt.singleton f)),
-                                     VectorExt.prepend args f))
-       in append makeApp (elabExpr env f) (map (elabExpr env) args)
+       let fun makeApp f args =
+               let val deExpr = FixE (FlatExpr.Var (pos, Var.Lex denv))
+               in FixE (FlatExpr.App ( pos
+                                     , FixE (FlatExpr.PrimApp (pos, Primop.FnPtr, VectorExt.singleton f))
+                                     , VectorExt.concat (Vector.fromList [f, deExpr]) args))
+               end
+       in append makeApp (elabExpr lenv denv f) (map (elabExpr lenv denv) args)
        end
      | Expr.PrimApp (pos, po, args) =>
-       let fun makePrimApp po args = FixE (FlatExpr.PrimApp (pos, po, args))
-       in append makePrimApp (trivial po) (map (elabExpr env) args)
+       let fun makePrimApp po args =
+               let val args' = if po = Primop.DEnv
+                               then VectorExt.prepend args (FixE (FlatExpr.Var (pos, Var.Lex denv)))
+                               else args
+               in FixE (FlatExpr.PrimApp (pos, po, args'))
+               end
+       in append makePrimApp (trivial po) (map (elabExpr lenv denv) args)
        end
      | Expr.Const (pos, c) => trivialE (FlatExpr.Const (pos, c))
      | Expr.Var (pos, var as Var.Lex name) =>
-       trivialE (case Env.find env name
-                 of SOME (Env.Direct name) => FlatExpr.Var (pos, Var.Lex name)
-                  | SOME (Env.Clover (self, i)) =>
+       trivialE (case LexEnv.find lenv name
+                 of SOME (LexEnv.Direct name) => FlatExpr.Var (pos, Var.Lex name)
+                  | SOME (LexEnv.Clover (self, i)) =>
                     FlatExpr.PrimApp (pos, Primop.FnGet,
                              Vector.fromList [
                                  FixE (FlatExpr.Var (pos, Var.Lex self)),
                                  FixE (FlatExpr.Const (pos, Const.Int (Int.toString i)))])
                   | NONE => raise Unbound (pos, name))
+    | Expr.Var (pos, Var.Dyn name) =>
+      trivialE
+          (FlatExpr.PrimApp (pos, Primop.DGet,
+                             Vector.fromList [ FixE (FlatExpr.Var (pos, Var.Lex denv))
+                                             , FixE (FlatExpr.Const (pos, Const.Symbol (Name.toString name))) ]))
+    (* TODO: Var.Upper* *)
 
-and elabStmt env (AuglessAst.FixS stmt) =
+and elabStmt lenv denv (AuglessAst.FixS stmt) =
     case stmt
     of AuglessStmt.Def (temp, bind, expr) =>
        FlatAst.append (fn bind' => fn expr' =>
-                          FixS (AuglessStmt.Def (temp, bind', expr')))
-                      (elabBind env bind)
-                      (elabExpr env expr)
+                          let val SOME (LexEnv.Direct temp') =
+                                  LexEnv.find lenv temp
+                          in FixS (AuglessStmt.Def ( temp' , bind', expr' ))
+                          end)
+                      (elabBind lenv denv bind)
+                      (elabExpr lenv denv expr)
      | AuglessStmt.Expr expr =>
-       FlatAst.mapMain (FixS o AuglessStmt.Expr) (elabExpr env expr)
+       FlatAst.mapMain (FixS o AuglessStmt.Expr) (elabExpr lenv denv expr)
 
-and elabStmts env stmts =
-    let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
-    in flatMap (mapMain VectorExt.singleton o elabStmt env') stmts
+and elabStmts lenv denv stmts =
+    let val lenv' = LexEnv.pushBlockFrame lenv (stmtVecBindings stmts)
+        val denv' = stmtVecDynEnv lenv' denv stmts
+    in flatMap (mapMain VectorExt.singleton o elabStmt lenv' denv') stmts
     end
 
-and elabBind env (AuglessAst.Bind (pos, dnf, bind)) =
-    let fun elabBStmt env (AuglessAst.FixBS bstmt) =
+and elabBind lenv denv (AuglessAst.Bind (pos, dnf, bind)) =
+    let fun elabBStmt lenv denv (AuglessAst.FixBS bstmt) =
             case bstmt
             of BindStmt1.Def (Var.Lex name, expr) =>
-               let val SOME (Env.Direct name') = Env.find env name
+               let val SOME (LexEnv.Direct name') = LexEnv.find lenv name
                in
                    FlatAst.mapMain
                        (fn expr' =>
                            FixBS (BindStmt1.Def (Var.Lex name', expr')))
-                       (elabExpr env expr)
+                       (elabExpr lenv denv expr)
                end
              | BindStmt1.Expr expr =>
-               FlatAst.mapMain (FixBS o BindStmt1.Expr) (elabExpr env expr)
-        val dnfProg = DNF.map (elabExpr env) dnf
-        val bindProgs = Vector.map (elabBStmt env) bind
+               FlatAst.mapMain (FixBS o BindStmt1.Expr)
+                               (elabExpr lenv denv expr)
+        val dnfProg = DNF.map (elabExpr lenv denv) dnf
+        val bindProgs = Vector.map (elabBStmt lenv denv) bind
     in
         { procs = Vector.concat [ VectorExt.flatMap #procs (DNF.exprs dnfProg)
                                 , VectorExt.flatMap #procs bindProgs ]
@@ -345,6 +397,26 @@ and elabBind env (AuglessAst.Bind (pos, dnf, bind)) =
                               , Vector.map #main bindProgs) }
     end
 
-fun flatten stmts = elabStmts Env.empty stmts
+fun flatten stmts =
+    let val pos = Pos.def
+        val denv = Name.freshFromString "denv"
+        val prog = elabStmts LexEnv.empty denv stmts
+        val temp = Name.freshFromString "denv"
+        val bdef = FixBS (BindStmt1.Def (Var.Lex denv,
+                                         FixE (FlatExpr.Var (pos,
+                                                             Var.Lex temp))))
+        val bind = FlatAst.Bind ( pos
+                                , DNF.always ()
+                                , VectorExt.singleton bdef )
+        val falloc = FixE (FlatExpr.PrimApp ( pos
+                                            , Primop.EmptyDEnv
+                                            , Vector.fromList [] ))
+    in
+        FlatAst.mapMain (fn stmts' =>
+                            VectorExt.prepend stmts'
+                                              (FixS (AuglessStmt.Def
+                                                         (temp, bind, falloc))))
+                        prog
+    end
 
 end (* structure LexFlatten *)

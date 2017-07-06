@@ -7,9 +7,10 @@ structure FlatAst :> sig
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
     and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
 
+    (* TODO: use record type for cases to disambiguate the Name.t:s *)
     type proc = { name: Name.t
                 , clovers: Name.t vector
-                , cases: (Name.t * Name.t * bind * expr) vector }
+                , cases: (Name.t * Name.t * Name.t * bind * expr) vector }
 
     type 'a program = { procs: proc vector, main: 'a }
 
@@ -44,7 +45,7 @@ and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
 
 type proc = { name: Name.t
             , clovers: Name.t vector
-            , cases: (Name.t * Name.t * bind * expr) vector }
+            , cases: (Name.t * Name.t * Name.t * bind * expr) vector }
 
 type 'a program = { procs: proc vector, main: 'a }
 
@@ -107,7 +108,7 @@ fun stmtsToDoc stmts =
              in VectorSlice.foldl step stmtDoc rstmts end)
 
 fun procToDoc {name = name, clovers = clovers, cases = cases} =
-    let fun caseToDoc (_, _, bind, body) =
+    let fun caseToDoc (_, _, _, bind, body) =
             bindToDoc bind <+> PP.text "=>" <+> exprToDoc body
         fun caseStep (cs, acc) = acc ^^ PP.semi <$> caseToDoc cs
         val c = Vector.sub (cases, 0)

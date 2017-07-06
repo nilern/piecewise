@@ -5,6 +5,7 @@ structure Primop = struct
                | Tag | Repr
                | AGet
                | Box | BSet
+               | DEnv | EmptyDEnv | DGet
 
     fun fromString "iadd" = IAdd
       | fromString "close" = Close
@@ -15,6 +16,9 @@ structure Primop = struct
       | fromString "aget" = AGet
       | fromString "box" = Box
       | fromString "bset" = BSet
+      | fromString "denv" = DEnv
+      | fromString "emptyDenv" = EmptyDEnv
+      | fromString "dget" = DGet
 
     fun toDoc IAdd = PP.text "__iadd"
       | toDoc Close = PP.text "__close"
@@ -25,4 +29,7 @@ structure Primop = struct
       | toDoc AGet = PP.text "__aget"
       | toDoc Box = PP.text "__box"
       | toDoc BSet = PP.text "__bset"
+      | toDoc DEnv = PP.text "__denv"
+      | toDoc EmptyDEnv = PP.text "__emptyDenv"
+      | toDoc DGet = PP.text "__dget"
 end

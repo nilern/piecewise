@@ -39,17 +39,17 @@ end = struct
                                                      (Cst.stmtToDoc cst)))
                         result;
 
-                    TextIO.output(TextIO.stdOut, "\n\n");
+                    TextIO.output(TextIO.stdOut, "\n---\n\n");
 
                     let val dcst = DesugarBinds.expand result
                         val _ = print (PPrint.pretty 80 (Ast.toDoc dcst))
-                        val _ = print "\n\n"
+                        val _ = print "\n---\n\n"
                         val acst = DesugarAugs.desugar dcst
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc acst))
-                        val _ = print "\n\n"
+                        val _ = print "\n---\n\n"
                         val saast = StraightenScope.straighten acst
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc saast))
-                        val _ = print "\n\n"
+                        val _ = print "\n---\n\n"
                         val fast = FlattenScope.flatten saast
                     in
                         print (PPrint.pretty 80 (FlatAst.toDoc fast))
