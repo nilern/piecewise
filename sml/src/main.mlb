@@ -32,6 +32,8 @@ local
     ir/flat_ast.sml
     ir/flatten_scope.sml
 
+    ir/convert_denv.sml
+
     parser.grm.sig
     parser.grm.sml
     lexer.lex.sml

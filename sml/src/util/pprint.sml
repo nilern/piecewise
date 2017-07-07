@@ -110,3 +110,8 @@ structure PPrint :> PPRINT = struct
             #2 (#run doc { index = 0, col = 0,
                            width = pageWidth, effWidth = pageWidth }) ^ "\n"
 end
+
+signature TO_DOC = sig
+    type t
+    val toDoc : t -> PPrint.doc
+end

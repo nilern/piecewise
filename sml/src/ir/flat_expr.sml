@@ -1,6 +1,6 @@
-(* TODO: use Name.t instead of Var.t *)
+signature FLAT_EXPR = sig
+    structure Var : TO_DOC
 
-structure FlatExpr :> sig
     type 'expr fnCase = 'expr vector * 'expr option * 'expr
     datatype ('expr, 'stmt) t = Block of Pos.t * 'stmt vector
                               | App of Pos.t * 'expr * 'expr vector
@@ -12,11 +12,15 @@ structure FlatExpr :> sig
 
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t
               -> PPrint.doc
-end = struct
+end
+
+functor FlatExpr(V : TO_DOC) :> FLAT_EXPR where type Var.t = V.t = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
+
+    structure Var = V
 
     type 'expr fnCase = 'expr vector * 'expr option * 'expr
     datatype ('expr, 'stmt) t = Block of Pos.t * 'stmt vector

@@ -50,9 +50,12 @@ end = struct
                         val saast = StraightenScope.straighten acst
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc saast))
                         val _ = print "\n---\n\n"
-                        val fast = FlattenScope.flatten saast
+                        val fast0 = FlattenScope.flatten saast
+                        val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0))
+                        val _ = print "\n---\n\n"
+                        val fast1 = ConvertDEnv.convert fast0
                     in
-                        print (PPrint.pretty 80 (FlatAst.toDoc fast))
+                        print (PPrint.pretty 80 (FlatAst1.toDoc fast1))
                     end;
 
                     if PcwsParser.sameToken(nextToken, dummyEOF)

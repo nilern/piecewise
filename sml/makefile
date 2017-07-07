@@ -13,6 +13,7 @@ target/pcws: target src/main.mlb \
 			 src/ir/desugar_augs.sml \
 			 src/ir/straighten_scope.sml \
 			 src/ir/flat_expr.sml src/ir/flat_ast.sml src/ir/flatten_scope.sml \
+			 src/ir/convert_denv.sml \
 			 src/parser.grm.sig src/parser.grm.sml src/lexer.lex.sml \
 			 src/main.sml
 	mlton -const 'Exn.keepHistory true' -output target/pcws src/main.mlb

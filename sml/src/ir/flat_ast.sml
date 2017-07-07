@@ -1,47 +1,52 @@
 (* TODO: Add Var.t variant (or something like that) for fn ptrs *)
 
-(* Like CST0, but alphatized and closure converted. *)
-structure FlatAst :> sig
-    datatype expr = FixE of (expr, stmt) FlatExpr.t
+(* Like AuglessAst, but alphatized and closure converted. *)
+functor FlatAst(V : TO_DOC) :> sig
+    structure Expr : FLAT_EXPR
+
+    datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of (expr, bind) AuglessStmt.t
     and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-    and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
+    and bind_stmt = FixBS of (expr, V.t) BindStmt1.t
 
-    (* TODO: use record type for cases to disambiguate the Name.t:s *)
+    (* TODO: replace case-Name.t:s with proc-wide formals record *)
     type proc = { name: Name.t
                 , clovers: Name.t vector
                 , cases: (Name.t * Name.t * Name.t * bind * expr) vector }
 
-    type 'a program = { procs: proc vector, main: 'a }
+    type 'a program = { procs: proc vector (* TODO: use a map *)
+                      , main: 'a }
 
     val mapMain : ('a -> 'b) -> 'a program -> 'b program
     val append : ('a -> 'b -> 'c) -> 'a program -> 'b program -> 'c program
     val map : ('a -> 'b program) -> 'a vector -> 'b vector program
     val flatMap : ('a -> 'b vector program) -> 'a vector -> 'b vector program
 
-    val unwrapE : expr -> (expr, stmt) FlatExpr.t
+    val unwrapE : expr -> (expr, stmt) Expr.t
     val unwrapS : stmt -> (expr, bind) AuglessStmt.t
-    val unwrapBS : bind_stmt -> (expr, Var.t) BindStmt1.t
+    val unwrapBS : bind_stmt -> (expr, V.t) BindStmt1.t
 
     val trivial : 'a -> 'a program
-    val trivialE : (expr, stmt) FlatExpr.t -> expr program
+    val trivialE : (expr, stmt) Expr.t -> expr program
     val trivialS : (expr, bind) AuglessStmt.t -> stmt program
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
     val procToDoc : proc -> PPrint.doc
     val toDoc : stmt vector program -> PPrint.doc
-end = struct
+end where type Expr.Var.t = V.t = struct
 
 structure PP = PPrint
 val op^^ = PP.^^
 val op<+> = PP.<+>
 val op<$> = PP.<$>
 
-datatype expr = FixE of (expr, stmt) FlatExpr.t
+structure Expr = FlatExpr(V)
+
+datatype expr = FixE of (expr, stmt) Expr.t
 and stmt = FixS of (expr, bind) AuglessStmt.t
 and bind = Bind of Pos.t * expr DNF.t * bind_stmt vector
-and bind_stmt = FixBS of (expr, Var.t) BindStmt1.t
+and bind_stmt = FixBS of (expr, V.t) BindStmt1.t
 
 type proc = { name: Name.t
             , clovers: Name.t vector
@@ -77,10 +82,10 @@ fun trivial v = { procs = VectorExt.empty (), main = v }
 val trivialE = mapMain FixE o trivial
 val trivialS = mapMain FixS o trivial
 
-fun exprToDoc expr = FlatExpr.toDoc exprToDoc stmtToDoc (unwrapE expr)
+fun exprToDoc expr = Expr.toDoc exprToDoc stmtToDoc (unwrapE expr)
 and stmtToDoc stmt = AuglessStmt.toDoc exprToDoc bindToDoc (unwrapS stmt)
 and bindToDoc (Bind (_, cond, bs)) =
-    let val bindingToDoc = BindStmt1.toDoc exprToDoc Var.toDoc
+    let val bindingToDoc = BindStmt1.toDoc exprToDoc V.toDoc
                          o unwrapBS
         val bindingDocs =
             case Vector.length bs
