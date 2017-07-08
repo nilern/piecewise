@@ -135,7 +135,10 @@ end = struct
 
     fun elabProc { name = name, clovers = clovers, cases = cases } =
         let fun elabCase (self, formals, envName, (FlatAst0.Bind (pos, dnf, bstmts)), body) =
-                (* TODO: here we don't actually need the boxes since there can be no recursive defs *)
+                (* MAYBE: We might not need the boxes if we leave the order of argument binding
+                          undefined. Any use of side effects (which the dynamic env is for) during
+                          binding is bad style anyway. Do we punish for that with subtle bugs or
+                          penalize every lambda-bound dynamic variable (which might be rare)? *)
                 let val env = Env.push (Env.root envName) (Name.freshFromString "denv")
                     val (bstmts', names) =
                         Vector.foldl (elabBindStmt env) (VectorExt.empty (), NameSet.empty) bstmts

@@ -358,9 +358,10 @@ end = struct
                     fun elabStmt env (AuglessAst.FixS stmt) =
                         FixS (case stmt
                               of AuglessStmt.Def (temp, bind, expr) =>
-                                 let val SOME (Env.Direct (temp', DefdBeforeUse)) =
+                                 let val SOME (Env.Direct (temp', Env.DefdBeforeUse)) =
                                          Env.define env temp
-                                 in Def (temp', elabBind env bind, elabExpr env expr)
+                                     val expr' = elabExpr env expr
+                                 in Def (temp', elabBind env bind, expr')
                                  end
                                | AuglessStmt.Expr expr => Expr (elabExpr env expr))
                     val env' = Env.pushBlockFrame env (stmtVecBindings stmts)

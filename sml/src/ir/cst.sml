@@ -14,10 +14,12 @@ structure Cst :> sig
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
+    val toDoc : stmt vector -> PPrint.doc
 end = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
+    val op<$> = PP.<$>
 
     datatype expr = FixE of (expr, stmt, bind) Expr.t
     and stmt = FixS of (expr, bind) CStmt.t
@@ -41,4 +43,12 @@ end = struct
         exprToDoc pat ^^ (case cond
                           of SOME ce => PP.space ^^ PP.text "|" <+> exprToDoc ce
                            | NONE => PP.empty)
+
+    fun toDoc stmts =
+        let val stmt = Vector.sub (stmts, 0)
+            val rstmts = VectorSlice.slice (stmts, 1, NONE)
+            fun step (stmt, acc) = acc ^^ PP.semi <$> stmtToDoc stmt
+        in
+            VectorSlice.foldl step (stmtToDoc stmt) rstmts
+        end
 end

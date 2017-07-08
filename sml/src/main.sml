@@ -32,31 +32,18 @@ end = struct
             val startPos = Pos.start fileName
             val dummyEOF = PcwsLrVals.Tokens.EOF(startPos, startPos)
             fun loop lexer =
-                let val (result, lexer) = invoke lexer
+                let val (cst, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
+                    val _ = print (PPrint.pretty 80 (Cst.toDoc cst) ^ "\n---\n\n")
+                    val ast = DesugarBinds.desugar cst
+                    val _ = print (PPrint.pretty 80 (Ast.toDoc ast) ^ "\n---\n\n")
+                    val aast = DesugarAugs.desugar ast
+                    val _ = print (PPrint.pretty 80 (AuglessAst.toDoc aast) ^ "\n---\n\n")
+                    val fast0 = ConvertLEnv.convert aast
+                    val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0) ^ "\n---\n\n")
+                    val fast1 = ConvertDEnv.convert fast0
+                    val _ = print (PPrint.pretty 80 (FlatAst1.toDoc fast1))
                 in
-                    Vector.app
-                        (fn cst => TextIO.output(TextIO.stdOut,
-                                                 PPrint.pretty 80
-                                                     (Cst.stmtToDoc cst)))
-                        result;
-
-                    TextIO.output(TextIO.stdOut, "\n---\n\n");
-
-                    let val dcst = DesugarBinds.desugar result
-                        val _ = print (PPrint.pretty 80 (Ast.toDoc dcst))
-                        val _ = print "\n---\n\n"
-                        val acst = DesugarAugs.desugar dcst
-                        val _ = print (PPrint.pretty 80 (AuglessAst.toDoc acst))
-                        val _ = print "\n---\n\n"
-                        val fast0 = ConvertLEnv.convert acst
-                        val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0))
-                        val _ = print "\n---\n\n"
-                        val fast1 = ConvertDEnv.convert fast0
-                    in
-                        print (PPrint.pretty 80 (FlatAst1.toDoc fast1))
-                    end;
-
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
                     else loop lexer
