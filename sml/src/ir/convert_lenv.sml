@@ -35,7 +35,7 @@ end = struct
         val locals : t -> (Name.t * status) vector
 
         val toString : t -> string
-    end = struct (* FIXME: DRY *)
+    end = struct
         datatype status = Pristine | Used | DefdBeforeUse | UsedBeforeDef
 
         structure Frame :> sig
@@ -124,40 +124,35 @@ end = struct
                     Option.map (performTransition transition bs key) (NameHashTable.find bs key)
             end
 
-            fun self (Fn (_, s, _, _, _, _)) = SOME s
-              | self (Case _) = NONE
-              | self (Block _) = NONE
-
-            fun self0 (Fn (s, _, _, _, _, _)) = SOME s
-              | self0 (Case _) = NONE
-              | self0 (Block _) = NONE
-
-            fun formals (Fn (_, _, _, fs, _, _)) = SOME fs
-              | formals (Case _) = NONE
-              | formals (Block _) = NONE
-
-            fun formals0 (Fn (_, _, fs, _, _, _)) = SOME fs
-              | formals0 (Case _) = NONE
-              | formals0 (Block _) = NONE
-
-            fun clovers (Fn (_, _, _, _, cis, _)) =
-                let val arr = Array.tabulate (NameHashTable.numItems cis,
-                                              let val v = Name.Plain "" in fn _ => v end)
-                in
-                    NameHashTable.appi (fn (s, i) => Array.update (arr, i, s)) cis;
-                    SOME (Array.vector arr)
-                end
-              | clovers (Case _) = NONE
-              | clovers (Block _) = NONE
+            local
+                fun fnProp f = fn Fn fn_frame => SOME (f fn_frame)
+                                | Case _ => NONE
+                                | Block _ => NONE
+            in
+                val self = fnProp #2
+                val self0 = fnProp #1
+                val formals = fnProp #4
+                val formals0 = fnProp #3
+                val clovers =
+                    fnProp (fn (_, _, _, _, cis, _) =>
+                               let val arr =
+                                       Array.tabulate (NameHashTable.numItems cis,
+                                                       let val v = Name.Plain "" in fn _ => v end)
+                               in
+                                   NameHashTable.appi (fn (s, i) => Array.update (arr, i, s)) cis;
+                                   Array.vector arr
+                               end)
+            end
 
             fun locals (Fn (_, self, _, formals, _, _)) =
                 [(self, DefdBeforeUse), (formals, DefdBeforeUse)]
               | locals (Case bs) = NameHashTable.listItems bs
               | locals (Block bs) = NameHashTable.listItems bs
 
-            fun statusToString Pristine = "Pristine"
-              | statusToString Used = "Used"
-              | statusToString Defined = "Defined"
+            val statusToString = fn Pristine => "Pristine"
+                                  | Used => "Used"
+                                  | UsedBeforeDef => "UsedBeforeDef"
+                                  | DefdBeforeUse => "DefdBeforeUse"
 
             fun bindingsToString bs =
                 NameHashTable.foldi (fn (k, (name, status), acc) =>
@@ -220,42 +215,17 @@ end = struct
                                              | UsedBeforeDef => UsedBeforeDef)
         end
 
-        fun self (frame :: env') =
-            (case Frame.self frame
-             of SOME s => SOME s
-              | NONE => self env')
-          | self [] = NONE
-
-        fun self0 (frame :: env') =
-            (case Frame.self0 frame
-             of SOME s => SOME s
-              | NONE => self0 env')
-          | self0 [] = NONE
-
-        fun formals (frame :: env') =
-            (case Frame.formals frame
-             of SOME s => SOME s
-              | NONE => formals env')
-          | formals [] = NONE
-
-        fun formals0 (frame :: env') =
-            (case Frame.formals0 frame
-             of SOME s => SOME s
-              | NONE => formals0 env')
-          | formals0 [] = NONE
-
-        fun clovers (frame :: env') =
-            (case Frame.clovers frame
-             of SOME cls => SOME cls
-              | NONE => clovers env')
-          | clovers [] = NONE
+        val self = ListExt.some Frame.self
+        val self0 = ListExt.some Frame.self0
+        val formals = ListExt.some Frame.formals
+        val formals0 = ListExt.some Frame.formals0
+        val clovers = ListExt.some Frame.clovers
 
         val locals = fn frame :: _ => Vector.fromList (Frame.locals frame)
                       | [] => VectorExt.empty ()
 
         fun toString frames =
-            List.foldl (fn (f, acc) => acc ^ Frame.toString f ^ "\n") "" frames ^
-                "\n"
+            List.foldl (fn (f, acc) => acc ^ Frame.toString f ^ "\n") "" frames ^ "\n"
     end (* structure Env *)
 
     val FixE = FlatAst0.FixE

@@ -2,7 +2,8 @@
 default: target/pcws
 
 target/pcws: target src/main.mlb \
-	         src/util/option_ext.sml src/util/vector_ext.sml src/util/pprint.sml \
+	         src/util/option_ext.sml src/util/list_ext.sml src/util/vector_ext.sml \
+			 src/util/pprint.sml \
 			 src/pos.sml src/ir/name.sml src/ir/var.sml src/ir/const.sml src/ir/primop.sml \
 			 src/ir/expr.sml src/ir/cstmt.sml src/ir/cst.sml \
 			 src/ir/dnf.sml src/ir/augless_stmt.sml src/ir/ast.sml \
