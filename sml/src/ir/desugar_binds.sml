@@ -1,7 +1,7 @@
 (* TODO: formals is guaranteed to be a tuple so matching it can be optimized *)
 
 structure DesugarBinds :> sig
-    val expand : Cst.stmt vector -> Ast.stmt vector
+    val desugar : Cst.stmt vector -> Ast.stmt vector
 
     exception Pattern of Pos.t * Cst.expr
 end = struct
@@ -132,5 +132,5 @@ end = struct
                   | CStmt.Expr e => Expr (expandExpr e))
         end
 
-    val expand = Vector.map expandStmt
+    val desugar = Vector.map expandStmt
 end

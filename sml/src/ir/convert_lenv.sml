@@ -1,11 +1,13 @@
+structure NameSet = BinarySetFn(type ord_key = Name.t
+                                val compare = Name.compare)
 structure StringHashTable = HashTableFn(type hash_key = string
                                         val hashVal = HashString.hashString
                                         val sameKey = op=)
+structure NameHashTable = HashTableFn(type hash_key = Name.t
+                                      val hashVal = Name.hash
+                                      val sameKey = op=)
 structure FlatAst0 = FlatAst(Var)
 
-(* TODO: Call StraightenScope from inside this since it just works on one block at a time AND would
-         produce better code if it had access to free variable information. So LexEnv.t should also
-         keep track of which variables are used before they are initialized. *)
 structure ConvertLEnv :> sig
     exception Unbound of Pos.t * Name.t
 
@@ -13,23 +15,29 @@ structure ConvertLEnv :> sig
 end = struct
     structure Env :> sig
         type t
-        datatype res = Direct of Name.t
-                     | Clover of Name.t * int
+
+        datatype status = Pristine | Used | DefdBeforeUse | UsedBeforeDef
+        datatype 'a res = Direct of 'a
+                        | Clover of 'a * int
 
         val empty : t
         val pushFnFrame : t -> Name.t -> Name.t -> t
         val pushCaseFrame : t -> NameSet.set -> t
         val pushBlockFrame : t -> NameSet.set -> t
 
-        val find : t -> Name.t -> res option
+        val use : t -> Name.t -> Name.t res option
+        val define : t -> Name.t -> (Name.t * status) res option
         val self : t -> Name.t option
         val self0 : t -> Name.t option
         val formals : t -> Name.t option
         val formals0 : t -> Name.t option
         val clovers : t -> Name.t vector option
+        val locals : t -> (Name.t * status) vector
 
         val toString : t -> string
-    end = struct
+    end = struct (* FIXME: DRY *)
+        datatype status = Pristine | Used | DefdBeforeUse | UsedBeforeDef
+
         structure Frame :> sig
             type fn_frame
             val ffName : fn_frame -> Name.t
@@ -45,24 +53,21 @@ end = struct
             val newCase : NameSet.set -> t
             val newBlock : NameSet.set -> t
 
-            val find : t -> Name.t -> Name.t option
+            val findAndTransition : (status -> status) -> t -> Name.t -> (Name.t * status) option
             val self : t -> Name.t option
             val self0 : t -> Name.t option
             val formals : t -> Name.t option
             val formals0 : t -> Name.t option
             val clovers : t -> Name.t vector option
+            val locals : t -> (Name.t * status) list
 
             val toString : t -> string
         end = struct
-            structure Bindings = BinaryMapFn(type ord_key = Name.t
-                                             val compare = Name.compare)
-            type bindings = Name.t Bindings.map
+            type bindings = (Name.t * status) NameHashTable.hash_table
 
-            structure ClIndices = HashTableFn(type hash_key = Name.t
-                                              val hashVal = Name.hash
-                                              val sameKey = op=)
-            type cl_indices = int ClIndices.hash_table
+            type cl_indices = int NameHashTable.hash_table
 
+            (* TODO: use a record: *)
             type fn_frame = Name.t * Name.t * Name.t * Name.t * cl_indices * int ref
             datatype t = Fn of fn_frame
                        | Case of bindings
@@ -71,37 +76,53 @@ end = struct
             val ffName: fn_frame -> Name.t = #2
 
             fun index (_, _, _, _, clis, counter) key =
-                case ClIndices.find clis key
+                case NameHashTable.find clis key
                 of SOME i => i
                  | NONE => let val i = !counter
                            in
                                counter := i + 1;
-                               ClIndices.insert clis (key, i);
+                               NameHashTable.insert clis (key, i);
                                i
                            end
 
             local
                 fun newBindings names =
-                    NameSet.foldl (fn (name, bs) =>
-                                        Bindings.insert (bs, name, Name.fresh name))
-                                    Bindings.empty names
+                    let val bindings = NameHashTable.mkTable (0, Subscript)
+                    in
+                        NameSet.app (fn name =>
+                                        NameHashTable.insert bindings (name, ( Name.fresh name
+                                                                             , Pristine)))
+                                    names;
+                        bindings
+                    end
             in
                 fun newFn self formals = Fn ( self
                                             , Name.fresh self
                                             , formals
                                             , Name.fresh formals
-                                            , ClIndices.mkTable (0, Subscript)
+                                            , NameHashTable.mkTable (0, Subscript)
                                             , ref 0 )
                 fun newCase names = Case (newBindings names)
                 fun newBlock names = Block (newBindings names)
             end
 
-            fun find (Fn (selfStr, self, _, _, _, _)) key =
-                if key = selfStr then SOME self else NONE
-              | find (Fn (_, _, formals, formals', _, _)) key =
-                if key = formals then SOME formals' else NONE
-              | find (Case bs) key = Bindings.find (bs, key)
-              | find (Block bs) key = Bindings.find (bs, key)
+            local
+                fun performTransition transition bs key (name, status) =
+                    let val entry' = (name, transition status)
+                    in
+                        NameHashTable.insert bs (key, entry');
+                        entry'
+                    end
+            in
+                fun findAndTransition transition (Fn (selfStr, self, formals, formals', _, _)) key =
+                    if key = selfStr then SOME (self, DefdBeforeUse)
+                    else if key = formals then SOME (formals', DefdBeforeUse)
+                    else NONE
+                  | findAndTransition transition (Case bs) key =
+                    Option.map (performTransition transition bs key) (NameHashTable.find bs key)
+                  | findAndTransition transition (Block bs) key =
+                    Option.map (performTransition transition bs key) (NameHashTable.find bs key)
+            end
 
             fun self (Fn (_, s, _, _, _, _)) = SOME s
               | self (Case _) = NONE
@@ -120,20 +141,29 @@ end = struct
               | formals0 (Block _) = NONE
 
             fun clovers (Fn (_, _, _, _, cis, _)) =
-                let val arr = Array.tabulate (ClIndices.numItems cis,
-                                              fn _ => Name.Plain "")
+                let val arr = Array.tabulate (NameHashTable.numItems cis,
+                                              let val v = Name.Plain "" in fn _ => v end)
                 in
-                    ClIndices.appi (fn (s, i) => Array.update (arr, i, s)) cis;
+                    NameHashTable.appi (fn (s, i) => Array.update (arr, i, s)) cis;
                     SOME (Array.vector arr)
                 end
               | clovers (Case _) = NONE
               | clovers (Block _) = NONE
 
+            fun locals (Fn (_, self, _, formals, _, _)) =
+                [(self, DefdBeforeUse), (formals, DefdBeforeUse)]
+              | locals (Case bs) = NameHashTable.listItems bs
+              | locals (Block bs) = NameHashTable.listItems bs
+
+            fun statusToString Pristine = "Pristine"
+              | statusToString Used = "Used"
+              | statusToString Defined = "Defined"
+
             fun bindingsToString bs =
-                Bindings.foldli (fn (k, v, acc) =>
-                                    acc ^ Name.toString k ^ ": " ^
-                                        Name.toString v ^ ", ")
-                                "" bs
+                NameHashTable.foldi (fn (k, (name, status), acc) =>
+                                        acc ^ Name.toString k ^ ": " ^
+                                            statusToString status ^ " " ^ Name.toString name ^ ", ")
+                                    "" bs
 
             fun toString (Fn (self, self', formals, formals', _, _)) =
                 "Fn " ^ Name.toString self ^ ": " ^  Name.toString self' ^ ", "
@@ -143,11 +173,8 @@ end = struct
         end (* structure Frame *)
 
         type t = Frame.t list
-        datatype res = Direct of Name.t
-                     | Clover of Name.t * int
-
-        fun resToName (Direct name) = name
-          | resToName (Clover (name, _)) = name
+        datatype 'a res = Direct of 'a
+                        | Clover of 'a * int
 
         val empty = []
         fun pushFnFrame env self formals = Frame.newFn self formals :: env
@@ -155,25 +182,42 @@ end = struct
         fun pushBlockFrame env names = Frame.newBlock names :: env
 
         local
-            fun findName (frame :: env') key =
-                (case Frame.find frame key
+            fun findNameAndTransition transition (frame :: env') key =
+                (case Frame.findAndTransition transition frame key
                  of SOME name => SOME name
-                  | NONE => findName env' key)
-              | findName [] _ = NONE
-            fun findClover caller env key =
-                let fun newClover name =
-                        Clover (Frame.ffName caller, Frame.index caller name)
-                in Option.map newClover (findName env key)
+                  | NONE => findNameAndTransition transition env' key)
+              | findNameAndTransition _ [] _ = NONE
+            fun findCloverAndTransition transition caller env key =
+                let fun newClover (name, status) =
+                        Clover ((Frame.ffName caller, status), Frame.index caller name)
+                in Option.map newClover (findNameAndTransition transition env key)
                 end
         in
-            fun find (frame :: env') key =
-                (case Frame.find frame key
+            fun findAndTransition transition (frame :: env') key =
+                (case Frame.findAndTransition transition frame key
                  of SOME name => SOME (Direct name)
                   | NONE => (case frame
-                             of Frame.Block _ => find env' key
-                              | Frame.Case _ => find env' key
-                              | Frame.Fn fnFrame => findClover fnFrame env' key))
-              | find [] _ = NONE
+                             of Frame.Block _ => findAndTransition transition env' key
+                              | Frame.Case _ => findAndTransition transition env' key
+                              | Frame.Fn fnFrame =>
+                                findCloverAndTransition transition fnFrame env' key))
+              | findAndTransition _ [] _ = NONE
+
+
+            fun use env name =
+                let val transition = fn Pristine => Used
+                                      | Used => Used
+                                      | DefdBeforeUse => DefdBeforeUse
+                                      | UsedBeforeDef => UsedBeforeDef
+                in
+                    Option.map (fn Direct (name, _) => Direct name
+                                 | Clover ((self, _), i) => Clover (self, i))
+                               (findAndTransition transition env name)
+                end
+            val define = findAndTransition (fn Pristine => DefdBeforeUse
+                                             | Used => UsedBeforeDef
+                                             | DefdBeforeUse => DefdBeforeUse
+                                             | UsedBeforeDef => UsedBeforeDef)
         end
 
         fun self (frame :: env') =
@@ -205,6 +249,9 @@ end = struct
              of SOME cls => SOME cls
               | NONE => clovers env')
           | clovers [] = NONE
+
+        val locals = fn frame :: _ => Vector.fromList (Frame.locals frame)
+                      | [] => VectorExt.empty ()
 
         fun toString frames =
             List.foldl (fn (f, acc) => acc ^ Frame.toString f ^ "\n") "" frames ^
@@ -299,7 +346,7 @@ end = struct
                                | Expr.PrimApp (pos, po, args) =>
                                  PrimApp (pos, po, Vector.map (elabExpr env) args)
                                | Expr.Var (pos, Var.Lex name) =>
-                                 (case Env.find env name
+                                 (case Env.use env name
                                   of SOME (Env.Direct name) => Var (pos, Var.Lex name)
                                    | SOME (Env.Clover (self, i)) =>
                                      let val index = Const.Int (Int.toString i)
@@ -314,9 +361,22 @@ end = struct
                               | Expr.Const (pos, c) => Const (pos, c))
                     and elabBindStmt env (AuglessAst.FixBS bstmt) =
                         FixBS (case bstmt
-                               of BindStmt1.Def (Var.Lex name, expr) =>
-                                  let val SOME (Env.Direct name') = Env.find env name
-                                  in BindStmt1.Def (Var.Lex name', elabExpr env expr)
+                               of BindStmt1.Def (var as Var.Lex name, expr) =>
+                                  (* TODO: use status *)
+                                  let val expr' = elabExpr env expr
+                                      val SOME (Env.Direct (name', status')) = Env.define env name
+                                  in
+                                      case status'
+                                      of Env.UsedBeforeDef =>
+                                         let val pos = FlatAst0.Expr.pos (FlatAst0.unwrapE expr')
+                                             val varExpr = FixE (Var (pos, Var.Lex name'))
+                                             val assign =
+                                                 FixE (PrimApp (pos, Primop.BSet,
+                                                                Vector.fromList [varExpr, expr']))
+                                         in BindStmt1.Expr assign
+                                         end
+                                       | Env.DefdBeforeUse => BindStmt1.Def (Var.Lex name', expr')
+                                       | _ => raise Fail "unreachable"
                                   end
                                 | BindStmt1.Def (var as Var.Dyn _, expr) =>
                                   BindStmt1.Def (var, elabExpr env expr)
@@ -328,12 +388,32 @@ end = struct
                     fun elabStmt env (AuglessAst.FixS stmt) =
                         FixS (case stmt
                               of AuglessStmt.Def (temp, bind, expr) =>
-                                 let val SOME (Env.Direct temp') = Env.find env temp
+                                 let val SOME (Env.Direct (temp', DefdBeforeUse)) =
+                                         Env.define env temp
                                  in Def (temp', elabBind env bind, elabExpr env expr)
                                  end
                                | AuglessStmt.Expr expr => Expr (elabExpr env expr))
                     val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
-                in Vector.map (elabStmt env') stmts
+                    val stmts' = Vector.map (elabStmt env') stmts
+                    val pos = AuglessAst.stmtPos (Vector.sub (stmts, 0))
+                    val boxAlloc = FixE (PrimApp (pos, Primop.Box, VectorExt.empty ()))
+                    fun newBoxDef name =
+                        let val temp = Name.freshFromString "box"
+                            val tExpr = FixE (Var (pos, Var.Lex temp))
+                            val bind =
+                                FlatAst0.Bind
+                                    (pos, DNF.always (),
+                                     VectorExt.singleton
+                                         (FixBS (BindStmt1.Def (Var.Lex name, tExpr))))
+                        in FixS (Def (temp, bind, boxAlloc))
+                        end
+                    val boxDefs =
+                        VectorExt.flatMap (fn (name, Env.UsedBeforeDef) =>
+                                              VectorExt.singleton (newBoxDef name)
+                                            | (_, Env.DefdBeforeUse) => VectorExt.empty ()
+                                            | (_, _) => raise Fail "unreachable")
+                                          (Env.locals env')
+                in VectorExt.concat boxDefs stmts'
                 end
             val stmts' = elabStmts Env.empty stmts
         in

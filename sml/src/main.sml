@@ -1,3 +1,5 @@
+(* TODO: don't print DNF:s that are empty (as created by DNF.always) *)
+
 structure Parser : sig
     val parse : unit -> unit
 end = struct
@@ -41,16 +43,13 @@ end = struct
 
                     TextIO.output(TextIO.stdOut, "\n---\n\n");
 
-                    let val dcst = DesugarBinds.expand result
+                    let val dcst = DesugarBinds.desugar result
                         val _ = print (PPrint.pretty 80 (Ast.toDoc dcst))
                         val _ = print "\n---\n\n"
                         val acst = DesugarAugs.desugar dcst
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc acst))
                         val _ = print "\n---\n\n"
-                        val saast = StraightenScope.straighten acst
-                        val _ = print (PPrint.pretty 80 (AuglessAst.toDoc saast))
-                        val _ = print "\n---\n\n"
-                        val fast0 = ConvertLEnv.convert saast
+                        val fast0 = ConvertLEnv.convert acst
                         val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0))
                         val _ = print "\n---\n\n"
                         val fast1 = ConvertDEnv.convert fast0

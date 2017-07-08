@@ -80,7 +80,7 @@ end where type Expr.Var.t = V.t = struct
                  in VectorSlice.foldl step stmtDoc rstmts end)
 
     fun procToDoc {name = name, clovers = clovers, cases = cases} =
-        let fun caseToDoc (_, _, _, bind, body) =
+        let fun caseToDoc (_, _, _, bind, body) = (* FIXME: print everything *)
                 bindToDoc bind <+> PP.text "=>" <+> exprToDoc body
             fun caseStep (cs, acc) = acc ^^ PP.semi <$> caseToDoc cs
             val c = Vector.sub (cases, 0)
