@@ -30,8 +30,7 @@ local
 
     ir/flat_expr.sml
     ir/flat_ast.sml
-    ir/flatten_scope.sml
-
+    ir/convert_lenv.sml
     ir/convert_denv.sml
 
     parser.grm.sig

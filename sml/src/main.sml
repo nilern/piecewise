@@ -50,7 +50,7 @@ end = struct
                         val saast = StraightenScope.straighten acst
                         val _ = print (PPrint.pretty 80 (AuglessAst.toDoc saast))
                         val _ = print "\n---\n\n"
-                        val fast0 = FlattenScope.flatten saast
+                        val fast0 = ConvertLEnv.convert saast
                         val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0))
                         val _ = print "\n---\n\n"
                         val fast1 = ConvertDEnv.convert fast0
@@ -65,7 +65,7 @@ end = struct
         in
             loop lexer
             handle
-                FlattenScope.Unbound (pos, name) =>
+                ConvertLEnv.Unbound (pos, name) =>
                     print ("Unbound name: " ^ Name.toString name ^
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarBinds.Pattern (pos, pat) =>

@@ -1,7 +1,8 @@
 structure FlatAst1 = FlatAst(Name)
 
+(* FIXME: if no dynamic vars are defined in a scope, App:s still use the unemitted denv *)
 structure ConvertDEnv :> sig
-    val convert : FlatAst0.stmt vector FlatAst0.program -> FlatAst1.stmt vector FlatAst1.program
+    val convert : FlatAst0.program -> FlatAst1.program
 end = struct
     structure Env :> sig
         type t
@@ -134,6 +135,7 @@ end = struct
 
     fun elabProc { name = name, clovers = clovers, cases = cases } =
         let fun elabCase (self, formals, envName, (FlatAst0.Bind (pos, dnf, bstmts)), body) =
+                (* TODO: here we don't actually need the boxes since there can be no recursive defs *)
                 let val env = Env.push (Env.root envName) (Name.freshFromString "denv")
                     val (bstmts', names) =
                         Vector.foldl (elabBindStmt env) (VectorExt.empty (), NameSet.empty) bstmts
