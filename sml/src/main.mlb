@@ -20,10 +20,10 @@ local
 
     ir/dnf.sml
     ir/augless_stmt.sml
+    ir/astmt.sml
     ir/ast.sml
     ir/desugar_binds.sml
 
-    ir/bind_stmt1.sml
     ir/augless_ast.sml
     ir/desugar_augs.sml
 

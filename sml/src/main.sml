@@ -1,4 +1,5 @@
-(* TODO: don't print DNF:s that are empty (as created by DNF.always) *)
+(* MAYBE: Differentiate trivial exprs in all IRs,
+          avoiding useless temps and simplifying CPS conversion *)
 
 structure Parser : sig
     val parse : unit -> unit

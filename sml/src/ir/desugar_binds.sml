@@ -5,11 +5,13 @@ structure DesugarBinds :> sig
 
     exception Pattern of Pos.t * Cst.expr
 end = struct
-    val Def = AuglessStmt.Def
-    val Expr = AuglessStmt.Expr
     val FixE = Ast.FixE
     val FixS = Ast.FixS
-    val FixBS = Ast.FixBS
+    val Var = Expr.Var
+    val Def = AStmt.Def
+    val AugDef = AStmt.AugDef
+    val Guard = AStmt.Guard
+    val Expr = AStmt.Expr
 
     exception Pattern of Pos.t * Cst.expr
 
@@ -57,38 +59,38 @@ end = struct
            end
          | Expr.PrimApp (_, po, args) => raise Fail "unimplemented"
          | Expr.Var (_, var) =>
-           (cond, VectorExt.conj binds (newBinding (var, access)))
+           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
          | Expr.Const (pos, c) =>
            let val eq = FixE (Expr.Var (pos, Var.Lex (Name.fromString "==")))
                val c' = FixE (Expr.Const (pos, c))
-               val newCondExpr =
-                   FixE (Expr.App (pos, eq, Vector.fromList [access, c']))
-               val (newCond, _) =
-                   DNF.require newCondExpr (OptionExt.toList parentId)
+               val newCondExpr = FixE (Expr.App (pos, eq, Vector.fromList [access, c']))
+               val (newCond, _) = DNF.require newCondExpr (OptionExt.toList parentId)
            in
                ( DNF.conj (Vector.fromList [cond, newCond])
                , binds )
            end
 
     and expandBind newBinding (Cst.Bind (pat, cond)) access =
-        let val initial = (DNF.always (), VectorExt.empty ())
-            val (cond, binds) = expandPat newBinding pat access NONE initial
+        let val (cond', bindStmts) =
+                expandPat newBinding pat access NONE (DNF.always (), VectorExt.empty ())
         in
-            Ast.Bind (Cst.exprPos pat, cond, binds)
+            if DNF.isAlways cond'
+            then bindStmts
+            else VectorExt.prepend bindStmts (FixS (Guard (Cst.exprPos pat, cond')))
         end
 
     and expandExpr (Cst.FixE expr) =
         FixE (case expr
               of Expr.Fn (pos, formal, cases) =>
                  let val faccess = FixE (Expr.Var (pos, Var.Lex formal))
-                     fun expandCase (bind, body) =
-                         (expandBind (FixBS o CStmt.Def) bind faccess,
+                     fun expandCase (prologue, body) =
+                         (expandBind (FixS o Def) prologue faccess,
                           expandExpr body)
                  in
                      Expr.Fn (pos, formal, Vector.map expandCase cases)
                  end
                | Expr.Block (pos, stmts) =>
-                 Expr.Block (pos, Vector.map expandStmt stmts)
+                 Expr.Block (pos, VectorExt.flatMap expandStmt stmts)
                | Expr.App (pos, f, args) =>
                  Expr.App (pos, expandExpr f, Vector.map expandExpr args)
                | Expr.PrimApp (pos, po, args) =>
@@ -97,7 +99,7 @@ end = struct
                | Expr.Const c => Expr.Const c)
 
     and expandStmt (Cst.FixS stmt) =
-        let fun expandDef newDef bind expr =
+        let fun expandDef newDef (bind as Cst.Bind (pat, _)) expr =
                 (* FIXME: tuple etc. pats get treated as fn definitions *)
                 case bind
                 of Cst.Bind (Cst.FixE (Expr.App (pos, f, args)), cond) =>
@@ -115,22 +117,19 @@ end = struct
                                          VectorExt.singleton cs)))
                    end
                  | _ =>
-                   let val triv = Name.freshFromString "v"
-                       val taccess =
-                           FixE (Expr.Var (Cst.exprPos expr, Var.Lex triv))
-                   in
-                       Def (triv, expandBind (FixBS o newDef) bind taccess,
-                            expandExpr expr)
+                   let val pos = Cst.exprPos pat
+                       val triv = Var.Lex (Name.freshFromString "v")
+                       val trivDef = FixS (Def (pos, triv, expandExpr expr))
+                       val trivUse = FixE (Var (pos, triv))
+                       val bindStmts = expandBind (FixS o newDef) bind trivUse
+                   in VectorExt.prepend bindStmts trivDef
                    end
         in
-            FixS
-                (case stmt
-                 of CStmt.Def (bind, expr) =>
-                    expandDef CStmt.Def bind expr
-                  | CStmt.AugDef (bind, expr) =>
-                    expandDef CStmt.AugDef bind expr
-                  | CStmt.Expr e => Expr (expandExpr e))
+            case stmt
+            of CStmt.Def (bind, expr) => expandDef Def bind expr
+             | CStmt.AugDef (bind, expr) => expandDef AugDef bind expr
+             | CStmt.Expr e => VectorExt.singleton (FixS (Expr (expandExpr e)))
         end
 
-    val desugar = Vector.map expandStmt
+    val desugar = VectorExt.flatMap expandStmt
 end

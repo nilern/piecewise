@@ -6,9 +6,9 @@ target/pcws: target src/main.mlb \
 			 src/util/pprint.sml \
 			 src/pos.sml src/ir/name.sml src/ir/var.sml src/ir/const.sml src/ir/primop.sml \
 			 src/ir/expr.sml src/ir/cstmt.sml src/ir/cst.sml \
-			 src/ir/dnf.sml src/ir/augless_stmt.sml src/ir/ast.sml \
+			 src/ir/dnf.sml src/ir/augless_stmt.sml src/ir/astmt.sml src/ir/ast.sml \
 			 src/ir/desugar_binds.sml \
-			 src/ir/bind_stmt1.sml src/ir/augless_ast.sml \
+			 src/ir/augless_ast.sml \
 			 src/ir/desugar_augs.sml \
 			 src/ir/flat_expr.sml src/ir/flat_ast.sml \
 			 src/ir/convert_lenv.sml src/ir/convert_denv.sml \

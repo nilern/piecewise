@@ -12,6 +12,7 @@ val disj : 'expr t vector -> 'expr t
 val conj : 'expr t vector-> 'expr t
 val neg : 'expr t -> 'expr t
 
+val isAlways : 'e t -> bool
 val exprs : 'e t -> 'e vector
 val map : ('e -> 'f) -> 'e t -> 'f t
 
@@ -74,6 +75,7 @@ structure Clause : sig
     val always : unit -> 'expr t
     val require : 'expr -> Atom.id list -> 'expr t * Atom.id
 
+    val isAlways : 'e t -> bool
     val exprs : 'e t -> 'e vector
     val map : ('e -> 'f) -> 'e t -> 'f t
 
@@ -88,6 +90,8 @@ end = struct
         let val (atom, i) = Atom.require expr deplist
         in (VectorExt.singleton atom, i)
         end
+
+    fun isAlways atoms = Vector.length atoms = 0
 
     fun exprs atoms = Vector.map Atom.expr atoms
 
@@ -130,6 +134,8 @@ fun neg dnf =
     let val negClause = disj o (Vector.map (return o Clause.return o Atom.neg))
     in conj (Vector.map negClause dnf)
     end
+
+fun isAlways clauses = Vector.all Clause.isAlways clauses
 
 fun exprs clauses = VectorExt.flatMap Clause.exprs clauses
 
