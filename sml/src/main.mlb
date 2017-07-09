@@ -23,8 +23,6 @@ local
     ir/astmt.sml
     ir/ast.sml
     ir/desugar_binds.sml
-
-    ir/augless_ast.sml
     ir/desugar_augs.sml
 
     ir/flat_expr.sml

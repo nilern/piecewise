@@ -5,7 +5,6 @@ structure AStmt :> sig
                      | Expr of 'expr
 
     val pos : ('e -> Pos.t) -> 'e t -> Pos.t
-
     val toDoc : ('e -> PPrint.doc) -> 'e t -> PPrint.doc
 end = struct
     structure PP = PPrint

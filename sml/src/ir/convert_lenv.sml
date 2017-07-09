@@ -247,10 +247,10 @@ end = struct
     fun stmtVecBindings stmts =
         let fun stmtBindings (AuglessAst.FixS stmt, names) =
                 case stmt
-                of AuglessAst.Stmt.Def (_, Var.Lex name, _) => NameSet.add (names, name)
-                 | AuglessAst.Stmt.Def (_, Var.Dyn _, _) => names
-                 | AuglessAst.Stmt.Guard _ => names
-                 | AuglessAst.Stmt.Expr _ => names
+                of AuglessVarStmt.Def (_, Var.Lex name, _) => NameSet.add (names, name)
+                 | AuglessVarStmt.Def (_, Var.Dyn _, _) => names
+                 | AuglessVarStmt.Guard _ => names
+                 | AuglessVarStmt.Expr _ => names
         in Vector.foldl stmtBindings NameSet.empty stmts
         end
 
@@ -325,7 +325,7 @@ end = struct
                               | Expr.Const (pos, c) => Const (pos, c))
                     fun elabStmt env (AuglessAst.FixS stmt) =
                         FixS (case stmt
-                              of AuglessAst.Stmt.Def (pos, var as Var.Lex name, expr) =>
+                              of AuglessVarStmt.Def (pos, var as Var.Lex name, expr) =>
                                  let val expr' = elabExpr env expr
                                      val SOME (Env.Direct (name', status')) = Env.define env name
                                  in
@@ -341,11 +341,11 @@ end = struct
                                       | Env.DefdBeforeUse => Def (pos, Var.Lex name', expr')
                                       | _ => raise Fail "unreachable"
                                  end
-                               | AuglessAst.Stmt.Def (pos, var as Var.Dyn _, expr) =>
+                               | AuglessVarStmt.Def (pos, var as Var.Dyn _, expr) =>
                                  Def (pos, var, elabExpr env expr)
-                               | AuglessAst.Stmt.Guard (pos, dnf) =>
+                               | AuglessVarStmt.Guard (pos, dnf) =>
                                  Guard (pos, DNF.map (elabExpr env) dnf)
-                               | AuglessAst.Stmt.Expr expr => Expr (elabExpr env expr))
+                               | AuglessVarStmt.Expr expr => Expr (elabExpr env expr))
                     val stmts' = Vector.map (elabStmt env) stmts
                     val pos = AuglessAst.stmtPos (Vector.sub (stmts, 0))
                     val boxAlloc = FixE (PrimApp (pos, Primop.Box, VectorExt.empty ()))

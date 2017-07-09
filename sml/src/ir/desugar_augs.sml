@@ -72,7 +72,7 @@ and elabStmts stmts =
                                      in (var', Env.insert env var var')
                                      end
                             val stmt' =
-                                FixS (AuglessAst.Stmt.Def (pos, var', elabExpr expr))
+                                FixS (AuglessVarStmt.Def (pos, var', elabExpr expr))
                         in (VectorExt.conj stmts' stmt', env')
                         end
                end
@@ -93,15 +93,15 @@ and elabStmts stmts =
                        FixE
                            (Expr.App (pos, fnMerge,
                                        Vector.fromList [ovExpr, elabExpr expr]))
-                   val stmt' = FixS (AuglessAst.Stmt.Def (pos, var', merge))
+                   val stmt' = FixS (AuglessVarStmt.Def (pos, var', merge))
                in (VectorExt.conj stmts' stmt', env')
                end
              | AStmt.Guard (pos, dnf) =>
-               let val stmt' = FixS (AuglessAst.Stmt.Guard (pos, DNF.map elabExpr dnf))
+               let val stmt' = FixS (AuglessVarStmt.Guard (pos, DNF.map elabExpr dnf))
                in (VectorExt.conj stmts' stmt', env)
                end
              | AStmt.Expr expr =>
-               let val stmt' = FixS (AuglessAst.Stmt.Expr (elabExpr expr))
+               let val stmt' = FixS (AuglessVarStmt.Expr (elabExpr expr))
                in (VectorExt.conj stmts' stmt', env)
                end
         val env = Vector.foldli analyzeStmt Env.empty stmts
