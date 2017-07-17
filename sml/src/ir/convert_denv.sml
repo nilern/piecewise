@@ -1,7 +1,5 @@
 structure FlatAst1 = FlatAst(Name)
 
-(* FIXME: if no dynamic vars are defined in a scope, App:s still use the unemitted denv
-          solution: collect dvar names first, don't Env.push if dvarset is empty *)
 structure ConvertDEnv :> sig
     val convert : FlatAst0.program -> FlatAst1.program
 end = struct
@@ -9,7 +7,7 @@ end = struct
         type t
 
         val root : Name.t -> t
-        val push : t -> Name.t -> t
+        val push : t -> NameSet.set -> t
         val name : t -> Name.t
         val parent : t -> t option
     end = struct
@@ -17,7 +15,10 @@ end = struct
                    | Cons of Name.t * t
 
         val root = Root
-        fun push env newName = Cons (newName, env)
+        fun push env names =
+            if NameSet.numItems names > 0
+            then Cons (Name.freshFromString "denv", env)
+            else env
         val name = fn Root name => name
                     | Cons (name, _) => name
         val parent = fn Root _ => NONE
@@ -50,9 +51,23 @@ end = struct
         in FixS (Def (pos, newEnvName, alloc))
         end
 
+    fun stmtVecBindings stmts =
+        let fun stmtBindings (FlatAst0.FixS stmt, names) =
+                case stmt
+                of FlatAst0.Stmt.Def (_, Var.Dyn name, _) => NameSet.add (names, name)
+                 | FlatAst0.Stmt.Def (_, Var.Lex _, _) => names
+                 | FlatAst0.Stmt.Guard _ => names
+                 | FlatAst0.Stmt.Expr _ => names
+        in Vector.foldl stmtBindings NameSet.empty stmts
+        end
+
     and elabExpr env (FlatAst0.FixE expr) =
         FixE (case expr
-              of FlatAst0.Expr.Block (pos, stmts) => Block (pos, elabStmts pos env stmts)
+              of FlatAst0.Expr.Block (pos, stmts) =>
+                 let val names = stmtVecBindings stmts
+                     val env' = Env.push env names
+                 in Block (pos, elabStmts pos env' names stmts)
+                 end
                | FlatAst0.Expr.App (pos, f, args) =>
                  let val args' = Vector.map (elabExpr env) args
                      val deExpr = FixE (Var (pos, Env.name env))
@@ -68,40 +83,28 @@ end = struct
                  end
                | FlatAst0.Expr.Const (pos, c) => Const (pos, c))
 
-    and elabStmts pos env stmts =
-        let fun elabStmt env (FlatAst0.FixS stmt, (stmts', names)) =
-                case stmt
-                of FlatAst0.Stmt.Def (pos, Var.Lex name, expr) =>
-                   let val stmt' = FixS (Def (pos, name, elabExpr env expr))
-                   in (VectorExt.conj stmts' stmt', names)
-                   end
-                 | FlatAst0.Stmt.Def (pos, Var.Dyn name, expr) =>
-                   let val nameSym = Const.Symbol (Name.toString name)
-                       val load =
-                           (FixE (PrimApp ( pos
-                                          , Primop.DGet
-                                          , Vector.fromList [ FixE (Var (pos, Env.name env))
-                                                            , FixE (Const (pos, nameSym)) ])))
-                       val stmt' =
-                           FixS (Expr
-                                    (FixE (PrimApp (pos, Primop.BSet,
-                                                    Vector.fromList [load, elabExpr env expr]))))
-                   in (VectorExt.conj stmts' stmt', NameSet.add (names, name))
-                   end
-                 | FlatAst0.Stmt.Guard (pos, dnf) =>
-                   let val stmt' = FixS (Guard (pos, DNF.map (elabExpr env) dnf))
-                   in (VectorExt.conj stmts' stmt', names)
-                   end
-                 | FlatAst0.Stmt.Expr expr =>
-                   let val stmt' = FixS (Expr (elabExpr env expr))
-                   in (VectorExt.conj stmts' stmt', names)
-                   end
-            val env' = Env.push env (Name.freshFromString "denv")
-            val (stmts', names) =
-                Vector.foldl (elabStmt env') (VectorExt.empty (), NameSet.empty) stmts
+    and elabStmts pos env names stmts =
+        let fun elabStmt env (FlatAst0.FixS stmt) =
+                FixS (case stmt
+                      of FlatAst0.Stmt.Def (pos, Var.Lex name, expr) =>
+                         Def (pos, name, elabExpr env expr)
+                       | FlatAst0.Stmt.Def (pos, Var.Dyn name, expr) =>
+                         let val nameSym = Const.Symbol (Name.toString name)
+                             val load =
+                                 (FixE (PrimApp ( pos
+                                                , Primop.DGet
+                                                , Vector.fromList [ FixE (Var (pos, Env.name env))
+                                                                  , FixE (Const (pos, nameSym)) ])))
+                         in
+                             Expr (FixE (PrimApp (pos, Primop.BSet,
+                                                  Vector.fromList [load, elabExpr env expr])))
+                         end
+                       | FlatAst0.Stmt.Guard (pos, dnf) => Guard (pos, DNF.map (elabExpr env) dnf)
+                       | FlatAst0.Stmt.Expr expr => Expr (elabExpr env expr))
+            val stmts' = Vector.map (elabStmt env) stmts
         in
             if NameSet.numItems names > 0
-            then VectorExt.prepend stmts' (envDef pos env' names)
+            then VectorExt.prepend stmts' (envDef pos env names)
             else stmts'
         end
 
@@ -112,8 +115,11 @@ end = struct
                           binding is bad style anyway. Do we punish for that with subtle bugs or
                           penalize every lambda-bound dynamic variable (which might be rare)? *)
                 let val pos = FlatAst0.stmtPos (Vector.sub (prologue, 0))
-                    val env = Env.push (Env.root envName) (Name.freshFromString "denv")
-                in (self, formals, envName, elabStmts pos env prologue, elabExpr env body)
+                    val names = stmtVecBindings prologue
+                    val env = Env.push (Env.root envName) names
+                in ( self, formals, envName
+                   , elabStmts pos env names prologue
+                   , elabExpr env body )
                 end
         in
             { name = name, clovers = clovers, cases = Vector.map elabCase cases }
@@ -124,9 +130,10 @@ end = struct
             val envName = Name.freshFromString "denv"
             val alloc = FixE (PrimApp (pos, Primop.EmptyDEnv, Vector.fromList []))
             val def = FixS (Def (pos, envName, alloc))
-            val env = Env.root envName
+            val names = stmtVecBindings main
+            val env = Env.push (Env.root envName) names
         in
             { procs = Vector.map elabProc procs
-            , main = VectorExt.prepend (elabStmts pos env main) def }
+            , main = VectorExt.prepend (elabStmts pos env names main) def }
         end
 end
