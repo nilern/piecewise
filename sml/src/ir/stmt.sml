@@ -26,8 +26,8 @@ end = struct
 end
 
 structure AStmt :> sig
-    datatype 'expr t = Def of Pos.t * Var.t * 'expr
-                     | AugDef of Pos.t * Var.t * 'expr
+    datatype 'expr t = Def of Pos.t * AVar.t * 'expr
+                     | AugDef of Pos.t * AVar.t * 'expr
                      | Guard of Pos.t * 'expr DNF.t
                      | Expr of 'expr
 
@@ -37,8 +37,8 @@ end = struct
     structure PP = PPrint
     val op<+> = PP.<+>
 
-    datatype 'expr t = Def of Pos.t * Var.t * 'expr
-                     | AugDef of Pos.t * Var.t * 'expr
+    datatype 'expr t = Def of Pos.t * AVar.t * 'expr
+                     | AugDef of Pos.t * AVar.t * 'expr
                      | Guard of Pos.t * 'expr DNF.t
                      | Expr of 'expr
 
@@ -49,8 +49,8 @@ end = struct
          | Expr expr => exprPos expr
 
     fun toDoc exprToDoc =
-        fn Def (_, var, expr) => Var.toDoc var <+> PP.text "=" <+> exprToDoc expr
-         | AugDef (_, var, expr) => Var.toDoc var <+> PP.text "+=" <+> exprToDoc expr
+        fn Def (_, var, expr) => AVar.toDoc var <+> PP.text "=" <+> exprToDoc expr
+         | AugDef (_, var, expr) => AVar.toDoc var <+> PP.text "+=" <+> exprToDoc expr
          | Guard (_, dnf) => PP.text "@guard" <+> PP.parens (DNF.toDoc exprToDoc dnf)
          | Expr expr => exprToDoc expr
 end

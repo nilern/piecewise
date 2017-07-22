@@ -1,9 +1,9 @@
 structure CExpr :> sig
-    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * Var.t option * ('prologue * 'expr) vector
+    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * CVar.t option * ('prologue * 'expr) vector
                                          | Block of Pos.t * ('expr, 'stmt) Block.t
                                          | App of Pos.t * 'expr * 'expr vector
                                          | PrimApp of Pos.t * Primop.t * 'expr vector
-                                         | Triv of Pos.t * Triv0.t
+                                         | Triv of Pos.t * CTriv.t
 
     val pos : ('e, 's, 'p) t -> Pos.t
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('p -> PPrint.doc) -> ('e, 's, 'p) t
@@ -14,11 +14,11 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * Var.t option * ('prologue * 'expr) vector
+    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * CVar.t option * ('prologue * 'expr) vector
                                          | Block of Pos.t * ('expr, 'stmt) Block.t
                                          | App of Pos.t * 'expr * 'expr vector
                                          | PrimApp of Pos.t * Primop.t * 'expr vector
-                                         | Triv of Pos.t * Triv0.t
+                                         | Triv of Pos.t * CTriv.t
 
     val pos = fn Fn (pos, _, _) => pos
                | Block (pos, _) => pos
@@ -30,7 +30,7 @@ end = struct
         fn Fn (_, name, cases) =>
            let fun caseToDoc (prologue, body) =
                    prologueToDoc prologue <+> PP.text "=>" <+> exprToDoc body
-           in PP.braces (PP.align (OptionExt.toDoc Var.toDoc name <$>
+           in PP.braces (PP.align (OptionExt.toDoc CVar.toDoc name <$>
                                    (PP.punctuate (PP.semi ^^ PP.line)
                                                  (Vector.map caseToDoc cases))))
            end
@@ -43,15 +43,15 @@ end = struct
            let fun step (arg, acc) = acc <+> exprToDoc arg
            in PP.parens (PP.align (Vector.foldl step (Primop.toDoc po) args))
            end
-         | Triv (_, t) => Triv0.toDoc t
+         | Triv (_, t) => CTriv.toDoc t
 end
 
 structure Expr :> sig
-    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * Var.t option * Name.t
+    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * AVar.t option * Name.t
                                                        * ('prologue * 'expr) vector
                                          | Block of Pos.t * ('expr, 'stmt) Block.t
                                          | PrimApp of Pos.t * Primop.t * 'expr vector
-                                         | Triv of Pos.t * Triv0.t
+                                         | Triv of Pos.t * ATriv.t
 
     val pos : ('e, 's, 'p) t -> Pos.t
 
@@ -63,11 +63,11 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * Var.t option * Name.t
+    datatype ('expr, 'stmt, 'prologue) t = Fn of Pos.t * AVar.t option * Name.t
                                                        * ('prologue * 'expr) vector
                                          | Block of Pos.t * ('expr, 'stmt) Block.t
                                          | PrimApp of Pos.t * Primop.t * 'expr vector
-                                         | Triv of Pos.t * Triv0.t
+                                         | Triv of Pos.t * ATriv.t
 
     fun app fixExpr (pos, f, args) =
         let val argsExpr = fixExpr (PrimApp (pos, Primop.Tuple, args))
@@ -84,7 +84,7 @@ end = struct
         fn Fn (_, name, params, cases) =>
            let fun caseToDoc (prologue, body) =
                    prologueToDoc prologue <+> PP.text "=>" <+> exprToDoc body
-           in PP.braces (PP.align (OptionExt.toDoc Var.toDoc name <+> Name.toDoc params <$>
+           in PP.braces (PP.align (OptionExt.toDoc AVar.toDoc name <+> Name.toDoc params <$>
                                    (PP.punctuate (PP.semi ^^ PP.line)
                                                  (Vector.map caseToDoc cases))))
            end
@@ -93,7 +93,7 @@ end = struct
            let fun step (arg, acc) = acc <+> exprToDoc arg
            in PP.parens (PP.align (Vector.foldl step (Primop.toDoc po) args))
            end
-         | Triv (_, t) => Triv0.toDoc t
+         | Triv (_, t) => ATriv.toDoc t
 end
 
 signature FLAT_EXPR = sig

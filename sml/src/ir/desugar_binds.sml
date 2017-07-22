@@ -14,8 +14,8 @@ end = struct
     val Def = AStmt.Def
     val AugDef = AStmt.AugDef
     val Guard = AStmt.Guard
-    val Var = Triv0.Var
-    val Const = Triv0.Const
+    val Var = ATriv.Var
+    val Const = ATriv.Const
 
     exception Pattern of Pos.t * Cst.expr
 
@@ -24,8 +24,8 @@ end = struct
         of CExpr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
          | CExpr.Block _ => raise Pattern (Cst.exprPos pat, pat)
          | CExpr.App (pos, f, args) =>
-           let val unapply = FixE (Triv (pos, Var (Var.Lex (Name.fromString "unapply"))))
-               val eq = FixE (Triv (pos, Var (Var.Lex (Name.fromString "=="))))
+           let val unapply = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "unapply")))
+               val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
                val f' = expandExpr f
                val access' = FixE (Ast.app (pos, unapply, Vector.fromList [f', access]))
                val tag = FixE (Expr.PrimApp (pos, Primop.Tag, VectorExt.singleton access'))
@@ -50,10 +50,10 @@ end = struct
            in (cond'', binds')
            end
          | CExpr.PrimApp (_, po, args) => raise Fail "unimplemented"
-         | CExpr.Triv (_, Triv0.Var var) =>
-           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
-         | CExpr.Triv (pos, Triv0.Const c) =>
-           let val eq = FixE (Triv (pos, Var (Var.Lex (Name.fromString "=="))))
+         | CExpr.Triv (_, CTriv.Var var) =>
+           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, AVar.fromCVar var, access)))
+         | CExpr.Triv (pos, CTriv.Const c) =>
+           let val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
                val c' = FixE (Triv (pos, Const c))
                val newCondExpr = FixE (Ast.app (pos, eq, Vector.fromList [access, c']))
                val (newCond, _) = DNF.require newCondExpr (OptionExt.toList parentId)
@@ -75,17 +75,17 @@ end = struct
         FixE (case expr
               of CExpr.Fn (pos, name, cases) =>
                  let val params = Name.freshFromString "params"
-                     val paccess = FixE (Triv (pos, Var (Var.Lex params)))
+                     val paccess = FixE (Triv (pos, Var (ATag.Lex, params)))
                      fun expandCase (prologue, body) =
                          (expandBind (FixS o Def) prologue paccess, expandExpr body)
-                 in Fn (pos, name, params, Vector.map expandCase cases)
+                 in Fn (pos, Option.map AVar.fromCVar name, params, Vector.map expandCase cases)
                  end
                | CExpr.Block (pos, block) => Block (pos, expandBlock block)
                | CExpr.App (pos, f, args) =>
                  Ast.app (pos, expandExpr f, Vector.map expandExpr args)
                | CExpr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map expandExpr args)
-               | CExpr.Triv (pos, Triv0.Var v) => Triv (pos, Var v)
-               | CExpr.Triv (pos, Triv0.Const c) => Triv (pos, Const c))
+               | CExpr.Triv (pos, CTriv.Var v) => Triv (pos, Var (AVar.fromCVar v))
+               | CExpr.Triv (pos, CTriv.Const c) => Triv (pos, Const c))
 
     and expandStmt (Cst.FixS stmt) =
         let fun expandDef newDef (bind as Cst.Bind (pat, _)) expr =
@@ -93,10 +93,11 @@ end = struct
                 case bind
                 of Cst.Bind (Cst.FixE (CExpr.App (pos, f, args)), cond) =>
                    let val name = case f
-                                  of Cst.FixE (CExpr.Triv (_, Triv0.Var name)) => SOME name
+                                  of Cst.FixE (CExpr.Triv (_, CTriv.Var name)) => SOME name
                                    | _ => NONE
                        val tuple =
-                           Cst.FixE (CExpr.Triv (pos, Var (Var.Lex (Name.fromString "tuple"))))
+                           Cst.FixE (CExpr.Triv (pos,
+                                                 CTriv.Var (CTag.Lex, Name.fromString "tuple")))
                        val ftup = Cst.FixE (CExpr.App (pos, tuple, args))
                        val cs = (Cst.Bind (ftup, cond), expr)
                    in expandDef newDef (Cst.Bind (f, NONE))
@@ -106,7 +107,7 @@ end = struct
                    (case expandExpr expr
                     of expr' as Ast.FixE (Expr.Triv _) => expandBind (FixS o newDef) bind expr'
                      | expr' => let val pos = Cst.exprPos pat
-                                    val triv = Var.Lex (Name.freshFromString "v")
+                                    val triv = (ATag.Lex, Name.freshFromString "v")
                                     val trivDef = FixS (Def (pos, triv, expr'))
                                     val trivUse = FixE (Expr.Triv (pos, Var triv))
                                     val bindStmts = expandBind (FixS o newDef) bind trivUse

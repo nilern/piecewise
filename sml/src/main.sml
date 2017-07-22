@@ -58,7 +58,7 @@ end = struct
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarAugs.ReAssignment (pos, var) =>
                     print ("Reassignment of " ^
-                           PPrint.pretty 80 (Var.toDoc var) ^
+                           PPrint.pretty 80 (AVar.toDoc var) ^
                            " at " ^ Pos.toString pos ^ "\n")
         end
 end (* structure Parser *)

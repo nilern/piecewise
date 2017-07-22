@@ -1,24 +1,24 @@
 structure DesugarAugs :> sig
-    exception ReAssignment of Pos.t * Var.t
+    exception ReAssignment of Pos.t * AVar.t
 
     val desugar : (Ast.expr, Ast.stmt) Block.t -> (AuglessAst.expr, AuglessAst.stmt) Block.t
 
     end = struct
 
-    exception ReAssignment of Pos.t * Var.t
+    exception ReAssignment of Pos.t * AVar.t
 
     structure Env :> sig
         type t
 
         val empty : t
-        val lookup : t -> Var.t -> (Var.t option * int)
-        val init : t -> Var.t -> int -> t
-        val insert : t -> Var.t -> Var.t -> t
+        val lookup : t -> AVar.t -> (AVar.t option * int)
+        val init : t -> AVar.t -> int -> t
+        val insert : t -> AVar.t -> AVar.t -> t
     end = struct
-        structure Map = BinaryMapFn(type ord_key = Var.t
-                                    val compare = Var.compare)
+        structure Map = BinaryMapFn(type ord_key = AVar.t
+                                    val compare = AVar.compare)
 
-        type t = (Var.t option * int) Map.map
+        type t = (AVar.t option * int) Map.map
 
         val empty = Map.empty
 
@@ -41,8 +41,8 @@ structure DesugarAugs :> sig
     val Def = AuglessVarStmt.Def
     val Guard = AuglessVarStmt.Guard
     val Expr = AuglessVarStmt.Expr
-    val Var = Triv0.Var
-    val Const = Triv0.Const
+    val Var = ATriv.Var
+    val Const = ATriv.Const
 
     fun analyzeStmt (i, Ast.FixS stmt, env) =
         case stmt
@@ -68,7 +68,7 @@ structure DesugarAugs :> sig
                else let val (var', env') =
                             if i = fi
                             then (var, env)
-                            else let val var' = Var.fresh var
+                            else let val var' = AVar.fresh var
                                  in (var', Env.insert env var var')
                                  end
                         val stmt' = FixS (Def (pos, var', elabExpr expr))
@@ -80,12 +80,12 @@ structure DesugarAugs :> sig
                val (var', env') =
                    if i = fi
                    then (var, env)
-                   else let val var' = Var.fresh var
+                   else let val var' = AVar.fresh var
                         in (var', Env.insert env var var')
                         end
-               val oldVar = Option.getOpt (envVar, Var.upper var)
+               val oldVar = getOpt (envVar, valOf (AVar.upper var))
                val ovExpr = FixE (Triv (pos, Var oldVar))
-               val fnMerge = FixE (Expr.Triv (pos, Var (Var.Lex (Name.fromString "fnMerge"))))
+               val fnMerge = FixE (Expr.Triv (pos, Var (ATag.Lex, Name.fromString "fnMerge")))
                val merge = FixE (AuglessAst.app (pos, fnMerge,
                                                  Vector.fromList [ovExpr, elabExpr expr]))
                val stmt' = FixS (Def (pos, var', merge))

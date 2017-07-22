@@ -20,7 +20,11 @@ functor TrivFn(structure V: TO_DOC structure C: TO_DOC)
                  | Const c => Const.toDoc c
 end
 
-structure Triv0 = TrivFn(structure V = Var
+structure CTriv = TrivFn(structure V = CVar
                          structure C = Const)
-structure Triv1 = TrivFn(structure V = LLVar
+structure ATriv = TrivFn(structure V = AVar
                          structure C = Const)
+structure FlatTriv0 = TrivFn(structure V = FlatVar0
+                             structure C = Const)
+structure FlatTriv1 = TrivFn(structure V = FlatVar1
+                             structure C = Const)

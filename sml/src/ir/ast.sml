@@ -35,7 +35,7 @@ functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     and stmt = FixS of expr Stmt.t
 
     fun app (pos, f, args) =
-        let val apply = FixE (Triv (pos, Triv0.Var (Var.Lex (Name.fromString "apply"))))
+        let val apply = FixE (Triv (pos, ATriv.Var (ATag.Lex, Name.fromString "apply")))
             val argsExpr = FixE (PrimApp (pos, Primop.Tuple, args))
             val metaArgs = FixE (PrimApp (pos, Primop.Tuple, Vector.fromList [f, argsExpr]))
         in PrimApp (pos, Primop.Call, Vector.fromList [apply, metaArgs])
@@ -56,5 +56,5 @@ functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
 end
 
 structure Ast = AstF(AStmt)
-structure AuglessVarStmt = AuglessStmt(Var)
+structure AuglessVarStmt = AuglessStmt(AVar)
 structure AuglessAst = AstF(AuglessVarStmt)

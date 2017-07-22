@@ -3,12 +3,12 @@ datatype blockItem = Clause of Cst.expr vector * Cst.expr option * Cst.stmt
 
 fun opApp pos opPos opStr l r =
         Cst.FixE (CExpr.App (pos,
-                              Cst.FixE (CExpr.Triv (opPos, Triv0.Var (Var.Lex
-                                                                      (Name.fromString opStr)))),
+                              Cst.FixE (CExpr.Triv (opPos, CTriv.Var (CTag.Lex,
+                                                                      Name.fromString opStr))),
                    Vector.fromList [l, r]))
 
 fun applyName pos name exprs =
-    Cst.FixE (CExpr.App(pos, Cst.FixE (CExpr.Triv (pos, Triv0.Var (Var.Lex name))), exprs))
+    Cst.FixE (CExpr.App(pos, Cst.FixE (CExpr.Triv (pos, CTriv.Var (CTag.Lex, name))), exprs))
 
 fun applyNameRev pos name revExprs =
     applyName pos name (Vector.fromList (List.rev revExprs))
@@ -171,16 +171,16 @@ simple : LPAREN expr RPAREN (expr)
                   Vector.fromList [
                       (bind, blockFromStmts LBRACKETleft (List.rev stmtList))]))
           end)
-       | LEXID (Cst.FixE (CExpr.Triv (LEXIDleft, Triv0.Var (Var.Lex (Name.fromString LEXID)))))
-       | DYNID (Cst.FixE (CExpr.Triv (DYNIDleft, Triv0.Var (Var.Dyn (Name.fromString DYNID)))))
+       | LEXID (Cst.FixE (CExpr.Triv (LEXIDleft, CTriv.Var (CTag.Lex, Name.fromString LEXID))))
+       | DYNID (Cst.FixE (CExpr.Triv (DYNIDleft, CTriv.Var (CTag.Dyn, Name.fromString DYNID))))
        | datum (datum)
 
 datum : prim     (prim)
       | compound (compound)
 
-prim : INT    (Cst.FixE (CExpr.Triv (INTleft, Triv0.Const (Const.Int INT))))
-     | STRING (Cst.FixE (CExpr.Triv (STRINGleft, Triv0.Const (Const.String STRING))))
-     | CHAR   (Cst.FixE (CExpr.Triv (CHARleft, Triv0.Const (Const.Char CHAR))))
+prim : INT    (Cst.FixE (CExpr.Triv (INTleft, CTriv.Const (Const.Int INT))))
+     | STRING (Cst.FixE (CExpr.Triv (STRINGleft, CTriv.Const (Const.String STRING))))
+     | CHAR   (Cst.FixE (CExpr.Triv (CHARleft, CTriv.Const (Const.Char CHAR))))
 
 compound : LPAREN exprList RPAREN
            (applyNameRev LPARENleft (Name.fromString "tuple") exprList)
@@ -194,8 +194,8 @@ compound : LPAREN exprList RPAREN
                                       [] mapPairs
             in Cst.FixE (CExpr.App(pos,
                                     Cst.FixE
-                                        (CExpr.Triv (pos, Triv0.Var (Var.Lex
-                                                                     (Name.fromString "hashMap")))),
+                                        (CExpr.Triv (pos, CTriv.Var (CTag.Lex,
+                                                                     Name.fromString "hashMap"))),
                        Vector.fromList args)) end)
 
 exprList :                 ([])
