@@ -1,3 +1,7 @@
+(* FIXME: should have Lex|Dyn, then [Upper]Lex|[Upper]Dyn
+                    , then Label|Local|[Upper]Dyn
+                    , then Label|Local *)
+
 signature VAR = sig
     datatype t = Lex of Name.t
                | UpperLex of Name.t
@@ -45,4 +49,20 @@ structure Var : VAR = struct
       | toDoc (UpperLex name) = PP.text "^" ^^ Name.toDoc name
       | toDoc (Dyn name) = PP.text "$" ^^ Name.toDoc name
       | toDoc (UpperDyn name) = PP.text "^$" ^^ Name.toDoc name
+end
+
+structure LLVar :> sig
+    datatype t = Local of Name.t
+               | Label of Name.t
+
+    val toDoc : t -> PPrint.doc
+end = struct
+    structure PP = PPrint
+    val op^^ = PPrint.^^
+
+    datatype t = Local of Name.t
+               | Label of Name.t
+
+    fun toDoc (Local name) = Name.toDoc name
+      | toDoc (Label name) = PP.text "$" ^^ Name.toDoc name
 end

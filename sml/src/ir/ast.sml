@@ -7,10 +7,12 @@ end
 signature AST = sig
     structure Stmt : STMT
 
-    datatype expr = FixE of (expr, stmt, Var.t, stmt vector) Expr.t
+    datatype expr = FixE of (expr, stmt, stmt vector) Expr.t
     and stmt = FixS of expr Stmt.t
 
-    val unwrapE : expr -> (expr, stmt, Var.t, stmt vector) Expr.t
+    val app : Pos.t * expr * expr vector -> (expr, stmt, stmt vector) Expr.t
+
+    val unwrapE : expr -> (expr, stmt, stmt vector) Expr.t
     val unwrapS : stmt -> expr Stmt.t
 
     val exprPos : expr -> Pos.t
@@ -18,14 +20,26 @@ signature AST = sig
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
-    val toDoc : stmt vector -> PPrint.doc
+    val toDoc : (expr, stmt) Block.t -> PPrint.doc
 end
 
 functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
+    val PrimApp = Expr.PrimApp
+    val Triv = Expr.Triv
+    structure PP = PPrint
+    val op^^ = PP.^^
+
     structure Stmt = S
 
-    datatype expr = FixE of (expr, stmt, Var.t, stmt vector) Expr.t
+    datatype expr = FixE of (expr, stmt, stmt vector) Expr.t
     and stmt = FixS of expr Stmt.t
+
+    fun app (pos, f, args) =
+        let val apply = FixE (Triv (pos, Triv0.Var (Var.Lex (Name.fromString "apply"))))
+            val argsExpr = FixE (PrimApp (pos, Primop.Tuple, args))
+            val metaArgs = FixE (PrimApp (pos, Primop.Tuple, Vector.fromList [f, argsExpr]))
+        in PrimApp (pos, Primop.Call, Vector.fromList [apply, metaArgs])
+        end
 
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
@@ -34,9 +48,11 @@ functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     val stmtPos = Stmt.pos exprPos o unwrapS
 
     fun exprToDoc (FixE expr) =
-        Expr.toDoc exprToDoc stmtToDoc Var.toDoc toDoc expr
+        let val stmtVecToDoc = PP.punctuate (PP.semi ^^ PP.line) o Vector.map stmtToDoc
+        in Expr.toDoc exprToDoc stmtToDoc stmtVecToDoc expr
+        end
     and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc stmt
-    and toDoc stmts = Expr.stmtsToDoc stmtToDoc stmts
+    and toDoc stmts = Block.toDoc exprToDoc stmtToDoc stmts
 end
 
 structure Ast = AstF(AStmt)

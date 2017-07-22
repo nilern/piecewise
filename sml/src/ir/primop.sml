@@ -1,16 +1,19 @@
 structure Primop = struct
     structure PP = PPrint
     datatype t = IAdd
-               | Close | FnPtr | FnGet
+               | Tuple
+               | Close | FnPtr | FnGet | Call
                | Tag | Repr
                | AGet
                | Box | BSet
                | DEnv | EmptyDEnv | DGet
 
     fun fromString "iadd" = IAdd
+      | fromString "tuple" = Tuple
       | fromString "close" = Close
       | fromString "fnPtr" = FnPtr
       | fromString "fnGet" = FnGet
+      | fromString "call" = Call
       | fromString "tag" = Tag
       | fromString "repr" = Repr
       | fromString "aget" = AGet
@@ -21,9 +24,11 @@ structure Primop = struct
       | fromString "dget" = DGet
 
     fun toDoc IAdd = PP.text "__iadd"
+      | toDoc Tuple = PP.text "__tuple"
       | toDoc Close = PP.text "__close"
       | toDoc FnPtr = PP.text "__fnPtr"
       | toDoc FnGet = PP.text "__fnGet"
+      | toDoc Call = PP.text "__call"
       | toDoc Tag = PP.text "__tag"
       | toDoc Repr = PP.text "__repr"
       | toDoc AGet = PP.text "__aget"

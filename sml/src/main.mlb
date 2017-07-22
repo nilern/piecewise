@@ -3,29 +3,28 @@ local
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
 
+    util/pprint.sml
     util/option_ext.sml
     util/list_ext.sml
     util/vector_ext.sml
-    util/pprint.sml
+    util/pos.sml
+    util/name.sml
 
-    pos.sml
-    ir/name.sml
-    ir/var.sml
     ir/const.sml
+    ir/var.sml
     ir/primop.sml
-
+    ir/block.sml
+    ir/triv.sml
+    ir/dnf.sml
     ir/expr.sml
-    ir/cstmt.sml
+    ir/stmt.sml
+
     ir/cst.sml
 
-    ir/dnf.sml
-    ir/augless_stmt.sml
-    ir/astmt.sml
     ir/ast.sml
     ir/desugar_binds.sml
     ir/desugar_augs.sml
 
-    ir/flat_expr.sml
     ir/flat_ast.sml
     ir/convert_lenv.sml
     ir/convert_denv.sml

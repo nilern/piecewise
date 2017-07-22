@@ -1,4 +1,4 @@
-structure FlatAst1 = FlatAst(Name)
+structure FlatAst1 = FlatAst(Triv1)
 
 structure ConvertDEnv :> sig
     val convert : FlatAst0.program -> FlatAst1.program
@@ -28,26 +28,26 @@ end = struct
     val FixE = FlatAst1.FixE
     val FixS = FlatAst1.FixS
     val Block = FlatAst1.Expr.Block
-    val App = FlatAst1.Expr.App
     val PrimApp = FlatAst1.Expr.PrimApp
-    val Var = FlatAst1.Expr.Var
-    val Const = FlatAst1.Expr.Const
+    val Triv = FlatAst1.Expr.Triv
     val Def = FlatAst1.Stmt.Def
     val Guard = FlatAst1.Stmt.Guard
     val Expr = FlatAst1.Stmt.Expr
+    val Var = Triv1.Var
+    val Const = Triv1.Const
 
     fun envPair pos name =
-        Vector.fromList [ FixE (Const (pos, Const.Symbol (Name.toString name)))
+        Vector.fromList [ FixE (Triv (pos, Const (Const.Symbol (Name.toString name))))
                         , FixE (PrimApp (pos, Primop.Box, VectorExt.empty ())) ]
 
     fun envDef pos env names =
-        let val oldEnvName = Env.name (Option.valOf (Env.parent env))
-            val newEnvName = Env.name env
+        let val oldEnvName =
+                FixE (Triv (pos, Var (LLVar.Local (Env.name (Option.valOf (Env.parent env))))))
+            val newEnvName = LLVar.Local (Env.name env)
             val dePair = envPair pos
             val dePairs = VectorExt.flatMap dePair (Vector.fromList (NameSet.listItems names))
             val alloc =
-                FixE (PrimApp (pos, Primop.DEnv,
-                               VectorExt.prepend dePairs (FixE (Var (pos, oldEnvName)))))
+                FixE (PrimApp (pos, Primop.DEnv, VectorExt.prepend dePairs oldEnvName))
         in FixS (Def (pos, newEnvName, alloc))
         end
 
@@ -63,38 +63,42 @@ end = struct
 
     and elabExpr env (FlatAst0.FixE expr) =
         FixE (case expr
-              of FlatAst0.Expr.Block (pos, stmts) =>
+              of FlatAst0.Expr.Block (pos, block as (stmts, expr)) =>
                  let val names = stmtVecBindings stmts
                      val env' = Env.push env names
-                 in Block (pos, elabStmts pos env' names stmts)
+                 in Block (pos, (elabStmts pos env' names stmts, elabExpr env' expr))
                  end
-               | FlatAst0.Expr.App (pos, f, args) =>
+               | FlatAst0.Expr.PrimApp (pos, Primop.Call, args) =>
                  let val args' = Vector.map (elabExpr env) args
-                     val deExpr = FixE (Var (pos, Env.name env))
-                 in App (pos, elabExpr env f, VectorExt.prepend args' deExpr)
+                     val deExpr = FixE (Triv (pos, Var (LLVar.Local (Env.name env))))
+                 in PrimApp (pos, Primop.Call, VectorExt.prepend args' deExpr)
                  end
                | FlatAst0.Expr.PrimApp (pos, po, args) =>
                  PrimApp (pos, po, Vector.map (elabExpr env) args)
-               | FlatAst0.Expr.Var (pos, Var.Lex name) => Var (pos, name)
-               | FlatAst0.Expr.Var (pos, Var.Dyn name) =>
+               | FlatAst0.Expr.Triv (pos, Triv0.Var (Var.Lex name)) =>
+                 Triv (pos, Var (LLVar.Local name))
+               | FlatAst0.Expr.Triv (pos, Triv0.Var (Var.Dyn name)) =>
                  let val nameSym = Const.Symbol (Name.toString name)
-                 in PrimApp (pos, Primop.DGet, Vector.fromList [ FixE (Var (pos, Env.name env))
-                                                               , FixE (Const (pos, nameSym)) ])
+                 in PrimApp (pos, Primop.DGet,
+                             Vector.fromList [ FixE (Triv (pos, Var (LLVar.Local (Env.name env))))
+                                             , FixE (Triv (pos, Const nameSym)) ])
                  end
-               | FlatAst0.Expr.Const (pos, c) => Const (pos, c))
+               | FlatAst0.Expr.Triv (pos, t as Triv0.Const c) => Triv (pos, Const c))
 
     and elabStmts pos env names stmts =
         let fun elabStmt env (FlatAst0.FixS stmt) =
                 FixS (case stmt
                       of FlatAst0.Stmt.Def (pos, Var.Lex name, expr) =>
-                         Def (pos, name, elabExpr env expr)
+                         Def (pos, LLVar.Local name, elabExpr env expr)
                        | FlatAst0.Stmt.Def (pos, Var.Dyn name, expr) =>
                          let val nameSym = Const.Symbol (Name.toString name)
                              val load =
                                  (FixE (PrimApp ( pos
                                                 , Primop.DGet
-                                                , Vector.fromList [ FixE (Var (pos, Env.name env))
-                                                                  , FixE (Const (pos, nameSym)) ])))
+                                                , Vector.fromList
+                                                  [ FixE (Triv ( pos
+                                                               , Var (LLVar.Local (Env.name env))))
+                                                  , FixE (Triv (pos, Const nameSym)) ])))
                          in
                              Expr (FixE (PrimApp (pos, Primop.BSet,
                                                   Vector.fromList [load, elabExpr env expr])))
@@ -125,15 +129,16 @@ end = struct
             { name = name, clovers = clovers, cases = Vector.map elabCase cases }
         end
 
-    fun convert { procs = procs, main = main } =
-        let val pos = FlatAst0.stmtPos (Vector.sub (main, 0))
+    fun convert { procs = procs, main = (stmts, expr) } =
+        let val pos = FlatAst0.stmtPos (Vector.sub (stmts, 0))
             val envName = Name.freshFromString "denv"
             val alloc = FixE (PrimApp (pos, Primop.EmptyDEnv, Vector.fromList []))
-            val def = FixS (Def (pos, envName, alloc))
-            val names = stmtVecBindings main
+            val def = FixS (Def (pos, LLVar.Local envName, alloc))
+            val names = stmtVecBindings stmts
             val env = Env.push (Env.root envName) names
         in
             { procs = Vector.map elabProc procs
-            , main = VectorExt.prepend (elabStmts pos env names main) def }
+            , main = ( VectorExt.prepend (elabStmts pos env names stmts) def
+                     , elabExpr env expr ) }
         end
 end

@@ -14,6 +14,7 @@ signature PPRINT = sig
     val align : doc -> doc
     val <+> : doc * doc -> doc
     val <$> : doc * doc -> doc
+    val punctuate : doc -> doc vector -> doc
 
     val space : doc
     val semi : doc
@@ -105,6 +106,15 @@ structure PPrint :> PPRINT = struct
     fun l <$> r = if isEmpty l then r
                   else if isEmpty r then l
                   else l ^^ line ^^ r
+
+    fun punctuate sep docs =
+        case Vector.length docs
+        of 0 => empty
+         | 1 => Vector.sub (docs, 0)
+         | _ =>
+           let fun step (acc, doc) = doc ^^ sep ^^ acc
+           in VectorSlice.foldl step (Vector.sub (docs, 0)) (VectorSlice.slice (docs, 1, NONE))
+           end
 
     fun pretty pageWidth (doc: doc) =
             #2 (#run doc { index = 0, col = 0,

@@ -1,12 +1,12 @@
 structure Cst :> sig
-    datatype expr = FixE of (expr, stmt, bind, bind) Expr.t
+    datatype expr = FixE of (expr, stmt, bind) CExpr.t
     and stmt = FixS of (expr, bind) CStmt.t
     and bind = Bind of expr * expr option
 
-    val wrapE : (expr, stmt, bind, bind) Expr.t -> expr
+    val wrapE : (expr, stmt, bind) CExpr.t -> expr
     val wrapS : (expr, bind) CStmt.t -> stmt
 
-    val unwrapE : expr -> (expr, stmt, bind, bind) Expr.t
+    val unwrapE : expr -> (expr, stmt, bind) CExpr.t
     val unwrapS : stmt -> (expr, bind) CStmt.t
 
     val exprPos : expr -> Pos.t
@@ -14,14 +14,15 @@ structure Cst :> sig
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
-    val toDoc : stmt vector -> PPrint.doc
+    val toDoc : (expr, stmt) Block.t -> PPrint.doc
 end = struct
+    val PrimApp = CExpr.PrimApp
+    val Triv = CExpr.Triv
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
-    val op<$> = PP.<$>
 
-    datatype expr = FixE of (expr, stmt, bind, bind) Expr.t
+    datatype expr = FixE of (expr, stmt, bind) CExpr.t
     and stmt = FixS of (expr, bind) CStmt.t
     and bind = Bind of expr * expr option
 
@@ -31,24 +32,15 @@ end = struct
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
 
-    val exprPos = Expr.pos o unwrapE
+    val exprPos = CExpr.pos o unwrapE
     fun bindPos (Bind (pat, _)) = exprPos pat
     val stmtPos = CStmt.pos exprPos bindPos o unwrapS
 
-    fun exprToDoc expr =
-        Expr.toDoc exprToDoc stmtToDoc bindToDoc bindToDoc (unwrapE expr)
-    and stmtToDoc stmt =
-        CStmt.toDoc exprToDoc bindToDoc (unwrapS stmt)
+    fun exprToDoc expr = CExpr.toDoc exprToDoc stmtToDoc bindToDoc (unwrapE expr)
+    and stmtToDoc stmt = CStmt.toDoc exprToDoc bindToDoc (unwrapS stmt)
     and bindToDoc (Bind (pat, cond)) =
-        exprToDoc pat ^^ (case cond
-                          of SOME ce => PP.space ^^ PP.text "|" <+> exprToDoc ce
-                           | NONE => PP.empty)
+        exprToDoc pat ^^
+            (OptionExt.toDoc (fn ce => PP.space ^^ PP.text "|" <+> exprToDoc ce) cond)
 
-    fun toDoc stmts =
-        let val stmt = Vector.sub (stmts, 0)
-            val rstmts = VectorSlice.slice (stmts, 1, NONE)
-            fun step (stmt, acc) = acc ^^ PP.semi <$> stmtToDoc stmt
-        in
-            VectorSlice.foldl step (stmtToDoc stmt) rstmts
-        end
+    val toDoc = Block.toDoc exprToDoc stmtToDoc
 end
