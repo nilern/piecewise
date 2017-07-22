@@ -23,7 +23,7 @@ signature AST = sig
     val toDoc : (expr, stmt) Block.t -> PPrint.doc
 end
 
-functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
+functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     val PrimApp = Expr.PrimApp
     val Triv = Expr.Triv
     structure PP = PPrint
@@ -55,6 +55,5 @@ functor AstF(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     and toDoc stmts = Block.toDoc exprToDoc stmtToDoc stmts
 end
 
-structure Ast = AstF(AStmt)
-structure AuglessVarStmt = AuglessStmt(AVar)
-structure AuglessAst = AstF(AuglessVarStmt)
+structure Ast = AstFn(AStmt)
+structure AuglessAst = AstFn(AuglessStmt)

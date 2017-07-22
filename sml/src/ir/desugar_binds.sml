@@ -51,7 +51,7 @@ end = struct
            end
          | CExpr.PrimApp (_, po, args) => raise Fail "unimplemented"
          | CExpr.Triv (_, CTriv.Var var) =>
-           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, AVar.fromCVar var, access)))
+           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
          | CExpr.Triv (pos, CTriv.Const c) =>
            let val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
                val c' = FixE (Triv (pos, Const c))
@@ -107,9 +107,9 @@ end = struct
                    (case expandExpr expr
                     of expr' as Ast.FixE (Expr.Triv _) => expandBind (FixS o newDef) bind expr'
                      | expr' => let val pos = Cst.exprPos pat
-                                    val triv = (ATag.Lex, Name.freshFromString "v")
-                                    val trivDef = FixS (Def (pos, triv, expr'))
-                                    val trivUse = FixE (Expr.Triv (pos, Var triv))
+                                    val triv = Name.freshFromString "v"
+                                    val trivDef = FixS (Def (pos, (CTag.Lex, triv), expr'))
+                                    val trivUse = FixE (Expr.Triv (pos, Var (ATag.Lex, triv)))
                                     val bindStmts = expandBind (FixS o newDef) bind trivUse
                                 in VectorExt.prepend bindStmts trivDef
                                 end)

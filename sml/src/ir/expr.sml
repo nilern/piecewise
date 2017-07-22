@@ -109,7 +109,7 @@ signature FLAT_EXPR = sig
 end
 
 (* FIXME: Triv needs to be parameterized by V *)
-functor FlatExpr(T : TRIV) :> FLAT_EXPR where type Triv.t = T.t = struct
+functor FlatExprFn(T : TRIV) :> FLAT_EXPR where type Triv.t = T.t = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
@@ -133,3 +133,6 @@ functor FlatExpr(T : TRIV) :> FLAT_EXPR where type Triv.t = T.t = struct
            end
          | Triv (_, t) => Triv.toDoc t
 end
+
+structure FlatExpr0 = FlatExprFn(FlatTriv0)
+structure FlatExpr1 = FlatExprFn(FlatTriv1)

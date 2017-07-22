@@ -1,5 +1,3 @@
-structure FlatAst1 = FlatAst(FlatTriv1)
-
 structure ConvertDEnv :> sig
     val convert : FlatAst0.program -> FlatAst1.program
 end = struct
@@ -43,7 +41,7 @@ end = struct
     fun envDef pos env names =
         let val oldEnvName =
                 FixE (Triv (pos, Var (FlatTag1.Local, Env.name (Option.valOf (Env.parent env)))))
-            val newEnvName = (FlatTag1.Local, Env.name env)
+            val newEnvName = Env.name env
             val dePair = envPair pos
             val dePairs = VectorExt.flatMap dePair (Vector.fromList (NameSet.listItems names))
             val alloc =
@@ -54,8 +52,8 @@ end = struct
     fun stmtVecBindings stmts =
         let fun stmtBindings (FlatAst0.FixS stmt, names) =
                 case stmt
-                of FlatAst0.Stmt.Def (_, (FlatTag0.Dyn, name), _) => NameSet.add (names, name)
-                 | FlatAst0.Stmt.Def (_, _, _) => names
+                of FlatAst0.Stmt.Def (_, (CTag.Dyn, name), _) => NameSet.add (names, name)
+                 | FlatAst0.Stmt.Def (_, (CTag.Lex, _), _) => names
                  | FlatAst0.Stmt.Guard _ => names
                  | FlatAst0.Stmt.Expr _ => names
         in Vector.foldl stmtBindings NameSet.empty stmts
@@ -75,7 +73,7 @@ end = struct
                  end
                | FlatAst0.Expr.PrimApp (pos, po, args) =>
                  PrimApp (pos, po, Vector.map (elabExpr env) args)
-               | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Local, name)) =>
+               | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Lex, name)) =>
                  Triv (pos, Var (FlatTag1.Local, name))
                | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Dyn, name)) =>
                  let val nameSym = Const.Symbol (Name.toString name)
@@ -88,9 +86,9 @@ end = struct
     and elabStmts pos env names stmts =
         let fun elabStmt env (FlatAst0.FixS stmt) =
                 FixS (case stmt
-                      of FlatAst0.Stmt.Def (pos, (FlatTag0.Local, name), expr) =>
-                         Def (pos, (FlatTag1.Local, name), elabExpr env expr)
-                       | FlatAst0.Stmt.Def (pos, (FlatTag0.Dyn, name), expr) =>
+                      of FlatAst0.Stmt.Def (pos, (CTag.Lex, name), expr) =>
+                         Def (pos, name, elabExpr env expr)
+                       | FlatAst0.Stmt.Def (pos, (CTag.Dyn, name), expr) =>
                          let val nameSym = Const.Symbol (Name.toString name)
                              val load =
                                  (FixE (PrimApp ( pos
@@ -134,7 +132,7 @@ end = struct
         let val pos = FlatAst0.stmtPos (Vector.sub (stmts, 0))
             val envName = Name.freshFromString "denv"
             val alloc = FixE (PrimApp (pos, Primop.EmptyDEnv, Vector.fromList []))
-            val def = FixS (Def (pos, (FlatTag1.Local, envName), alloc))
+            val def = FixS (Def (pos, envName, alloc))
             val names = stmtVecBindings stmts
             val env = Env.push (Env.root envName) names
         in

@@ -6,7 +6,6 @@ structure StringHashTable = HashTableFn(type hash_key = string
 structure NameHashTable = HashTableFn(type hash_key = Name.t
                                       val hashVal = Name.hash
                                       val sameKey = op=)
-structure FlatAst0 = FlatAst(FlatTriv0)
 
 (* TODO: rewrite functionally *)
 structure ConvertLEnv :> sig
@@ -248,10 +247,10 @@ end = struct
     fun stmtVecBindings stmts =
         let fun stmtBindings (AuglessAst.FixS stmt, names) =
                 case stmt
-                of AuglessVarStmt.Def (_, (ATag.Lex, name), _) => NameSet.add (names, name)
-                 | AuglessVarStmt.Def (_, (ATag.Dyn, _), _) => names
-                 | AuglessVarStmt.Guard _ => names
-                 | AuglessVarStmt.Expr _ => names
+                of AuglessStmt.Def (_, (CTag.Lex, name), _) => NameSet.add (names, name)
+                 | AuglessStmt.Def (_, (CTag.Dyn, _), _) => names
+                 | AuglessStmt.Guard _ => names
+                 | AuglessStmt.Expr _ => names
         in Vector.foldl stmtBindings NameSet.empty stmts
         end
 
@@ -313,9 +312,9 @@ end = struct
                                  PrimApp (pos, po, Vector.map (elabExpr env) args)
                                | Expr.Triv (pos, ATriv.Var (ATag.Lex, name)) =>
                                  (case Env.use env name
-                                  of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Local, name))
+                                  of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
                                    | SOME (Env.Clover (self, i)) =>
-                                     let val selfVar = Var (FlatTag0.Local, self)
+                                     let val selfVar = Var (FlatTag0.Lex, self)
                                          val index = Const (Const.Int (Int.toString i))
                                      in PrimApp ( pos
                                                 , Primop.FnGet
@@ -329,7 +328,7 @@ end = struct
                               | Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
                     fun elabStmt env (AuglessAst.FixS stmt) =
                         FixS (case stmt
-                              of AuglessVarStmt.Def (pos, var as (ATag.Lex, name), expr) =>
+                              of AuglessStmt.Def (pos, var as (CTag.Lex, name), expr) =>
                                  let val expr' = elabExpr env expr
                                      val SOME (Env.Direct (name', status')) = Env.define env name
                                  in
@@ -337,26 +336,26 @@ end = struct
                                      of Env.UsedBeforeDef =>
                                         let val pos = FlatAst0.Expr.pos (FlatAst0.unwrapE expr')
                                             val varExpr =
-                                                FixE (Triv (pos, Var (FlatTag0.Local, name')))
+                                                FixE (Triv (pos, Var (FlatTag0.Lex, name')))
                                             val assign =
                                                 FixE (PrimApp (pos, Primop.BSet,
                                                                Vector.fromList [varExpr, expr']))
                                         in Expr assign
                                         end
                                       | Env.DefdBeforeUse =>
-                                        Def (pos, (FlatTag0.Local, name'), expr')
+                                        Def (pos, (CTag.Lex, name'), expr')
                                       | _ => raise Fail "unreachable"
                                  end
-                               | AuglessVarStmt.Def (pos, var as (ATag.Dyn, _), expr) =>
-                                 Def (pos, valOf (FlatVar0.fromAVar var), elabExpr env expr)
-                               | AuglessVarStmt.Guard (pos, dnf) =>
+                               | AuglessStmt.Def (pos, var as (CTag.Dyn, name), expr) =>
+                                 Def (pos, (CTag.Dyn, name), elabExpr env expr)
+                               | AuglessStmt.Guard (pos, dnf) =>
                                  Guard (pos, DNF.map (elabExpr env) dnf)
-                               | AuglessVarStmt.Expr expr => Expr (elabExpr env expr))
+                               | AuglessStmt.Expr expr => Expr (elabExpr env expr))
                     val stmts' = Vector.map (elabStmt env) stmts
                     val pos = AuglessAst.stmtPos (Vector.sub (stmts, 0))
                     val boxAlloc = FixE (PrimApp (pos, Primop.Box, VectorExt.empty ()))
                     fun newBoxDef name =
-                        FixS (Def (pos, (FlatTag0.Local, name), boxAlloc))
+                        FixS (Def (pos, (CTag.Lex, name), boxAlloc))
                     val boxDefs =
                         VectorExt.flatMap (fn (name, Env.UsedBeforeDef) =>
                                               VectorExt.singleton (newBoxDef name)

@@ -1,5 +1,5 @@
 
-functor FlatAst(T : TRIV) :> sig
+functor FlatAstFn(structure E: FLAT_EXPR structure S: AUGLESS_STMT) :> sig
     structure Expr : FLAT_EXPR
     structure Stmt : AUGLESS_STMT
 
@@ -24,14 +24,17 @@ functor FlatAst(T : TRIV) :> sig
     val stmtToDoc : stmt -> PPrint.doc
     val procToDoc : proc -> PPrint.doc
     val toDoc : program -> PPrint.doc
-end where type Expr.Triv.t = T.t and type Stmt.Var.t = T.Var.t = struct
+end where type ('e, 's) Expr.t = ('e, 's) E.t
+      and type Expr.Triv.t = E.Triv.t
+      and type 'e Stmt.t = 'e S.t
+      and type Stmt.Var.t = S.Var.t = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Expr = FlatExpr(T)
-    structure Stmt = AuglessStmt(T.Var)
+    structure Expr = E
+    structure Stmt = S
 
     datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of expr Stmt.t
@@ -72,4 +75,9 @@ end where type Expr.Triv.t = T.t and type Stmt.Var.t = T.Var.t = struct
         let fun step (proc, acc) = procToDoc proc ^^ PP.line <$> acc
         in Vector.foldl step PP.empty procs <$> Block.toDoc exprToDoc stmtToDoc main
         end
-end (* structure FlatAst *)
+end
+
+structure FlatAst0 = FlatAstFn(structure E = FlatExpr0
+                               structure S = FlatStmt0)
+structure FlatAst1 = FlatAstFn(structure E = FlatExpr1
+                               structure S = FlatStmt1)

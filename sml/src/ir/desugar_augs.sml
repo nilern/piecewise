@@ -12,8 +12,8 @@ structure DesugarAugs :> sig
 
         val empty : t
         val lookup : t -> AVar.t -> (AVar.t option * int)
-        val init : t -> AVar.t -> int -> t
-        val insert : t -> AVar.t -> AVar.t -> t
+        val init : t -> CVar.t -> int -> t
+        val insert : t -> CVar.t -> AVar.t -> t
     end = struct
         structure Map = BinaryMapFn(type ord_key = AVar.t
                                     val compare = AVar.compare)
@@ -24,11 +24,12 @@ structure DesugarAugs :> sig
 
         fun lookup env key = Map.lookup (env, key)
 
-        fun init env var i = Map.insert (env, var, (NONE, i))
+        fun init env var i = Map.insert (env, AVar.fromCVar var, (NONE, i))
 
         fun insert env var var' =
-            let val (_, fi) = lookup env var
-            in Map.insert (env, var, (SOME var', fi))
+            let val avar = AVar.fromCVar var
+                val (_, fi) = lookup env avar
+            in Map.insert (env, avar, (SOME var', fi))
             end
     end (* structure Env *)
 
@@ -38,9 +39,9 @@ structure DesugarAugs :> sig
     val Block = Expr.Block
     val PrimApp = Expr.PrimApp
     val Triv = Expr.Triv
-    val Def = AuglessVarStmt.Def
-    val Guard = AuglessVarStmt.Guard
-    val Expr = AuglessVarStmt.Expr
+    val Def = AuglessStmt.Def
+    val Guard = AuglessStmt.Guard
+    val Expr = AuglessStmt.Expr
     val Var = ATriv.Var
     val Const = ATriv.Const
 
@@ -61,29 +62,31 @@ structure DesugarAugs :> sig
     and elabStmt (i, Ast.FixS stmt, (stmts', env)) =
         case stmt
         of AStmt.Def (pos, var, expr) =>
-           let val (envVar, fi) = Env.lookup env var
+           let val avar = AVar.fromCVar var
+               val (envVar, fi) = Env.lookup env avar
            in
                if Option.isSome envVar
-               then raise ReAssignment (pos, var)
+               then raise ReAssignment (pos, avar)
                else let val (var', env') =
                             if i = fi
                             then (var, env)
-                            else let val var' = AVar.fresh var
-                                 in (var', Env.insert env var var')
+                            else let val var' = CVar.fresh var
+                                 in (var', Env.insert env var (AVar.fromCVar var'))
                                  end
                         val stmt' = FixS (Def (pos, var', elabExpr expr))
                     in (VectorExt.conj stmts' stmt', env')
                     end
            end
          | AStmt.AugDef (pos, var, expr) =>
-           let val (envVar, fi) = Env.lookup env var
+           let val avar = AVar.fromCVar var
+               val (envVar, fi) = Env.lookup env avar
                val (var', env') =
                    if i = fi
                    then (var, env)
-                   else let val var' = AVar.fresh var
-                        in (var', Env.insert env var var')
+                   else let val var' = CVar.fresh var
+                        in (var', Env.insert env var (AVar.fromCVar var'))
                         end
-               val oldVar = getOpt (envVar, valOf (AVar.upper var))
+               val oldVar = getOpt (envVar, valOf (AVar.upper avar))
                val ovExpr = FixE (Triv (pos, Var oldVar))
                val fnMerge = FixE (Expr.Triv (pos, Var (ATag.Lex, Name.fromString "fnMerge")))
                val merge = FixE (AuglessAst.app (pos, fnMerge,
