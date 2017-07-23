@@ -25,7 +25,7 @@ end = struct
         val pushCaseFrame : t -> NameSet.set -> t
         val pushBlockFrame : t -> NameSet.set -> t
 
-        val use : t -> Name.t -> Name.t res option
+        val use : int -> t -> Name.t -> Name.t res option
         val define : t -> Name.t -> (Name.t * status) res option
         val self : t -> Name.t option
         val self0 : t -> Name.t option
@@ -53,6 +53,7 @@ end = struct
             val newCase : NameSet.set -> t
             val newBlock : NameSet.set -> t
 
+            val contains : t -> Name.t -> bool
             val findAndTransition : (status -> status) -> t -> Name.t -> (Name.t * status) option
             val self : t -> Name.t option
             val self0 : t -> Name.t option
@@ -105,6 +106,13 @@ end = struct
                 fun newCase names = Case (newBindings names)
                 fun newBlock names = Block (newBindings names)
             end
+
+            fun contains (Fn (self, _, formals, _, _, _)) key =
+                if key = self then true
+                else if key = formals then true
+                else false
+              | contains (Case bs) key = NameHashTable.inDomain bs key
+              | contains (Block bs) key = NameHashTable.inDomain bs key
 
             local
                 fun performTransition transition bs key (name, status) =
@@ -177,29 +185,32 @@ end = struct
         fun pushBlockFrame env names = Frame.newBlock names :: env
 
         local
-            fun findNameAndTransition transition (frame :: env') key =
-                (case Frame.findAndTransition transition frame key
-                 of SOME name => SOME name
-                  | NONE => findNameAndTransition transition env' key)
-              | findNameAndTransition _ [] _ = NONE
-            fun findCloverAndTransition transition caller env key =
+            fun findNameAndTransition skip transition (frame :: env') key =
+                if Frame.contains frame key
+                then if skip = 0
+                     then Frame.findAndTransition transition frame key
+                     else findNameAndTransition (skip - 1) transition env' key
+                else findNameAndTransition skip transition env' key
+              | findNameAndTransition _ _ [] _ = NONE
+            fun findCloverAndTransition skip transition caller env key =
                 let fun newClover (name, status) =
                         Clover ((Frame.ffName caller, status), Frame.index caller name)
-                in Option.map newClover (findNameAndTransition transition env key)
+                in Option.map newClover (findNameAndTransition skip transition env key)
                 end
         in
-            fun findAndTransition transition (frame :: env') key =
-                (case Frame.findAndTransition transition frame key
-                 of SOME name => SOME (Direct name)
-                  | NONE => (case frame
-                             of Frame.Block _ => findAndTransition transition env' key
-                              | Frame.Case _ => findAndTransition transition env' key
-                              | Frame.Fn fnFrame =>
-                                findCloverAndTransition transition fnFrame env' key))
-              | findAndTransition _ [] _ = NONE
+            fun findAndTransition skip transition (frame :: env') key =
+                if Frame.contains frame key
+                then if skip = 0
+                     then Option.map Direct (Frame.findAndTransition transition frame key)
+                     else findAndTransition (skip - 1) transition env' key
+                else (case frame
+                           of Frame.Block _ => findAndTransition skip transition env' key
+                            | Frame.Case _ => findAndTransition skip transition env' key
+                            | Frame.Fn fnFrame =>
+                              findCloverAndTransition skip transition fnFrame env' key)
+              | findAndTransition _ _ [] _ = NONE
 
-
-            fun use env name =
+            fun use skip env name =
                 let val transition = fn Pristine => Used
                                       | Used => Used
                                       | DefdBeforeUse => DefdBeforeUse
@@ -207,12 +218,13 @@ end = struct
                 in
                     Option.map (fn Direct (name, _) => Direct name
                                  | Clover ((self, _), i) => Clover (self, i))
-                               (findAndTransition transition env name)
+                               (findAndTransition skip transition env name)
                 end
-            val define = findAndTransition (fn Pristine => DefdBeforeUse
-                                             | Used => UsedBeforeDef
-                                             | DefdBeforeUse => DefdBeforeUse
-                                             | UsedBeforeDef => UsedBeforeDef)
+
+            val define = findAndTransition 0 (fn Pristine => DefdBeforeUse
+                                               | Used => UsedBeforeDef
+                                               | DefdBeforeUse => DefdBeforeUse
+                                               | UsedBeforeDef => UsedBeforeDef)
         end
 
         val self = ListExt.some Frame.self
@@ -306,21 +318,27 @@ end = struct
                | Expr.PrimApp (pos, po, args) =>
                  (* MAYBE: add the self-closure arg to App:s *)
                  PrimApp (pos, po, Vector.map (elabExpr procs env) args)
-               | Expr.Triv (pos, ATriv.Var (ATag.Lex, name)) =>
-                 (case Env.use env name
-                  of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
-                   | SOME (Env.Clover (self, i)) =>
-                     let val selfVar = Var (FlatTag0.Lex, self)
-                         val index = Const (Const.Int (Int.toString i))
-                     in PrimApp ( pos
-                                , Primop.FnGet
-                                , Vector.fromList [ FixE (Triv (pos, selfVar))
-                                                  , FixE (Triv (pos, index)) ] )
-                     end
-                   | NONE => raise Unbound (pos, name))
-              | Expr.Triv (pos, ATriv.Var (var as (ATag.Dyn, _))) =>
-                Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
-              (* TODO: ATag.Upper* *)
+               | Expr.Triv (pos, ATriv.Var (var as (ATag.Dyn, _))) =>
+                 Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
+               | Expr.Triv (pos, ATriv.Var (var as (ATag.UpperDyn, _))) =>
+                 Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
+               | Expr.Triv (pos, ATriv.Var (varTag, name)) =>
+                 let val skip = case varTag
+                                of ATag.Lex => 0
+                                 | ATag.UpperLex => 1
+                                 | _ => raise Fail "unreachable"
+                 in case Env.use skip env name
+                    of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
+                     | SOME (Env.Clover (self, i)) =>
+                       let val selfVar = Var (FlatTag0.Lex, self)
+                           val index = Const (Const.Int (Int.toString i))
+                       in PrimApp ( pos
+                                  , Primop.FnGet
+                                  , Vector.fromList [ FixE (Triv (pos, selfVar))
+                                                    , FixE (Triv (pos, index)) ] )
+                       end
+                     | NONE => raise Unbound (pos, name)
+                end
               | Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
 
     and elabStmt procs env (AuglessAst.FixS stmt) =
