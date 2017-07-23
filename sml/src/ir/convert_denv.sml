@@ -81,6 +81,9 @@ end = struct
                              Vector.fromList [ FixE (Triv (pos, Var (FlatTag1.Local, Env.name env)))
                                              , FixE (Triv (pos, Const nameSym)) ])
                  end
+               | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Label, name)) =>
+                 Triv (pos, FlatTriv1.Var (FlatTag1.Label, name))
+               (* TODO: UpperDyn *)
                | FlatAst0.Expr.Triv (pos, FlatTriv0.Const c) => Triv (pos, Const c))
 
     and elabStmts pos env names stmts =

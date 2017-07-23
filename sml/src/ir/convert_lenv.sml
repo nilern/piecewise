@@ -7,6 +7,7 @@ structure NameHashTable = HashTableFn(type hash_key = Name.t
                                       val hashVal = Name.hash
                                       val sameKey = op=)
 
+(* OPTIMIZE: self recursion doesn't require a cyclic closure *)
 structure ConvertLEnv :> sig
     exception Unbound of Pos.t * Name.t
 
