@@ -17,6 +17,7 @@ signature AST = sig
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
+    val blockPos : (expr, stmt) Block.t -> Pos.t
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
@@ -46,6 +47,7 @@ functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
 
     val exprPos = Expr.pos o unwrapE
     val stmtPos = Stmt.pos exprPos o unwrapS
+    val blockPos = Block.pos exprPos stmtPos
 
     fun exprToDoc (FixE expr) =
         let val stmtVecToDoc = PP.punctuate (PP.semi ^^ PP.line) o Vector.map stmtToDoc

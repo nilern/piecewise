@@ -2,6 +2,7 @@ structure Block :> sig
     type 'stmt stmts = 'stmt vector
     type ('expr, 'stmt) t = 'stmt stmts * 'expr
 
+    val pos : ('e -> Pos.t) -> ('s -> Pos.t) -> ('e, 's) t -> Pos.t
     val stmtsToDoc : ('s -> PPrint.doc) -> 's stmts -> PPrint.doc
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t -> PPrint.doc
 end = struct
@@ -11,6 +12,11 @@ end = struct
 
     type 'stmt stmts = 'stmt vector
     type ('expr, 'stmt) t = 'stmt stmts * 'expr
+
+    fun pos exprPos stmtPos (stmts, expr) =
+        if Vector.length stmts > 0
+        then stmtPos (Vector.sub (stmts, 0))
+        else exprPos expr
 
     fun stmtsToDoc stmtToDoc = PP.punctuate (PP.semi ^^ PP.line) o Vector.map stmtToDoc
 

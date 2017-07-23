@@ -19,6 +19,7 @@ functor FlatAstFn(structure E: FLAT_EXPR structure S: AUGLESS_STMT) :> sig
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
+    val blockPos : (expr, stmt) Block.t -> Pos.t
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
@@ -51,6 +52,7 @@ end where type ('e, 's) Expr.t = ('e, 's) E.t
 
     fun exprPos (FixE expr) = Expr.pos expr
     and stmtPos (FixS stmt) = Stmt.pos exprPos stmt
+    val blockPos = Block.pos exprPos stmtPos
 
     fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc expr
     and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc stmt

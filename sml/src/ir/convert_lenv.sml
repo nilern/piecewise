@@ -7,7 +7,6 @@ structure NameHashTable = HashTableFn(type hash_key = Name.t
                                       val hashVal = Name.hash
                                       val sameKey = op=)
 
-(* TODO: rewrite functionally *)
 structure ConvertLEnv :> sig
     exception Unbound of Pos.t * Name.t
 
@@ -254,119 +253,121 @@ end = struct
         in Vector.foldl stmtBindings NameSet.empty stmts
         end
 
+    fun elabExpr procs env (AuglessAst.FixE expr) =
+        FixE (case expr
+              of Expr.Fn (pos, name, formals, cases) =>
+                 let fun elabCase env (cas as (prologue, _)) =
+                         let val env' = Env.pushCaseFrame env (stmtVecBindings prologue)
+                             val (prologue', body') = elabBlock procs env' cas
+                         in
+                             ( Option.valOf (Env.self env)
+                             , valOf (Env.formals env')
+                             , Name.freshFromString "denv"
+                             , prologue'
+                             , body' )
+                         end
+                     val env' = Env.pushFnFrame env (Name.fromString "f") formals
+                     val cases' = Vector.map (elabCase env') cases
+                     val name = Option.valOf (Env.self env')
+                     val clovers = Option.valOf (Env.clovers env')
+                     val proc = { name = name
+                                , clovers = clovers
+                                , cases = cases' }
+                     val _ =
+                         StringHashTable.insert procs (Name.toString name, proc)
+                     val cexprs = (* HACK: *)
+                         Vector.map (fn name =>
+                                        AuglessAst.FixE
+                                            (Expr.Triv (pos,
+                                                   ATriv.Var (ATag.Lex,
+                                                              Name.fromString
+                                                               (Name.chars name)))))
+                                     clovers
+                     val close = elabExpr procs env
+                                          (AuglessAst.FixE
+                                              (Expr.PrimApp (pos, Primop.Close,
+                                                             cexprs)))
+                 in
+                     case close (* HACK *)
+                     of FlatAst0.FixE
+                            (FlatAst0.Expr.PrimApp (pos, Primop.Close, cexprs)) =>
+                        let val fnPtr =
+                                FixE (Triv (pos, Var (FlatTag0.Label, name)))
+                        in PrimApp (pos, Primop.Close,
+                                    VectorExt.prepend cexprs fnPtr)
+                        end
+                      | _ => raise Fail "unreachable"
+                 end
+               | Expr.Block (pos, block as (stmts, _)) =>
+                 let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
+                 in Block (pos, elabBlock procs env' block)
+                 end
+               | Expr.PrimApp (pos, po, args) =>
+                 (* MAYBE: add the self-closure arg to App:s *)
+                 PrimApp (pos, po, Vector.map (elabExpr procs env) args)
+               | Expr.Triv (pos, ATriv.Var (ATag.Lex, name)) =>
+                 (case Env.use env name
+                  of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
+                   | SOME (Env.Clover (self, i)) =>
+                     let val selfVar = Var (FlatTag0.Lex, self)
+                         val index = Const (Const.Int (Int.toString i))
+                     in PrimApp ( pos
+                                , Primop.FnGet
+                                , Vector.fromList [ FixE (Triv (pos, selfVar))
+                                                  , FixE (Triv (pos, index)) ] )
+                     end
+                   | NONE => raise Unbound (pos, name))
+              | Expr.Triv (pos, ATriv.Var (var as (ATag.Dyn, _))) =>
+                Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
+              (* TODO: ATag.Upper* *)
+              | Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
+
+    and elabStmt procs env (AuglessAst.FixS stmt) =
+        FixS (case stmt
+              of AuglessStmt.Def (pos, var as (CTag.Lex, name), expr) =>
+                 let val expr' = elabExpr procs env expr
+                     val SOME (Env.Direct (name', status')) = Env.define env name
+                 in
+                     case status'
+                     of Env.UsedBeforeDef =>
+                        let val pos = FlatAst0.Expr.pos (FlatAst0.unwrapE expr')
+                            val varExpr =
+                                FixE (Triv (pos, Var (FlatTag0.Lex, name')))
+                            val assign =
+                                FixE (PrimApp (pos, Primop.BSet,
+                                               Vector.fromList [varExpr, expr']))
+                        in Expr assign
+                        end
+                      | Env.DefdBeforeUse =>
+                        Def (pos, (CTag.Lex, name'), expr')
+                      | _ => raise Fail "unreachable"
+                 end
+               | AuglessStmt.Def (pos, var as (CTag.Dyn, name), expr) =>
+                 Def (pos, (CTag.Dyn, name), elabExpr procs env expr)
+               | AuglessStmt.Guard (pos, dnf) =>
+                 Guard (pos, DNF.map (elabExpr procs env) dnf)
+               | AuglessStmt.Expr expr => Expr (elabExpr procs env expr))
+
+    and elabBlock procs env (block as (stmts, expr)) =
+        let val stmts' = Vector.map (elabStmt procs env) stmts
+            val pos = AuglessAst.blockPos block
+            val boxAlloc = FixE (PrimApp (pos, Primop.Box, VectorExt.empty ()))
+            fun newBoxDef name =
+                FixS (Def (pos, (CTag.Lex, name), boxAlloc))
+            val boxDefs =
+                VectorExt.flatMap (fn (name, Env.UsedBeforeDef) =>
+                                      VectorExt.singleton (newBoxDef name)
+                                    | (_, Env.DefdBeforeUse) => VectorExt.empty ()
+                                    | (_, _) => raise Fail "unreachable")
+                                  (Env.locals env)
+            val expr' = elabExpr procs env expr
+        in (VectorExt.concat boxDefs stmts', expr')
+        end
+
     fun convert (block as (stmts, _)) =
         let val procs = StringHashTable.mkTable (0, Subscript)
-            fun elabBlock env (stmts, expr) =
-                let fun elabExpr env (AuglessAst.FixE expr) =
-                        FixE (case expr
-                              of Expr.Fn (pos, name, formals, cases) =>
-                                 let fun elabCase env (cas as (prologue, _)) =
-                                         let val env' =
-                                                 Env.pushCaseFrame env (stmtVecBindings prologue)
-                                             val (prologue', body') = elabBlock env' cas
-                                         in
-                                             ( Option.valOf (Env.self env)
-                                             , valOf (Env.formals env')
-                                             , Name.freshFromString "denv"
-                                             , prologue'
-                                             , body' )
-                                         end
-                                     val env' = Env.pushFnFrame env (Name.fromString "f") formals
-                                     val cases' = Vector.map (elabCase env') cases
-                                     val name = Option.valOf (Env.self env')
-                                     val clovers = Option.valOf (Env.clovers env')
-                                     val proc = { name = name
-                                                , clovers = clovers
-                                                , cases = cases' }
-                                     val _ =
-                                         StringHashTable.insert procs (Name.toString name, proc)
-                                     val cexprs = (* HACK: *)
-                                         Vector.map (fn name =>
-                                                        AuglessAst.FixE
-                                                            (Expr.Triv (pos,
-                                                                   ATriv.Var (ATag.Lex,
-                                                                              Name.fromString
-                                                                               (Name.chars name)))))
-                                                     clovers
-                                     val close = elabExpr env
-                                                          (AuglessAst.FixE
-                                                              (Expr.PrimApp (pos, Primop.Close,
-                                                                             cexprs)))
-                                 in
-                                     case close (* HACK *)
-                                     of FlatAst0.FixE
-                                            (FlatAst0.Expr.PrimApp (pos, Primop.Close, cexprs)) =>
-                                        let val fnPtr =
-                                                FixE (Triv (pos, Var (FlatTag0.Label, name)))
-                                        in PrimApp (pos, Primop.Close,
-                                                    VectorExt.prepend cexprs fnPtr)
-                                        end
-                                      | _ => raise Fail "unreachable"
-                                 end
-                               | Expr.Block (pos, block as (stmts, _)) =>
-                                 let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
-                                 in Block (pos, elabBlock env' block)
-                                 end
-                               | Expr.PrimApp (pos, po, args) =>
-                                 (* MAYBE: add the self-closure arg to App:s *)
-                                 PrimApp (pos, po, Vector.map (elabExpr env) args)
-                               | Expr.Triv (pos, ATriv.Var (ATag.Lex, name)) =>
-                                 (case Env.use env name
-                                  of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
-                                   | SOME (Env.Clover (self, i)) =>
-                                     let val selfVar = Var (FlatTag0.Lex, self)
-                                         val index = Const (Const.Int (Int.toString i))
-                                     in PrimApp ( pos
-                                                , Primop.FnGet
-                                                , Vector.fromList [ FixE (Triv (pos, selfVar))
-                                                                  , FixE (Triv (pos, index)) ] )
-                                     end
-                                   | NONE => raise Unbound (pos, name))
-                              | Expr.Triv (pos, ATriv.Var (var as (ATag.Dyn, _))) =>
-                                Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
-                              (* TODO: ATag.Upper* *)
-                              | Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
-                    fun elabStmt env (AuglessAst.FixS stmt) =
-                        FixS (case stmt
-                              of AuglessStmt.Def (pos, var as (CTag.Lex, name), expr) =>
-                                 let val expr' = elabExpr env expr
-                                     val SOME (Env.Direct (name', status')) = Env.define env name
-                                 in
-                                     case status'
-                                     of Env.UsedBeforeDef =>
-                                        let val pos = FlatAst0.Expr.pos (FlatAst0.unwrapE expr')
-                                            val varExpr =
-                                                FixE (Triv (pos, Var (FlatTag0.Lex, name')))
-                                            val assign =
-                                                FixE (PrimApp (pos, Primop.BSet,
-                                                               Vector.fromList [varExpr, expr']))
-                                        in Expr assign
-                                        end
-                                      | Env.DefdBeforeUse =>
-                                        Def (pos, (CTag.Lex, name'), expr')
-                                      | _ => raise Fail "unreachable"
-                                 end
-                               | AuglessStmt.Def (pos, var as (CTag.Dyn, name), expr) =>
-                                 Def (pos, (CTag.Dyn, name), elabExpr env expr)
-                               | AuglessStmt.Guard (pos, dnf) =>
-                                 Guard (pos, DNF.map (elabExpr env) dnf)
-                               | AuglessStmt.Expr expr => Expr (elabExpr env expr))
-                    val stmts' = Vector.map (elabStmt env) stmts
-                    val pos = AuglessAst.stmtPos (Vector.sub (stmts, 0))
-                    val boxAlloc = FixE (PrimApp (pos, Primop.Box, VectorExt.empty ()))
-                    fun newBoxDef name =
-                        FixS (Def (pos, (CTag.Lex, name), boxAlloc))
-                    val boxDefs =
-                        VectorExt.flatMap (fn (name, Env.UsedBeforeDef) =>
-                                              VectorExt.singleton (newBoxDef name)
-                                            | (_, Env.DefdBeforeUse) => VectorExt.empty ()
-                                            | (_, _) => raise Fail "unreachable")
-                                          (Env.locals env)
-                    val expr' = elabExpr env expr
-                in (VectorExt.concat boxDefs stmts', expr')
-                end
             val env = Env.pushBlockFrame Env.empty (stmtVecBindings stmts)
-            val block' = elabBlock env block
+            val block' = elabBlock procs env block
         in
             { procs = Vector.fromList (StringHashTable.listItems procs)
             , main = block' }
