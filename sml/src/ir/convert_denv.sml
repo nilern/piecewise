@@ -75,15 +75,19 @@ end = struct
                  PrimApp (pos, po, Vector.map (elabExpr env) args)
                | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Lex, name)) =>
                  Triv (pos, Var (FlatTag1.Local, name))
-               | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Dyn, name)) =>
-                 let val nameSym = Const.Symbol (Name.toString name)
-                 in PrimApp (pos, Primop.DGet,
-                             Vector.fromList [ FixE (Triv (pos, Var (FlatTag1.Local, Env.name env)))
-                                             , FixE (Triv (pos, Const nameSym)) ])
-                 end
                | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (FlatTag0.Label, name)) =>
                  Triv (pos, FlatTriv1.Var (FlatTag1.Label, name))
-               (* TODO: UpperDyn *)
+               | FlatAst0.Expr.Triv (pos, FlatTriv0.Var (varTag, name)) =>
+                 let val skip = Const.Int (case varTag
+                                           of FlatTag0.Dyn => "0"
+                                            | FlatTag0.UpperDyn => "1"
+                                            | _ => raise Fail "unreachable")
+                     val nameSym = Const.Symbol (Name.toString name)
+                 in PrimApp (pos, Primop.DGet,
+                             Vector.fromList [ FixE (Triv (pos, Var (FlatTag1.Local, Env.name env)))
+                                             , FixE (Triv (pos, Const skip))
+                                             , FixE (Triv (pos, Const nameSym)) ])
+                 end
                | FlatAst0.Expr.Triv (pos, FlatTriv0.Const c) => Triv (pos, Const c))
 
     and elabStmts pos env names stmts =
@@ -100,6 +104,7 @@ end = struct
                                                   [ FixE (Triv ( pos
                                                                , Var ( FlatTag1.Local
                                                                      , Env.name env)))
+                                                  , FixE (Triv (pos, Const (Const.Int "0")))
                                                   , FixE (Triv (pos, Const nameSym)) ])))
                          in
                              Expr (FixE (PrimApp (pos, Primop.BSet,

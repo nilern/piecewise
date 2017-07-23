@@ -59,6 +59,7 @@ structure DesugarAugs :> sig
                | Expr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map elabExpr args)
                | Expr.Triv (pos, t) => Triv (pos, t))
 
+    (* OPTIMIZE: can actually use lexicals for all temporaries created here: *)
     and elabStmt (i, Ast.FixS stmt, (stmts', env)) =
         case stmt
         of AStmt.Def (pos, var, expr) =>
