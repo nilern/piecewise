@@ -119,8 +119,10 @@ end = struct
             else stmts'
         end
 
-    fun elabProc { name = name, clovers = clovers, cases = cases } =
-        let fun elabCase (self, formals, envName, prologue, body) =
+    fun elabProc { name = name, clovers = clovers, args = { self = self, params = params }
+                 , cases = cases } =
+        let val envName = Name.freshFromString "denv"
+            fun elabCase (prologue, body) =
                 (* MAYBE: We might not need the boxes here if we leave the order of argument binding
                           undefined. Any use of side effects (which the dynamic env is for) during
                           binding is bad style anyway. Do we punish for that with subtle bugs or
@@ -128,12 +130,13 @@ end = struct
                 let val pos = FlatAst0.stmtPos (Vector.sub (prologue, 0))
                     val names = stmtVecBindings prologue
                     val env = Env.push (Env.root envName) names
-                in ( self, formals, envName
-                   , elabStmts pos env names prologue
-                   , elabExpr env body )
+                in ( elabStmts pos env names prologue, elabExpr env body )
                 end
         in
-            { name = name, clovers = clovers, cases = Vector.map elabCase cases }
+            { name = name
+            , clovers = clovers
+            , args = { self = self, params = params, denv = envName }
+            , cases = Vector.map elabCase cases }
         end
 
     fun convert { procs = procs, main = (stmts, expr) } =

@@ -29,8 +29,8 @@ end = struct
         val define : t -> Name.t -> (Name.t * status) res option
         val self : t -> Name.t option
         val self0 : t -> Name.t option
-        val formals : t -> Name.t option
-        val formals0 : t -> Name.t option
+        val params : t -> Name.t option
+        val params0 : t -> Name.t option
         val clovers : t -> Name.t vector option
         val locals : t -> (Name.t * status) vector
 
@@ -57,8 +57,8 @@ end = struct
             val findAndTransition : (status -> status) -> t -> Name.t -> (Name.t * status) option
             val self : t -> Name.t option
             val self0 : t -> Name.t option
-            val formals : t -> Name.t option
-            val formals0 : t -> Name.t option
+            val params : t -> Name.t option
+            val params0 : t -> Name.t option
             val clovers : t -> Name.t vector option
             val locals : t -> (Name.t * status) list
 
@@ -97,19 +97,19 @@ end = struct
                         bindings
                     end
             in
-                fun newFn self formals = Fn ( self
+                fun newFn self params = Fn ( self
                                             , Name.fresh self
-                                            , formals
-                                            , Name.fresh formals
+                                            , params
+                                            , Name.fresh params
                                             , NameHashTable.mkTable (0, Subscript)
                                             , ref 0 )
                 fun newCase names = Case (newBindings names)
                 fun newBlock names = Block (newBindings names)
             end
 
-            fun contains (Fn (self, _, formals, _, _, _)) key =
+            fun contains (Fn (self, _, params, _, _, _)) key =
                 if key = self then true
-                else if key = formals then true
+                else if key = params then true
                 else false
               | contains (Case bs) key = NameHashTable.inDomain bs key
               | contains (Block bs) key = NameHashTable.inDomain bs key
@@ -122,9 +122,9 @@ end = struct
                         entry'
                     end
             in
-                fun findAndTransition transition (Fn (selfStr, self, formals, formals', _, _)) key =
+                fun findAndTransition transition (Fn (selfStr, self, params, params', _, _)) key =
                     if key = selfStr then SOME (self, DefdBeforeUse)
-                    else if key = formals then SOME (formals', DefdBeforeUse)
+                    else if key = params then SOME (params', DefdBeforeUse)
                     else NONE
                   | findAndTransition transition (Case bs) key =
                     Option.map (performTransition transition bs key) (NameHashTable.find bs key)
@@ -139,8 +139,8 @@ end = struct
             in
                 val self = fnProp #2
                 val self0 = fnProp #1
-                val formals = fnProp #4
-                val formals0 = fnProp #3
+                val params = fnProp #4
+                val params0 = fnProp #3
                 val clovers =
                     fnProp (fn (_, _, _, _, cis, _) =>
                                let val arr =
@@ -152,8 +152,8 @@ end = struct
                                end)
             end
 
-            fun locals (Fn (_, self, _, formals, _, _)) =
-                [(self, DefdBeforeUse), (formals, DefdBeforeUse)]
+            fun locals (Fn (_, self, _, params, _, _)) =
+                [(self, DefdBeforeUse), (params, DefdBeforeUse)]
               | locals (Case bs) = NameHashTable.listItems bs
               | locals (Block bs) = NameHashTable.listItems bs
 
@@ -168,9 +168,9 @@ end = struct
                                             statusToString status ^ " " ^ Name.toString name ^ ", ")
                                     "" bs
 
-            fun toString (Fn (self, self', formals, formals', _, _)) =
+            fun toString (Fn (self, self', params, params', _, _)) =
                 "Fn " ^ Name.toString self ^ ": " ^  Name.toString self' ^ ", "
-                      ^ Name.toString formals ^ ": " ^  Name.toString formals'
+                      ^ Name.toString params ^ ": " ^  Name.toString params'
               | toString (Case bs) = "Case " ^ bindingsToString bs
               | toString (Block bs) = "Block " ^ bindingsToString bs
         end (* structure Frame *)
@@ -180,7 +180,7 @@ end = struct
                         | Clover of 'a * int
 
         val empty = []
-        fun pushFnFrame env self formals = Frame.newFn self formals :: env
+        fun pushFnFrame env self params = Frame.newFn self params :: env
         fun pushCaseFrame env names = Frame.newCase names :: env
         fun pushBlockFrame env names = Frame.newBlock names :: env
 
@@ -229,8 +229,8 @@ end = struct
 
         val self = ListExt.some Frame.self
         val self0 = ListExt.some Frame.self0
-        val formals = ListExt.some Frame.formals
-        val formals0 = ListExt.some Frame.formals0
+        val params = ListExt.some Frame.params
+        val params0 = ListExt.some Frame.params0
         val clovers = ListExt.some Frame.clovers
 
         val locals = fn frame :: _ => Vector.fromList (Frame.locals frame)
@@ -268,23 +268,19 @@ end = struct
 
     fun elabExpr procs env (AuglessAst.FixE expr) =
         FixE (case expr
-              of Expr.Fn (pos, name, formals, cases) =>
+              of Expr.Fn (pos, name, params, cases) =>
                  let fun elabCase env (cas as (prologue, _)) =
                          let val env' = Env.pushCaseFrame env (stmtVecBindings prologue)
-                             val (prologue', body') = elabBlock procs env' cas
-                         in
-                             ( Option.valOf (Env.self env)
-                             , valOf (Env.formals env')
-                             , Name.freshFromString "denv"
-                             , prologue'
-                             , body' )
+                         in elabBlock procs env' cas
                          end
-                     val env' = Env.pushFnFrame env (Name.fromString "f") formals
+                     val env' = Env.pushFnFrame env (Name.fromString "f") params
                      val cases' = Vector.map (elabCase env') cases
                      val name = Option.valOf (Env.self env')
                      val clovers = Option.valOf (Env.clovers env')
                      val proc = { name = name
                                 , clovers = clovers
+                                , args = { self = valOf (Env.self env')
+                                         , params = valOf (Env.params env') }
                                 , cases = cases' }
                      val _ =
                          StringHashTable.insert procs (Name.toString name, proc)
