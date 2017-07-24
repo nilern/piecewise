@@ -1,8 +1,5 @@
 structure NameSet = BinarySetFn(type ord_key = Name.t
                                 val compare = Name.compare)
-structure StringHashTable = HashTableFn(type hash_key = string
-                                        val hashVal = HashString.hashString
-                                        val sameKey = op=)
 structure NameHashTable = HashTableFn(type hash_key = Name.t
                                       val hashVal = Name.hash
                                       val sameKey = op=)
@@ -282,8 +279,7 @@ end = struct
                                 , args = { self = valOf (Env.self env')
                                          , params = valOf (Env.params env') }
                                 , cases = cases' }
-                     val _ =
-                         StringHashTable.insert procs (Name.toString name, proc)
+                     val _ = NameHashTable.insert procs (name, proc)
                      val cexprs = (* HACK: *)
                          Vector.map (fn name =>
                                         AuglessAst.FixE
@@ -380,11 +376,12 @@ end = struct
         end
 
     fun convert (block as (stmts, _)) =
-        let val procs = StringHashTable.mkTable (0, Subscript)
+        let val procs = NameHashTable.mkTable (0, Subscript)
             val env = Env.pushBlockFrame Env.empty (stmtVecBindings stmts)
             val block' = elabBlock procs env block
         in
-            { procs = Vector.fromList (StringHashTable.listItems procs)
+            { procs = NameHashTable.foldi (fn (name, proc, map) => NameMap.insert (map, name, proc))
+                                          NameMap.empty procs
             , main = block' }
         end
 end (* structure ConvertLEnv *)

@@ -1,3 +1,6 @@
+structure NameMap = BinaryMapFn(type ord_key = Name.t
+                                val compare = Name.compare)
+
 structure Argv0 = struct
     val op^^ = PPrint.^^
     val op<+> = PPrint.<+>
@@ -36,7 +39,7 @@ functor FlatAstFn(structure E: FLAT_EXPR
                 , args: Argv.t
                 , cases: (stmt vector * expr) vector }
 
-    type program = { procs: proc vector (* TODO: use a map *)
+    type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
 
     val unwrapE : expr -> (expr, stmt) Expr.t
@@ -72,7 +75,7 @@ end where type ('e, 's) Expr.t = ('e, 's) E.t
                 , args: Argv.t
                 , cases: (stmt vector * expr) vector }
 
-    type program = { procs: proc vector
+    type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
 
     fun unwrapE (FixE expr) = expr
@@ -101,7 +104,7 @@ end where type ('e, 's) Expr.t = ('e, 's) E.t
 
     fun toDoc { procs = procs, main = main } =
         let fun step (proc, acc) = procToDoc proc ^^ PP.line <$> acc
-        in Vector.foldl step PP.empty procs <$> Block.toDoc exprToDoc stmtToDoc main
+        in NameMap.foldl step PP.empty procs <$> Block.toDoc exprToDoc stmtToDoc main
         end
 end
 

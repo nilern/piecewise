@@ -147,7 +147,7 @@ end = struct
             val names = stmtVecBindings stmts
             val env = Env.push (Env.root envName) names
         in
-            { procs = Vector.map elabProc procs
+            { procs = NameMap.map elabProc procs
             , main = ( VectorExt.prepend (elabStmts pos env names stmts) def
                      , elabExpr env expr ) }
         end
