@@ -108,7 +108,6 @@ signature FLAT_EXPR = sig
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t -> PPrint.doc
 end
 
-(* FIXME: Triv needs to be parameterized by V *)
 functor FlatExprFn(T : TRIV) :> FLAT_EXPR where type Triv.t = T.t = struct
     structure PP = PPrint
     val op^^ = PP.^^
@@ -136,3 +135,34 @@ end
 
 structure FlatExpr0 = FlatExprFn(FlatTriv0)
 structure FlatExpr1 = FlatExprFn(FlatTriv1)
+
+signature CPS_EXPR = sig
+    structure Triv : TRIV
+
+    datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+               | Triv of Pos.t * Triv.t
+
+    val pos : t -> Pos.t
+    val toDoc : t -> PPrint.doc
+end
+
+functor CpsExprFn(T : TRIV)
+:> CPS_EXPR where type Triv.t = T.t and type Triv.Var.t = T.Var.t = struct
+    structure PP = PPrint
+
+    structure Triv = T
+
+    datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+               | Triv of Pos.t * Triv.t
+
+    val pos = fn PrimApp (pos, _, _) => pos
+               | Triv (pos, _) => pos
+
+    val toDoc =
+        fn PrimApp (_, po, args) =>
+           PP.parens (PP.punctuate PP.space
+                      (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
+         | Triv (_, t) => Triv.toDoc t
+end
+
+structure CpsExpr0 = CpsExprFn(FlatTriv1)

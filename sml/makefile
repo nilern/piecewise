@@ -2,7 +2,7 @@
 default: target/pcws
 
 target/pcws: target src/main.mlb $(shell find src -name '*.sml' -or -name '*.fun' -or -name '*.sig')
-	mlton -const 'Exn.keepHistory true' -output target/pcws src/main.mlb
+	mlton -link-opt -no-pie -const 'Exn.keepHistory true' -output target/pcws src/main.mlb
 
 src/parser.grm.sig: src/parser.grm
 	mlyacc src/parser.grm

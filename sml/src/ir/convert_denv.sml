@@ -122,12 +122,12 @@ end = struct
     fun elabProc { name = name, clovers = clovers, args = { self = self, params = params }
                  , cases = cases } =
         let val envName = Name.freshFromString "denv"
-            fun elabCase (prologue, body) =
+            fun elabCase (block as (prologue, body)) =
                 (* MAYBE: We might not need the boxes here if we leave the order of argument binding
                           undefined. Any use of side effects (which the dynamic env is for) during
                           binding is bad style anyway. Do we punish for that with subtle bugs or
                           penalize every lambda-bound dynamic variable (which might be rare)? *)
-                let val pos = FlatAst0.stmtPos (Vector.sub (prologue, 0))
+                let val pos = FlatAst0.blockPos block
                     val names = stmtVecBindings prologue
                     val env = Env.push (Env.root envName) names
                 in ( elabStmts pos env names prologue, elabExpr env body )
@@ -139,8 +139,8 @@ end = struct
             , cases = Vector.map elabCase cases }
         end
 
-    fun convert { procs = procs, main = (stmts, expr) } =
-        let val pos = FlatAst0.stmtPos (Vector.sub (stmts, 0))
+    fun convert { procs = procs, main = main as (stmts, expr) } =
+        let val pos = FlatAst0.blockPos main
             val envName = Name.freshFromString "denv"
             val alloc = FixE (PrimApp (pos, Primop.EmptyDEnv, Vector.fromList []))
             val def = FixS (Def (pos, envName, alloc))

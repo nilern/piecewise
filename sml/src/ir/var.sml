@@ -121,3 +121,25 @@ structure FlatVar0 = struct
     fun fromAVar (tag, name) = Option.map (fn tag' => (tag', name)) (FlatTag0.fromATag tag)
 end
 structure FlatVar1 = VarFn(FlatTag1)
+
+structure ContRef0 = struct
+    structure PP = PPrint
+    val op^^ = PP.^^
+
+    datatype t = Label of int
+               | NextAtom of int
+               | Halt
+
+    local val counter = ref 0
+    in
+        fun fresh () = let val res = !counter
+                           val _ = counter := res + 1
+                       in res
+                       end
+    end
+
+    val rec toDoc =
+        fn Label i => PP.text "k" ^^ PP.brackets (PP.text (Int.toString i))
+         | NextAtom i => toDoc (Label i) ^^ PP.text ">"
+         | Halt => PP.text "__halt"
+end

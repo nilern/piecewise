@@ -21,6 +21,9 @@ signature PPRINT = sig
     val lParen : doc
     val rParen : doc
     val parens : doc -> doc
+    val lBracket : doc
+    val rBracket : doc
+    val brackets : doc -> doc
     val lBrace : doc
     val rBrace : doc
     val braces : doc -> doc
@@ -71,6 +74,8 @@ structure PPrint :> PPRINT = struct
     val semi = text ";"
     val lParen = text "("
     val rParen = text ")"
+    val lBracket = text "["
+    val rBracket = text "]"
     val lBrace = text "{"
     val rBrace = text "}"
 
@@ -94,6 +99,7 @@ structure PPrint :> PPRINT = struct
             in {minWidth = mwo'', minWidthWNL = mw'', run = run''} end
 
     fun parens doc = lParen ^^ doc ^^ rParen
+    fun brackets doc = lBracket ^^ doc ^^ rBracket
     fun braces doc = lBrace ^^ doc ^^ rBrace
 
     fun align doc =

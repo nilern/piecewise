@@ -29,6 +29,9 @@ local
     ir/convert_lenv.sml
     ir/convert_denv.sml
 
+    ir/cps.sml
+    ir/cps_convert.sml
+
     parser.grm.sig
     parser.grm.sml
     lexer.lex.sml

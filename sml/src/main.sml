@@ -40,7 +40,9 @@ end = struct
                     val fast0 = ConvertLEnv.convert aast
                     val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0) ^ "\n---\n\n")
                     val fast1 = ConvertDEnv.convert fast0
-                    val _ = print (PPrint.pretty 80 (FlatAst1.toDoc fast1))
+                    val _ = print (PPrint.pretty 80 (FlatAst1.toDoc fast1) ^ "\n---\n\n")
+                    val cps = CpsConvert.convert fast1
+                    val _ = print (PPrint.pretty 80 (Cps0.toDoc cps))
                 in
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()

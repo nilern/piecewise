@@ -6,6 +6,7 @@ structure OptionExt :> sig
     val mapOrElse : (unit -> 'b) -> ('a -> 'b) -> 'a option -> 'b
 
     val toList : 'a option -> 'a list
+    val toVector : 'a option -> 'a vector
     val toDoc : ('a -> PPrint.doc) -> 'a option -> PPrint.doc
 end = struct
     fun or (v as SOME _) _ = v
@@ -22,6 +23,8 @@ end = struct
 
     fun toList (SOME v) = [v]
       | toList NONE = []
+
+    fun toVector ov = Vector.fromList (toList ov)
 
     fun toDoc f = mapOr PPrint.empty f
 end
