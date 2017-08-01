@@ -28,6 +28,8 @@ signature PPRINT = sig
     val rBrace : doc
     val braces : doc -> doc
 
+    val int : int -> doc
+
     val pretty : int -> doc -> string
 end
 
@@ -121,6 +123,8 @@ structure PPrint :> PPRINT = struct
            let fun step (acc, doc) = doc ^^ sep ^^ acc
            in VectorSlice.foldl step (Vector.sub (docs, 0)) (VectorSlice.slice (docs, 1, NONE))
            end
+
+    val int = text o Int.toString
 
     fun pretty pageWidth (doc: doc) =
             #2 (#run doc { index = 0, col = 0,

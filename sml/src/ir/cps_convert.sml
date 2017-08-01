@@ -2,27 +2,24 @@ structure CpsConvert :> sig
     val convert : FlatAst1.program -> Cps0.program
 end = struct
     val PrimApp = CpsExpr0.PrimApp
+    val Guard = CpsExpr0.Guard
     val Triv = CpsExpr0.Triv
     val Var = CpsExpr0.Triv.Var
+    val Const = CpsExpr0.Triv.Const
     val Local = FlatTag1.Local
+    val Symbol = Const.Symbol
 
     fun analyzeSubExpr temp (FlatAst1.FixE expr) =
         case expr
-        of FlatAst1.Expr.Block (_, _) =>
-           let val tempName = Name.freshFromString "v"
-           in (SOME tempName, Var (Local, tempName))
-           end
-         | FlatAst1.Expr.PrimApp (_, _, _) =>
-           let val tempName = Name.freshFromString "v"
-           in (SOME tempName, Var (Local, tempName))
-           end
-         | FlatAst1.Expr.Triv (_, triv) => (temp, triv)
+        of FlatAst1.Expr.Triv (_, triv) => (temp, triv)
+         | _ => let val tempName = Name.freshFromString "v"
+                in (SOME tempName, Var (Local, tempName))
+                end
 
     fun analyzeStmt temp (FlatAst1.FixS stmt) =
         case stmt
         of FlatAst1.Stmt.Def (_, var, _) => SOME var
-         | FlatAst1.Stmt.Guard _ => temp
-         | FlatAst1.Stmt.Expr _ => temp
+         | _ => temp
 
     fun convertExpr asComplex temp (FlatAst1.FixE expr) res =
         case expr
@@ -61,7 +58,29 @@ end = struct
     and convertStmt temp (FlatAst1.FixS stmt) res =
         case stmt
         of FlatAst1.Stmt.Def (_, _, expr) => convertExpr true temp expr res
-         | FlatAst1.Stmt.Guard _ => raise Fail "unimplemented"
+         | FlatAst1.Stmt.Guard (pos, dnf) =>
+           let val (conts', succs) = res
+               val k = ContRef0.fresh ()
+               val pk = ContRef0.fresh ()
+               val panic = { args = VectorExt.empty ()
+                           , expr = PrimApp (pos, Primop.Panic,
+                                             VectorExt.singleton (Const (Symbol "match")))
+                           , succs = VectorExt.empty () }
+               val conts = ref (ContMap0.insert (conts', pk, panic))
+               fun convertAExpr expr =
+                   let val succs = VectorExt.singleton (ContRef0.NextAtom k)
+                       val (conts', succs') = convertExpr true NONE expr (!conts, succs)
+                       val ContRef0.Label k = Vector.sub (succs', 0)
+                   in
+                       conts := conts';
+                       k
+                   end
+               val dnf' = DNF.map convertAExpr dnf
+               val cont = { args = OptionExt.toVector temp
+                          , expr = Guard (pos, dnf')
+                          , succs = VectorExt.conj succs (ContRef0.Label pk) }
+           in (ContMap0.insert (!conts, k, cont), VectorExt.singleton (ContRef0.Label k))
+           end
          | FlatAst1.Stmt.Expr expr => convertExpr false temp expr res
 
     and convertBlock temp res (stmts, expr) =

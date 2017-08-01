@@ -140,6 +140,7 @@ signature CPS_EXPR = sig
     structure Triv : TRIV
 
     datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+               | Guard of Pos.t * int DNF.t
                | Triv of Pos.t * Triv.t
 
     val pos : t -> Pos.t
@@ -147,21 +148,27 @@ signature CPS_EXPR = sig
 end
 
 functor CpsExprFn(T : TRIV)
-:> CPS_EXPR where type Triv.t = T.t and type Triv.Var.t = T.Var.t = struct
+:> CPS_EXPR where type Triv.t = T.t
+                  and type Triv.Var.t = T.Var.t
+                  and type Triv.Const.t = T.Const.t = struct
     structure PP = PPrint
+    val op<+> = PP.<+>
 
     structure Triv = T
 
     datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+               | Guard of Pos.t * int DNF.t
                | Triv of Pos.t * Triv.t
 
     val pos = fn PrimApp (pos, _, _) => pos
+               | Guard (pos, _) => pos
                | Triv (pos, _) => pos
 
     val toDoc =
         fn PrimApp (_, po, args) =>
            PP.parens (PP.punctuate PP.space
                       (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
+         | Guard (_, dnf) => PP.text "@guard" <+> PP.parens (DNF.toDoc PP.int dnf)
          | Triv (_, t) => Triv.toDoc t
 end
 

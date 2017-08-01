@@ -7,6 +7,7 @@ structure Primop = struct
                | AGet
                | Box | BSet
                | DEnv | EmptyDEnv | DGet
+               | Panic
 
     fun fromString "iadd" = IAdd
       | fromString "tuple" = Tuple
@@ -22,6 +23,7 @@ structure Primop = struct
       | fromString "denv" = DEnv
       | fromString "emptyDenv" = EmptyDEnv
       | fromString "dget" = DGet
+      | fromString "panic" = Panic
 
     fun toDoc IAdd = PP.text "__iadd"
       | toDoc Tuple = PP.text "__tuple"
@@ -37,4 +39,5 @@ structure Primop = struct
       | toDoc DEnv = PP.text "__denv"
       | toDoc EmptyDEnv = PP.text "__emptyDenv"
       | toDoc DGet = PP.text "__dget"
+      | toDoc Panic = PP.text "__panic"
 end
