@@ -26,7 +26,7 @@ end = struct
         of FlatAst1.Expr.Block (_, block) => convertBlock temp res block
          | FlatAst1.Expr.PrimApp (pos, po, args) =>
            let fun convert temp trivArgs args res =
-                   let val (conts, succs) = res
+                   let val (conts, succ) = res
                    in if VectorSlice.length args > 0
                       then let val arg = VectorSlice.sub (args, 0)
                                val args' = VectorSlice.subslice (args, 1, NONE)
@@ -37,49 +37,45 @@ end = struct
                       else let val k = ContRef0.fresh ()
                                val cont = { args = OptionExt.toVector temp
                                           , expr = PrimApp (pos, po, trivArgs)
-                                          , succs = succs }
-                           in (ContMap0.insert (conts, k, cont),
-                               VectorExt.singleton (ContRef0.Label k))
+                                          , succs = Vector.fromList [succ] }
+                           in (ContMap0.insert (conts, k, cont), ContRef0.Label k)
                            end
                    end
            in convert temp (VectorExt.empty ()) (VectorSlice.full args) res
            end
          | FlatAst1.Expr.Triv (pos, triv) =>
            if asComplex
-           then let val (conts, succs) = res
+           then let val (conts, succ) = res
                     val k = ContRef0.fresh ()
                     val cont = { args = OptionExt.toVector temp
                                , expr = Triv (pos, triv)
-                               , succs = succs }
-                in (ContMap0.insert (conts, k, cont), VectorExt.singleton (ContRef0.Label k))
+                               , succs = Vector.fromList [succ] }
+                in (ContMap0.insert (conts, k, cont), ContRef0.Label k)
                 end
-            else res
+           else res
 
     and convertStmt temp (FlatAst1.FixS stmt) res =
         case stmt
         of FlatAst1.Stmt.Def (_, _, expr) => convertExpr true temp expr res
          | FlatAst1.Stmt.Guard (pos, dnf) =>
-           let val (conts', succs) = res
+           let val (conts', succ) = res
                val k = ContRef0.fresh ()
                val pk = ContRef0.fresh ()
                val panic = { args = VectorExt.empty ()
                            , expr = PrimApp (pos, Primop.Panic,
-                                             VectorExt.singleton (Const (Symbol "match")))
-                           , succs = VectorExt.empty () }
+                                             Vector.fromList [Const (Symbol "match")])
+                           , succs = Vector.fromList [] }
                val conts = ref (ContMap0.insert (conts', pk, panic))
                fun convertAExpr expr =
-                   let val succs = VectorExt.singleton (ContRef0.NextAtom k)
-                       val (conts', succs') = convertExpr true NONE expr (!conts, succs)
-                       val ContRef0.Label k = Vector.sub (succs', 0)
-                   in
-                       conts := conts';
-                       k
+                   let val (conts', ContRef0.Label k) =
+                           convertExpr true NONE expr (!conts, ContRef0.NextAtom k)
+                   in conts := conts'; k
                    end
                val dnf' = DNF.map convertAExpr dnf
                val cont = { args = OptionExt.toVector temp
                           , expr = Guard (pos, dnf')
-                          , succs = VectorExt.conj succs (ContRef0.Label pk) }
-           in (ContMap0.insert (!conts, k, cont), VectorExt.singleton (ContRef0.Label k))
+                          , succs = Vector.fromList [succ, ContRef0.Label pk] }
+           in (ContMap0.insert (!conts, k, cont), ContRef0.Label k)
            end
          | FlatAst1.Stmt.Expr expr => convertExpr false temp expr res
 
@@ -97,8 +93,7 @@ end = struct
         end
 
     fun convertTopBlock init block =
-        let val (block', succs) = convertBlock NONE init block
-            val ContRef0.Label entry = Vector.sub (succs, 0)
+        let val (block', ContRef0.Label entry) = convertBlock NONE init block
         in (entry, block')
         end
 
@@ -106,18 +101,15 @@ end = struct
                     , args = { self = self, params = params, denv = denv }
                     , cases = cases } =
         let val retCont = ContRef0.fresh ()
-            val init = (ContMap0.empty, VectorExt.singleton (ContRef0.Label retCont))
+            val init = (ContMap0.empty, ContRef0.Label retCont)
         in
             { name = name
             , clovers = clovers
-            , args = { self = self
-                     , params = params
-                     , denv = denv
-                     , cont = retCont }
+            , args = { self = self, params = params, denv = denv, cont = retCont }
             , cases = Vector.map (convertTopBlock init) cases }
         end
 
     fun convert { procs = procs, main = main } =
         { procs = NameMap.map convertProc procs
-        , main = convertTopBlock (ContMap0.empty, VectorExt.singleton ContRef0.Halt) main }
+        , main = convertTopBlock (ContMap0.empty, ContRef0.Halt) main }
 end
