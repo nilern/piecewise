@@ -40,11 +40,11 @@ end = struct
                        val argAccess = FixE (Expr.PrimApp (pos, Primop.AGet,
                                                            Vector.fromList [access'', ie]))
                    in expandPat newBinding arg argAccess (SOME parentId')
-                                (cond', VectorExt.empty ())
+                                (DNF.always (), VectorExt.empty ())
                    end
                val argCbs = Vector.mapi expandArg args
                val argConds = Vector.map #1 argCbs
-               val cond'' = DNF.conj argConds
+               val cond'' = DNF.conj (VectorExt.prepend argConds cond')
                fun step ((_, bs), acc) = VectorExt.concat acc bs
                val binds' = Vector.foldl step binds argCbs
            in (cond'', binds')
