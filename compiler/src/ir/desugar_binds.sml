@@ -1,5 +1,3 @@
-(* TODO: formals is guaranteed to be a tuple so matching it can be optimized *)
-
 structure DesugarBinds :> sig
     val desugar : (Cst.expr, Cst.stmt) Block.t -> (Ast.expr, Ast.stmt) Block.t
 
@@ -34,20 +32,7 @@ end = struct
                val (newCond, parentId') = DNF.require newCondExpr (OptionExt.toList parentId)
                val cond' = DNF.conj (Vector.fromList [cond, newCond])
                val access'' = FixE (Expr.PrimApp (pos, Primop.Repr, Vector.fromList [access']))
-               fun expandArg (i, arg) =
-                   let val pos = Cst.exprPos arg
-                       val ie = FixE (Triv (pos, Const (Const.Int (Int.toString i))))
-                       val argAccess = FixE (Expr.PrimApp (pos, Primop.AGet,
-                                                           Vector.fromList [access'', ie]))
-                   in expandPat newBinding arg argAccess (SOME parentId')
-                                (DNF.always (), VectorExt.empty ())
-                   end
-               val argCbs = Vector.mapi expandArg args
-               val argConds = Vector.map #1 argCbs
-               val cond'' = DNF.conj (VectorExt.prepend argConds cond')
-               fun step ((_, bs), acc) = VectorExt.concat acc bs
-               val binds' = Vector.foldl step binds argCbs
-           in (cond'', binds')
+           in expandArgs newBinding args access'' (SOME parentId') (cond', binds)
            end
          | CExpr.PrimApp (_, po, args) => raise Fail "unimplemented"
          | CExpr.Triv (_, CTriv.Var var) =>
@@ -62,6 +47,23 @@ end = struct
                , binds )
            end
 
+    and expandArgs newBinding args parentAccess parentId (cond, binds) =
+        let fun expandArg (i, arg) =
+                let val pos = Cst.exprPos arg
+                    val ie = FixE (Triv (pos, Const (Const.Int (Int.toString i))))
+                    val argAccess = FixE (Expr.PrimApp (pos, Primop.AGet,
+                                                        Vector.fromList [parentAccess, ie]))
+                in expandPat newBinding arg argAccess parentId
+                             (DNF.always (), VectorExt.empty ())
+                end
+            val argCbs = Vector.mapi expandArg args
+            val argConds = Vector.map #1 argCbs
+            val cond' = DNF.conj (VectorExt.prepend argConds cond)
+            fun step ((_, bs), acc) = VectorExt.concat acc bs
+            val binds' = Vector.foldl step binds argCbs
+        in (cond', binds')
+        end
+
     and expandBind newBinding (Cst.Bind (pat, cond)) access =
         let val (cond', bindStmts) =
                 expandPat newBinding pat access NONE (DNF.always (), VectorExt.empty ())
@@ -71,13 +73,22 @@ end = struct
             else VectorExt.prepend bindStmts (FixS (Guard (Cst.exprPos pat, cond')))
         end
 
+    and expandPrologue pos (Cst.Prolog (args, cond)) params =
+        let val access = FixE (Triv (pos, Var (ATag.Lex, params)))
+            val (cond', bindStmts) =
+                expandArgs (FixS o Def) args access NONE (DNF.always (), VectorExt.empty ())
+        in
+            if DNF.isAlways cond'
+            then bindStmts
+            else VectorExt.prepend bindStmts (FixS (Guard (pos, cond')))
+        end
+
     and expandExpr (Cst.FixE expr) =
         FixE (case expr
               of CExpr.Fn (pos, name, cases) =>
                  let val params = Name.freshFromString "params"
-                     val paccess = FixE (Triv (pos, Var (ATag.Lex, params)))
                      fun expandCase (prologue, body) =
-                         (expandBind (FixS o Def) prologue paccess, expandExpr body)
+                         (expandPrologue pos prologue params, expandExpr body)
                  in Fn (pos, Option.map AVar.fromCVar name, params, Vector.map expandCase cases)
                  end
                | CExpr.Block (pos, block) => Block (pos, expandBlock block)
@@ -95,13 +106,8 @@ end = struct
                    let val name = case f
                                   of Cst.FixE (CExpr.Triv (_, CTriv.Var name)) => SOME name
                                    | _ => NONE
-                       val tuple =
-                           Cst.FixE (CExpr.Triv (pos,
-                                                 CTriv.Var (CTag.Lex, Name.fromString "tuple")))
-                       val ftup = Cst.FixE (CExpr.App (pos, tuple, args))
-                       val cs = (Cst.Bind (ftup, cond), expr)
-                   in expandDef newDef (Cst.Bind (f, NONE))
-                                (Cst.FixE (CExpr.Fn (pos, name, VectorExt.singleton cs)))
+                       val cases = VectorExt.singleton (Cst.Prolog (args, cond), expr)
+                   in expandDef newDef (Cst.Bind (f, NONE)) (Cst.FixE (CExpr.Fn (pos, name, cases)))
                    end
                  | _ =>
                    (case expandExpr expr

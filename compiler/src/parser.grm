@@ -32,11 +32,10 @@ fun extractBlock pos (items as (Clause _ :: _)) =
               | stmtSplit items = ([], items)
             fun clauses (Clause(formals, cond, stmt)::items) =
                     let val (stmts, items') = stmtSplit items
-                        val pos = Cst.exprPos (Vector.sub(formals, 0))
-                        val tuple = Name.fromString "tuple"
-                    in (Cst.Bind (applyName pos tuple formals, cond),
-                        blockFromStmts (Cst.stmtPos stmt) (stmt::stmts))
-                       ::clauses items end
+                    in ( Cst.Prolog (formals, cond)
+                       , blockFromStmts (Cst.stmtPos stmt) (stmt::stmts))
+                       :: clauses items'
+                    end
               | clauses [] = []
               | clauses _ = raise LrParser.ParseError
         in Cst.FixE (CExpr.Fn (pos, NONE, Vector.fromList (clauses items))) end
@@ -162,15 +161,9 @@ simple : LPAREN expr RPAREN (expr)
        | LBRACE blockItemList RBRACE
          (extractBlock LBRACEleft (List.rev blockItemList))
        | LBRACKET stmtList RBRACKET
-         (let val bind =
-                  Cst.Bind
-                      (applyNameRev
-                           LBRACKETleft (Name.fromString "tuple") [],
-                       NONE)
-          in Cst.FixE (CExpr.Fn (LBRACKETleft, NONE,
-                  Vector.fromList [
-                      (bind, blockFromStmts LBRACKETleft (List.rev stmtList))]))
-          end)
+         (Cst.FixE (CExpr.Fn (LBRACKETleft, NONE,
+                              Vector.fromList [(Cst.Prolog (Vector.fromList [], NONE),
+                                                blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | LEXID (Cst.FixE (CExpr.Triv (LEXIDleft, CTriv.Var (CTag.Lex, Name.fromString LEXID))))
        | DYNID (Cst.FixE (CExpr.Triv (DYNIDleft, CTriv.Var (CTag.Dyn, Name.fromString DYNID))))
        | datum (datum)
