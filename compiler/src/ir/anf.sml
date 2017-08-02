@@ -9,7 +9,13 @@ structure Anf : sig
         type t = { entry: Label.t
                  , blocks: block LabelMap.map }
 
-        val fromExpr : Expr.t -> t
+        structure Builder : sig
+            type builder
+
+            val empty : unit -> builder
+            val insert : builder * Label.t * block -> unit
+            val build : builder * Label.t * block -> t
+        end
     end
 
     type procCase = { cond: Label.t DNF.t
@@ -41,11 +47,16 @@ end = struct
         type t = { entry: Label.t
                  , blocks: block LabelMap.map }
 
-        fun fromExpr expr =
-            let val entry = Label.fresh ()
-            in { entry = entry
-               , blocks = LabelMap.singleton (entry, (Vector.fromList [], expr)) }
-            end
+        structure Builder = struct
+            type builder = block LabelMap.map ref
+
+            fun empty () = ref LabelMap.empty
+
+            fun insert (blocks, label, block) = blocks := LabelMap.insert (!blocks, label, block)
+
+            fun build (blocks, entry, block) = { entry = entry
+                                               , blocks = LabelMap.insert (!blocks, entry, block) }
+        end
     end
 
     type procCase = { cond: Label.t DNF.t
