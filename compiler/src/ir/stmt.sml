@@ -91,3 +91,31 @@ end
 structure AuglessStmt = AuglessStmtFn(CVar)
 structure FlatStmt0 = AuglessStmt
 structure FlatStmt1 = AuglessStmtFn(Name)
+
+signature ANF_STMT = sig
+    datatype t = Def of Pos.t * Name.t * AnfExpr.t
+               | Guard of Pos.t * Label.t DNF.t
+               | Expr of AnfExpr.t
+
+    val pos : t -> Pos.t
+    val toDoc : t -> PPrint.doc
+end
+
+structure AnfStmt = struct
+    structure PP = PPrint
+    val op<+> = PP.<+>
+
+    datatype t = Def of Pos.t * Name.t * AnfExpr.t
+               | Guard of Pos.t * Label.t DNF.t
+               | Expr of AnfExpr.t
+
+    val pos =
+        fn Def (pos, _, _) => pos
+         | Guard (pos, _) => pos
+         | Expr expr => AnfExpr.pos expr
+
+    val toDoc =
+        fn Def (_, name, expr) => Name.toDoc name <+> PP.text "=" <+> AnfExpr.toDoc expr
+         | Guard (_, dnf) => PP.text "@guard" <+> PP.parens (DNF.toDoc Label.toDoc dnf)
+         | Expr expr => AnfExpr.toDoc expr
+end

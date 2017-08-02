@@ -7,13 +7,13 @@ end
 signature AST = sig
     structure Stmt : STMT
 
-    (* TODO: datatype expr = FixE of (expr, stmt, expr DNF.t * stmt vector) Expr.t *)
-    datatype expr = FixE of (expr, stmt, stmt vector) Expr.t
+    datatype expr = FixE of (expr, stmt, prologue) Expr.t
     and stmt = FixS of expr Stmt.t
+    and prologue = Prolog of expr DNF.t * stmt vector
 
-    val app : Pos.t * expr * expr vector -> (expr, stmt, stmt vector) Expr.t
+    val app : Pos.t * expr * expr vector -> (expr, stmt, prologue) Expr.t
 
-    val unwrapE : expr -> (expr, stmt, stmt vector) Expr.t
+    val unwrapE : expr -> (expr, stmt, prologue) Expr.t
     val unwrapS : stmt -> expr Stmt.t
 
     val exprPos : expr -> Pos.t
@@ -30,11 +30,14 @@ functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     val Triv = Expr.Triv
     structure PP = PPrint
     val op^^ = PP.^^
+    val op<+> = PP.<+>
+    val op<$> = PP.<$>
 
     structure Stmt = S
 
-    datatype expr = FixE of (expr, stmt, stmt vector) Expr.t
+    datatype expr = FixE of (expr, stmt, prologue) Expr.t
     and stmt = FixS of expr Stmt.t
+    and prologue = Prolog of expr DNF.t * stmt vector
 
     fun app (pos, f, args) =
         let val apply = FixE (Triv (pos, ATriv.Var (ATag.Lex, Name.fromString "apply")))
@@ -50,12 +53,13 @@ functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     val stmtPos = Stmt.pos exprPos o unwrapS
     val blockPos = Block.pos exprPos stmtPos
 
-    fun exprToDoc (FixE expr) =
-        let val stmtVecToDoc = PP.punctuate (PP.semi ^^ PP.line) o Vector.map stmtToDoc
-        in Expr.toDoc exprToDoc stmtToDoc stmtVecToDoc expr
-        end
+    fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc prologueToDoc expr
     and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc stmt
-    and toDoc stmts = Block.toDoc exprToDoc stmtToDoc stmts
+    and prologueToDoc (Prolog (cond, stmts)) =
+        PP.text "@guard" <+> PP.parens (DNF.toDoc exprToDoc cond) ^^ PP.semi <$>
+            PP.punctuate (PP.semi ^^ PP.line) (Vector.map stmtToDoc stmts)
+
+    fun toDoc stmts = Block.toDoc exprToDoc stmtToDoc stmts
 end
 
 structure Ast = AstFn(AStmt)

@@ -265,9 +265,11 @@ end = struct
     fun elabExpr procs env (AuglessAst.FixE expr) =
         FixE (case expr
               of Expr.Fn (pos, name, params, cases) =>
-                 let fun elabCase env (cas as (prologue, _)) =
-                         let val env' = Env.pushCaseFrame env (stmtVecBindings prologue)
-                         in elabBlock procs env' cas
+                 let fun elabCase env (AuglessAst.Prolog (cond, bindStmts), body) =
+                         let val env' = Env.pushCaseFrame env (stmtVecBindings bindStmts)
+                             val cond' = DNF.map (elabExpr procs env') cond
+                             val (bindStmts', body') = elabBlock procs env' (bindStmts, body)
+                         in ((cond', bindStmts'), body')
                          end
                      val name = OptionExt.mapOrElse (fn () => Name.fromString "f") #2 name
                      val env' = Env.pushFnFrame env name params

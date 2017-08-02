@@ -5,6 +5,7 @@ structure DesugarBinds :> sig
 end = struct
     val FixE = Ast.FixE
     val FixS = Ast.FixS
+    val Prolog = Ast.Prolog
     val Fn = Expr.Fn
     val Block = Expr.Block
     val PrimApp = Expr.PrimApp
@@ -75,12 +76,7 @@ end = struct
 
     and expandPrologue pos (Cst.Prolog (args, cond)) params =
         let val access = FixE (Triv (pos, Var (ATag.Lex, params)))
-            val (cond', bindStmts) =
-                expandArgs (FixS o Def) args access NONE (DNF.always (), VectorExt.empty ())
-        in
-            if DNF.isAlways cond'
-            then bindStmts
-            else VectorExt.prepend bindStmts (FixS (Guard (pos, cond')))
+        in Prolog (expandArgs (FixS o Def) args access NONE (DNF.always (), VectorExt.empty ()))
         end
 
     and expandExpr (Cst.FixE expr) =

@@ -122,6 +122,31 @@ structure FlatVar0 = struct
 end
 structure FlatVar1 = VarFn(FlatTag1)
 
+structure Label :> sig
+    eqtype t
+    type ord_key = t
+
+    val fresh : unit -> t
+    val compare : t * t -> order
+    val toDoc : t -> PPrint.doc
+end = struct
+    type t = int
+    type ord_key = t
+
+    local val counter = ref 0
+    in
+        fun fresh () = let val res = !counter
+                           val _ = counter := res + 1
+                       in res
+                       end
+    end
+
+    val compare = Int.compare
+    val toDoc = PPrint.int
+end
+
+structure LabelMap = BinaryMapFn(Label)
+
 structure ContRef0 = struct
     structure PP = PPrint
     val op^^ = PP.^^

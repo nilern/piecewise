@@ -136,40 +136,31 @@ end
 structure FlatExpr0 = FlatExprFn(FlatTriv0)
 structure FlatExpr1 = FlatExprFn(FlatTriv1)
 
-signature CPS_EXPR = sig
+signature ANF_EXPR = sig
     structure Triv : TRIV
 
     datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
-               | Guard of Pos.t * int DNF.t
                | Triv of Pos.t * Triv.t
 
     val pos : t -> Pos.t
     val toDoc : t -> PPrint.doc
 end
 
-functor CpsExprFn(T : TRIV)
-:> CPS_EXPR where type Triv.t = T.t
-                  and type Triv.Var.t = T.Var.t
-                  and type Triv.Const.t = T.Const.t = struct
+structure AnfExpr = struct
     structure PP = PPrint
     val op<+> = PP.<+>
 
-    structure Triv = T
+    structure Triv = FlatTriv1
 
     datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
-               | Guard of Pos.t * int DNF.t
                | Triv of Pos.t * Triv.t
 
     val pos = fn PrimApp (pos, _, _) => pos
-               | Guard (pos, _) => pos
                | Triv (pos, _) => pos
 
     val toDoc =
         fn PrimApp (_, po, args) =>
            PP.parens (PP.punctuate PP.space
                       (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
-         | Guard (_, dnf) => PP.text "@guard" <+> PP.parens (DNF.toDoc PP.int dnf)
          | Triv (_, t) => Triv.toDoc t
 end
-
-structure CpsExpr0 = CpsExprFn(FlatTriv1)

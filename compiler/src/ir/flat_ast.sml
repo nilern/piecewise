@@ -34,10 +34,12 @@ functor FlatAstFn(structure E: FLAT_EXPR
     datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of expr Stmt.t
 
+    type prologue = expr DNF.t * stmt vector
+
     type proc = { name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
-                , cases: (stmt vector * expr) vector }
+                , cases: (prologue * expr) vector }
 
     type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
@@ -70,10 +72,12 @@ end where type ('e, 's) Expr.t = ('e, 's) E.t
     datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of expr Stmt.t
 
+    type prologue = expr DNF.t * stmt vector
+
     type proc = { name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
-                , cases: (stmt vector * expr) vector }
+                , cases: (prologue * expr) vector }
 
     type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
@@ -89,10 +93,9 @@ end where type ('e, 's) Expr.t = ('e, 's) E.t
     and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc stmt
 
     fun procToDoc {name = name, clovers = clovers, args = args, cases = cases} =
-        let fun caseToDoc (prologue, body) =
-                let val prologueToDoc = PP.punctuate (PP.semi ^^ PP.line) o Vector.map stmtToDoc
-                in prologueToDoc prologue <+> PP.text "=>" <+> exprToDoc body
-                end
+        let fun caseToDoc ((cond, bindStmts), body) =
+                PP.text "case" <+> DNF.toDoc exprToDoc cond ^^ PP.text ":" <$>
+                    Block.toDoc exprToDoc stmtToDoc (bindStmts, body)
             val nameDoc = Name.toDoc name
             val cloversDoc = PP.braces (PP.punctuate (PP.text ", ") (Vector.map Name.toDoc clovers))
             val argsDoc = Argv.toDoc args

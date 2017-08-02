@@ -35,6 +35,7 @@ structure DesugarAugs :> sig
 
     val FixE = AuglessAst.FixE
     val FixS = AuglessAst.FixS
+    val Prolog = AuglessAst.Prolog
     val Fn = Expr.Fn
     val Block = Expr.Block
     val PrimApp = Expr.PrimApp
@@ -54,7 +55,7 @@ structure DesugarAugs :> sig
     fun elabExpr (Ast.FixE expr) =
         FixE (case expr
               of Expr.Fn (pos, name, params, cases) =>
-                 Fn (pos, name, params, Vector.map elabBlock cases)
+                 Fn (pos, name, params, Vector.map elabCase cases)
                | Expr.Block (pos, block) => Block (pos, elabBlock block)
                | Expr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map elabExpr args)
                | Expr.Triv (pos, t) => Triv (pos, t))
@@ -107,6 +108,12 @@ structure DesugarAugs :> sig
     and elabBlock (stmts, expr) =
         let val env = Vector.foldli analyzeStmt Env.empty stmts
         in (#1 (Vector.foldli elabStmt (VectorExt.empty (), env) stmts), elabExpr expr)
+        end
+
+    and elabCase (Ast.Prolog (cond, bindStmts), body) =
+        let val cond' = DNF.map elabExpr cond
+            val (bindStmts', body') = elabBlock (bindStmts, body)
+        in (Prolog (cond', bindStmts'), body')
         end
 
     val desugar = elabBlock
