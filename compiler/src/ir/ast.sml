@@ -7,6 +7,7 @@ end
 signature AST = sig
     structure Stmt : STMT
 
+    (* TODO: datatype expr = FixE of (expr, stmt, expr DNF.t * stmt vector) Expr.t *)
     datatype expr = FixE of (expr, stmt, stmt vector) Expr.t
     and stmt = FixS of expr Stmt.t
 

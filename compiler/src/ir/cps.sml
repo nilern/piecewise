@@ -89,6 +89,7 @@ functor CpsFn(structure CM : CONT_MAP
     type proc = { name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
+                  (* TODO: cases: (ContRef.t * int * ContMap.t) vector *)
                 , cases: (int * ContMap.t) vector }
 
     type program = { procs: proc NameMap.map

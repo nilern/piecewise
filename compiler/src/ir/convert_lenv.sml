@@ -4,7 +4,6 @@ structure NameHashTable = HashTableFn(type hash_key = Name.t
                                       val hashVal = Name.hash
                                       val sameKey = op=)
 
-(* OPTIMIZE: self recursion doesn't require a cyclic closure *)
 structure ConvertLEnv :> sig
     exception Unbound of Pos.t * Name.t
 
@@ -270,9 +269,9 @@ end = struct
                          let val env' = Env.pushCaseFrame env (stmtVecBindings prologue)
                          in elabBlock procs env' cas
                          end
-                     val env' = Env.pushFnFrame env (Name.fromString "f") params
+                     val name = OptionExt.mapOrElse (fn () => Name.fromString "f") #2 name
+                     val env' = Env.pushFnFrame env name params
                      val cases' = Vector.map (elabCase env') cases
-                     val name = Option.valOf (Env.self env')
                      val clovers = Option.valOf (Env.clovers env')
                      val proc = { name = name
                                 , clovers = clovers
@@ -294,12 +293,9 @@ end = struct
                                                              cexprs)))
                  in
                      case close (* HACK *)
-                     of FlatAst0.FixE
-                            (FlatAst0.Expr.PrimApp (pos, Primop.Close, cexprs)) =>
-                        let val fnPtr =
-                                FixE (Triv (pos, Var (FlatTag0.Label, name)))
-                        in PrimApp (pos, Primop.Close,
-                                    VectorExt.prepend cexprs fnPtr)
+                     of FlatAst0.FixE (FlatAst0.Expr.PrimApp (pos, Primop.Close, cexprs)) =>
+                        let val fnPtr = FixE (Triv (pos, Var (FlatTag0.Label, name)))
+                        in PrimApp (pos, Primop.Close, VectorExt.prepend cexprs fnPtr)
                         end
                       | _ => raise Fail "unreachable"
                  end
