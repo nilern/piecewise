@@ -22,19 +22,19 @@ local
     ir/cst.sml
 
     ir/ast.sml
-    ir/desugar_binds.sml
-    ir/desugar_augs.sml
+    pass/desugar_binds.sml
+    pass/desugar_augs.sml
 
     ir/flat_ast.sml
-    ir/convert_lenv.sml
-    ir/convert_denv.sml
+    pass/convert_lenv.sml
+    pass/convert_denv.sml
 
     ir/cps.sml
-    ir/cps_convert.sml
+    pass/cps_convert.sml
 
-    parser.grm.sig
-    parser.grm.sml
-    lexer.lex.sml
+    pass/parser.grm.sig
+    pass/parser.grm.sml
+    pass/lexer.lex.sml
 in
     main.sml
 end

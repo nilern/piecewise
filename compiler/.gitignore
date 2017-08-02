@@ -1,5 +1,5 @@
-src/lexer.lex.sml
-src/parser.grm.sig
-src/parser.grm.sml
-src/parser.grm.desc
+src/pass/lexer.lex.sml
+src/pass/parser.grm.sig
+src/pass/parser.grm.sml
+src/pass/parser.grm.desc
 target/
