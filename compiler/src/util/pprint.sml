@@ -29,6 +29,7 @@ signature PPRINT = sig
     val braces : doc -> doc
 
     val int : int -> doc
+    val word : word -> doc
 
     val pretty : int -> doc -> string
 end
@@ -125,6 +126,7 @@ structure PPrint :> PPRINT = struct
            end
 
     val int = text o Int.toString
+    val word = text o Word.toString
 
     fun pretty pageWidth (doc: doc) =
             #2 (#run doc { index = 0, col = 0,

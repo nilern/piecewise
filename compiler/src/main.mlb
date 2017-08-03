@@ -32,6 +32,9 @@ local
     ir/anf.sml
     pass/anf_convert.sml
 
+    ir/cps.sml
+    pass/cps_convert.sml
+
     pass/parser.grm.sig
     pass/parser.grm.sml
     pass/lexer.lex.sml
