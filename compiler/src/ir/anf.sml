@@ -19,9 +19,9 @@ structure Anf : sig
         structure Builder : sig
             type builder
 
-            val empty : unit -> builder
+            val empty : Label.t -> builder
             val insert : builder * Label.t * block -> unit
-            val build : builder * Label.t * block -> t
+            val build : builder -> t
         end
     end
 
@@ -65,14 +65,14 @@ end = struct
                  , blocks: block LabelMap.map }
 
         structure Builder = struct
-            type builder = block LabelMap.map ref
+            type builder = Label.t * block LabelMap.map ref
 
-            fun empty () = ref LabelMap.empty
+            fun empty entry = (entry, ref LabelMap.empty)
 
-            fun insert (blocks, label, block) = blocks := LabelMap.insert (!blocks, label, block)
+            fun insert ((_, blocks), label, block) =
+                blocks := LabelMap.insert (!blocks, label, block)
 
-            fun build (blocks, entry, block) = { entry = entry
-                                               , blocks = LabelMap.insert (!blocks, entry, block) }
+            fun build (entry, blocks) = { entry = entry, blocks = !blocks }
         end
     end
 
