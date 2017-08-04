@@ -26,7 +26,7 @@ end
 
 functor FlatAstFn(structure E: FLAT_EXPR
                   structure S: AUGLESS_STMT
-                  structure A: TO_DOC) :> sig
+                  structure A: TO_DOC) : sig
     structure Expr : FLAT_EXPR
     structure Stmt : AUGLESS_STMT
     structure Argv : TO_DOC
@@ -55,11 +55,7 @@ functor FlatAstFn(structure E: FLAT_EXPR
     val stmtToDoc : stmt -> PPrint.doc
     val procToDoc : proc -> PPrint.doc
     val toDoc : program -> PPrint.doc
-end where type ('e, 's) Expr.t = ('e, 's) E.t
-      and type Expr.Triv.t = E.Triv.t
-      and type 'e Stmt.t = 'e S.t
-      and type Stmt.Var.t = S.Var.t
-      and type Argv.t = A.t = struct
+end = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>

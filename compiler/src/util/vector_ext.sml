@@ -1,4 +1,13 @@
 signature VECTOR_EXT = sig
+    structure Builder : sig
+        type 'a t
+
+        val empty : unit -> 'a t
+        val append : 'a t -> 'a -> unit
+        val clear : 'a t -> unit
+        val build : 'a t -> 'a vector
+    end
+
     val empty : unit -> 'a vector
     val singleton : 'a -> 'a vector
 
@@ -12,6 +21,18 @@ signature VECTOR_EXT = sig
 end
 
 structure VectorExt :> VECTOR_EXT = struct
+    structure Builder = struct
+        type 'a t = 'a list ref
+
+        fun empty () = ref []
+
+        fun append builder v = builder := v :: !builder
+
+        fun clear builder = builder := []
+
+        fun build builder = Vector.fromList (List.rev (!builder))
+    end
+
     fun empty () = Vector.fromList []
     fun singleton v = Vector.fromList [v]
 

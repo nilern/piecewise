@@ -3,7 +3,14 @@ structure Anf : sig
     structure Stmt : ANF_STMT
     structure Argv : TO_DOC
 
-    type block = (Expr.t, Stmt.t) Block.t
+    structure ValExpr : sig
+        datatype t = Triv of Pos.t * Expr.Triv.t
+                   | Guard of Pos.t * Label.t DNF.t * Label.t
+
+        val toDoc : t -> PPrint.doc
+    end
+
+    type block = (ValExpr.t, Stmt.t) Block.t
 
     structure Cfg : sig
         type t = { entry: Label.t
@@ -41,7 +48,17 @@ end = struct
 
     structure Argv = Argv1
 
-    type block = (Expr.t, Stmt.t) Block.t
+    structure ValExpr = struct
+        datatype t = Triv of Pos.t * Expr.Triv.t
+                   | Guard of Pos.t * Label.t DNF.t * Label.t
+
+        val toDoc =
+            fn Triv (_, t) => Expr.Triv.toDoc t
+             | Guard (_, dnf, dest) =>
+               PP.text "@guard" <+> DNF.toDoc Label.toDoc dnf <+> PP.text "->" <+> Label.toDoc dest
+    end
+
+    type block = (ValExpr.t, Stmt.t) Block.t
 
     structure Cfg = struct
         type t = { entry: Label.t
@@ -75,7 +92,7 @@ end = struct
                 (if label = entry
                  then PP.text "-> " ^^ Label.toDoc label
                  else Label.toDoc label) ^^ PP.text ": " ^^
-                    PP.align (Block.toDoc Expr.toDoc Stmt.toDoc block)
+                    PP.align (Block.toDoc ValExpr.toDoc Stmt.toDoc block)
         in PP.punctuate (PP.line ^^ PP.line)
                         (Vector.map pairToDoc (Vector.fromList (LabelMap.listItemsi blocks)))
         end
