@@ -20,7 +20,7 @@ end = struct
         val empty : Label.t -> t
         val append : t -> Stmt.t -> unit
         val build : t -> ValExpr.t -> Label.t * Anf.block
-        val take : t -> (Label.t -> ValExpr.t) -> Label.t * Anf.block
+        val take : t -> Pos.t -> Label.t DNF.t -> Label.t * Anf.block
     end = struct
         type t = Label.t ref * Stmt.t VectorExt.Builder.t
 
@@ -30,9 +30,9 @@ end = struct
 
         fun build (label, stmts) vexpr = (!label, (VectorExt.Builder.build stmts, vexpr))
 
-        fun take (label, stmts) makeVExpr =
+        fun take (label, stmts) pos dnf =
             let val label' = Label.fresh ();
-                val res = (!label, (VectorExt.Builder.build stmts, makeVExpr label'))
+                val res = (!label, (VectorExt.Builder.build stmts, Guard (pos, dnf, label')))
             in (label := label'; VectorExt.Builder.clear stmts)
              ; res
             end
@@ -70,9 +70,7 @@ end = struct
                         end
                       | FlatAst1.FixS (FlatAst1.Stmt.Guard (pos, dnf)) =>
                         let val dnf' = convertDnf cfgBuilder dnf
-                            val (label, block) =
-                                BlockBuilder.take blockBuilder
-                                                  (fn label' => Guard (pos, dnf', label'))
+                            val (label, block) = BlockBuilder.take blockBuilder pos dnf'
                         in Cfg.Builder.insert (cfgBuilder, label, block)
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
                         end

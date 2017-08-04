@@ -7,10 +7,13 @@ structure Anf : sig
         datatype t = Triv of Pos.t * Expr.Triv.t
                    | Guard of Pos.t * Label.t DNF.t * Label.t
 
+        val pos : t -> Pos.t
         val toDoc : t -> PPrint.doc
     end
 
     type block = (ValExpr.t, Stmt.t) Block.t
+
+    val blockPos : block -> Pos.t
 
     structure Cfg : sig
         type t = { entry: Label.t
@@ -52,6 +55,9 @@ end = struct
         datatype t = Triv of Pos.t * Expr.Triv.t
                    | Guard of Pos.t * Label.t DNF.t * Label.t
 
+        val pos = fn Triv (pos, _) => pos
+                   | Guard (pos, _, _) => pos
+
         val toDoc =
             fn Triv (_, t) => Expr.Triv.toDoc t
              | Guard (_, dnf, dest) =>
@@ -59,6 +65,8 @@ end = struct
     end
 
     type block = (ValExpr.t, Stmt.t) Block.t
+
+    val blockPos = Block.pos ValExpr.pos Stmt.pos
 
     structure Cfg = struct
         type t = { entry: Label.t

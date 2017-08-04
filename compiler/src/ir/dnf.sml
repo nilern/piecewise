@@ -8,6 +8,7 @@ structure DNF :> sig
 
         val neg : 'expr t -> 'expr t
 
+        val isNeverWhen : ('e -> bool option) -> 'e t -> bool
         val expr : 'e t -> 'e
         val map : ('e -> 'f) -> 'e t -> 'f t
 
@@ -22,9 +23,13 @@ structure DNF :> sig
         val always : unit -> 'expr t
         val require : 'expr -> Atom.id list -> 'expr t * Atom.id
 
+        val length : 'e t -> int
         val isAlways : 'e t -> bool
+        val isNeverWhen : ('e -> bool option) -> 'e t -> bool
         val exprs : 'e t -> 'e vector
+        val first : 'e t -> 'e
         val map : ('e -> 'f) -> 'e t -> 'f t
+        val remove : ('e -> bool) -> 'e t -> 'e t
 
         val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
     end
@@ -69,6 +74,16 @@ end = struct
         fun neg (Require ie) = Forbid ie
           | neg (Forbid ie) = Require ie
 
+        fun isNeverWhen info =
+            fn Require (_, _, expr) =>
+               (case info expr
+                of SOME false => true
+                 | _ => false)
+             | Forbid (_, _, expr) =>
+               (case info expr
+                of SOME true => true
+                 | _ => false)
+
         fun expr (Require (_, _, e)) = e
           | expr (Forbid (_, _, e)) = e
 
@@ -92,11 +107,19 @@ end = struct
             in (VectorExt.singleton atom, i)
             end
 
+        val length = Vector.length
+
         fun isAlways atoms = Vector.length atoms = 0
+
+        fun isNeverWhen info atoms = Vector.exists (Atom.isNeverWhen info) atoms
 
         fun exprs atoms = Vector.map Atom.expr atoms
 
+        fun first atoms = Atom.expr (Vector.sub (atoms, 0))
+
         fun map f atoms = Vector.map (Atom.map f) atoms
+
+        fun remove pred = VectorExt.remove (pred o Atom.expr)
 
         fun toDoc exprToDoc atoms =
             case Vector.length atoms

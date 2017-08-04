@@ -1,14 +1,12 @@
 structure Cps : sig
     structure Expr : ANF_EXPR
-
-    structure Stmt : sig
-        datatype t = Def of Pos.t * Name.t * Expr.t
-                   | Expr of Expr.t
-    end
+    structure Stmt : ANF_STMT
 
     structure Transfer : sig
         datatype t = Continue of Label.t * Expr.Triv.t vector
                    | Branch of Expr.Triv.t * Label.t * Label.t
+
+        val toDoc : t -> PPrint.doc
     end
 
     structure Argv : TO_DOC
@@ -16,18 +14,26 @@ structure Cps : sig
     structure Cont : sig
         type t = { args: Name.t vector
                  , block: (Transfer.t, Stmt.t) Block.t }
+
+        val toDoc : t -> PPrint.doc
     end
 
     structure Cfg : sig
         type t = { entry: Label.t
                  , conts: Cont.t LabelMap.map }
 
+        val toDoc : t -> PPrint.doc
+
         structure Builder : sig
             type builder
 
             val empty : unit -> builder
+            val contains : builder -> Label.t -> bool
             val insert : builder * Label.t * Cont.t -> unit
-            val build : builder -> Label.t option -> t
+            val prependStmts : builder * Label.t * Stmt.t vector -> unit
+            val genCaseFail : builder -> Pos.t -> Label.t
+            val genGuardFail : builder -> Pos.t -> Label.t
+            val build : builder -> Label.t -> t
         end
     end
 
@@ -47,15 +53,7 @@ end = struct
     val op<$> = PP.<$>
 
     structure Expr = AnfExpr
-
-    structure Stmt = struct
-        datatype t = Def of Pos.t * Name.t * Expr.t
-                   | Expr of Expr.t
-
-        val toDoc =
-            fn Def (_, name, expr) => Name.toDoc name <+> PP.text "=" <+> Expr.toDoc expr
-             | Expr expr => Expr.toDoc expr
-    end
+    structure Stmt = AnfStmt
 
     structure Transfer = struct
         datatype t = Continue of Label.t * Expr.Triv.t vector
@@ -106,19 +104,28 @@ end = struct
             end
 
         structure Builder = struct
-            type builder = { entry: Label.t option, conts: Cont.t LabelMap.map } ref
+            type builder = (Cont.t LabelMap.map ref * Label.t option ref)
 
-            fun empty () = ref { entry = NONE, conts = LabelMap.empty }
+            fun empty () = (ref LabelMap.empty, ref NONE)
 
-            fun insert (builder, label, cont) =
-                let val { entry = entry, conts = conts } = !builder
-                in builder := { entry = entry, conts = LabelMap.insert (conts, label, cont) }
+            fun contains (builder : builder) label = LabelMap.inDomain (!(#1 builder), label)
+
+            fun insert (builder : builder, label, cont) =
+                #1 builder := LabelMap.insert (!(#1 builder), label, cont)
+
+            fun prependStmts (builder : builder, label, stmts') =
+                let val { args = args, block = (stmts, transfer) } =
+                        LabelMap.lookup (!(#1 builder), label)
+                    val cont' = { args = args
+                                , block = (VectorExt.concat stmts' stmts, transfer) }
+                in #1 builder := LabelMap.insert (!(#1 builder), label, cont')
                 end
 
-            fun build builder defaultEntry =
-                let val { entry = entry, conts = conts } = !builder
-                in { entry = valOf (OptionExt.or entry defaultEntry), conts = conts }
-                end
+            fun genCaseFail pos builder = Label.fresh () (* FIXME *)
+
+            fun genGuardFail pos builder = Label.fresh () (* FIXME *)
+
+            fun build (builder : builder) entry = { entry = entry, conts = ! (#1 builder) }
         end
     end
 

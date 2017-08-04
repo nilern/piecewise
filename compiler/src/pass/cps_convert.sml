@@ -2,79 +2,109 @@ structure CpsConvert :> sig
     val convert : Anf.program -> Cps.program
 end = struct
     structure Cfg = Cps.Cfg
-    val Def = Cps.Stmt.Def
-    val Expr = Cps.Stmt.Expr
     val Continue = Cps.Transfer.Continue
-    val Var = Cps.Expr.Triv.Var
-    val Local = FlatTag1.Local
+    val Branch = Cps.Transfer.Branch
 
-    fun convertDispatch blockBuilder canCases blocks = raise Fail "unimplemented"
+    structure Dispatcher = struct
+        type t = (Label.t DNF.Clause.t * Label.t) vector
+        datatype target_res = Success of Label.t | Fail
+        datatype fail_dest = Cases of Pos.t | Guard
 
-    fun convertStmts blockBuilder blocks stmts =
-        let fun loop stmts stmts' =
-                if VectorSlice.length stmts > 0
-                then case VectorSlice.sub (stmts, 0)
-                     of Anf.Stmt.Def (pos, name, expr) =>
-                        loop (VectorSlice.subslice (stmts, 1, NONE))
-                             (Def (pos, name, expr) :: stmts')
-                      | Anf.Stmt.Guard (pos, dnf) => raise Fail "unimplemented"
-                      | Anf.Stmt.Expr expr => loop (VectorSlice.subslice (stmts, 1, NONE))
-                                                   (Expr expr :: stmts')
-                else Vector.fromList (List.rev stmts')
-        in loop (VectorSlice.full stmts) []
-        end
+        fun fromCases cases =
+            let fun canonicalizeCase { cond = cond, cfg = { entry = entry, blocks = _ } } =
+                    Vector.map (fn clause => (clause, entry)) (DNF.toClauses cond)
+            in VectorExt.flatMap canonicalizeCase cases
+            end
 
-    fun convertBlock convertExpr blockBuilder blocks label =
-        let val (stmts, expr) = valOf (LabelMap.find (blocks, label))
-            val stmts' = convertStmts blockBuilder blocks stmts
-            val (exprStmts, expr') = convertExpr expr
-            val cont = { args = Vector.fromList []
-                       , block = (VectorExt.concat stmts' exprStmts, expr') }
-        in Cfg.Builder.insert (blockBuilder, label, cont)
-        end
+        fun fromGuard cond dest = Vector.map (fn clause => (clause, dest)) (DNF.toClauses cond)
 
-    fun convertCfg blockBuilder ret { entry = entry, blocks = blocks } =
-        let val convertExpr =
-                fn Anf.Expr.Triv (_, triv) =>
-                  (Vector.fromList [], Continue (ret, Vector.fromList [triv]))
-                 | expr =>
-                   let val name = Name.freshFromString "v"
-                       val triv = Var (Local, name)
-                   in ( Vector.fromList [Def (Anf.Expr.pos expr, name, expr)]
-                      , Continue (ret, Vector.fromList [triv]))
+        (* FIXME: honor atom deps! *)
+        fun pickCond (clauses : t) = DNF.Clause.first (#1 (Vector.sub (clauses, 0)))
+
+        fun prune clauses cond v =
+            let fun info aexpr = if aexpr = cond then SOME v else NONE
+                fun pruneClause (clause, dest) =
+                    (DNF.Clause.remove (fn cond' => cond' = cond) clause, dest)
+            in Vector.map pruneClause (VectorExt.remove (DNF.Clause.isNeverWhen info o #1) clauses)
+            end
+
+        fun target clauses =
+            if Vector.length clauses = 0
+            then SOME Fail
+            else let val (clause, dest) = Vector.sub (clauses, 0)
+                 in if DNF.Clause.length clause = 0
+                    then SOME (Success dest)
+                    else NONE
+                 end
+    end
+
+    (* TODO: generate DAG instead of tree by memoizing convert *)
+    fun convertDispatch cfgBuilder dispatcher k blocks failDest =
+        let fun convertAssuming dispatcher condCont v pos =
+                convert (Dispatcher.prune dispatcher condCont v) pos
+            and convert dispatcher pos =
+                case Dispatcher.target dispatcher
+                of SOME (Dispatcher.Success dest) =>
+                   ( convertBlock cfgBuilder dest k blocks
+                   ; dest )
+                 | SOME Dispatcher.Fail =>
+                   (case failDest
+                    of Dispatcher.Cases pos => Cfg.Builder.genCaseFail cfgBuilder pos
+                     | Dispatcher.Guard => Cfg.Builder.genGuardFail cfgBuilder (valOf pos))
+                 | NONE =>
+                   let val condCont = Dispatcher.pickCond dispatcher
+                       val pos = SOME (Anf.blockPos (LabelMap.lookup (blocks, condCont)))
+                       val k1 = convertAssuming dispatcher condCont true pos
+                       val k2 = convertAssuming dispatcher condCont false pos
+                   in convertBlock cfgBuilder condCont (fn triv => Branch (triv, k1, k2)) blocks
+                    ; condCont
                    end
-        in convertBlock convertExpr blockBuilder blocks entry
+        in convert dispatcher NONE
         end
+
+    and convertBlock cfgBuilder label k blocks =
+        if not (Cfg.Builder.contains cfgBuilder label)
+        then let val (stmts, vexpr) = LabelMap.lookup (blocks, label)
+             in case vexpr
+                of Anf.ValExpr.Triv (_, triv) =>
+                   let val cont = { args = Vector.fromList [], block = (stmts, k triv) }
+                   in Cfg.Builder.insert (cfgBuilder, label, cont)
+                   end
+                 | Anf.ValExpr.Guard (pos, dnf, dest) =>
+                   let val dispatcher = Dispatcher.fromGuard dnf dest
+                       val dispatchLabel =
+                           convertDispatch cfgBuilder dispatcher k blocks Dispatcher.Guard
+                   in Cfg.Builder.prependStmts (cfgBuilder, dispatchLabel, stmts)
+                   end
+             end
+        else ()
 
     fun convertProc { name = name, clovers = clovers
                     , args = { self = self, params = params, denv = denv }
                     , cases = cases } =
-        let fun canonicalCases cases =
-                let fun canonicalizeCase { cond = cond, cfg = { entry = entry, blocks = _ } } =
-                        Vector.map (fn clause => (clause, entry)) (DNF.toClauses cond)
-                in VectorExt.flatMap canonicalizeCase cases
-                end
-            fun casesBlocks (cases : Anf.procCase vector) =
+        let fun casesBlocks (cases : Anf.procCase vector) =
                 let fun step (cs, blocks) = LabelMap.unionWith #1 (#blocks (#cfg cs), blocks)
                 in Vector.foldl step LabelMap.empty cases
                 end
-            val ret = Label.fresh ()
-            val blockBuilder = Cfg.Builder.empty ()
-            val canCases = canonicalCases cases
+            val cfgBuilder = Cfg.Builder.empty ()
+            val dispatcher = Dispatcher.fromCases cases
             val blocks = casesBlocks cases
-            val cfgs = Vector.map #cfg cases
-        in convertDispatch blockBuilder canCases blocks
-         ; Vector.app (convertCfg blockBuilder ret) cfgs
-         ; { name = name
+            val ret = Label.fresh ()
+            fun k triv = Continue (ret, Vector.fromList [triv])
+            val entry = (* FIXME: proc should carry a Pos.t for this *)
+                convertDispatch cfgBuilder dispatcher k blocks (Dispatcher.Cases Pos.def)
+        in { name = name
            , clovers = clovers
            , args = { self = self, params = params, denv = denv, ret = ret }
-           , cfg = Cfg.Builder.build blockBuilder NONE }
+           , cfg = Cfg.Builder.build cfgBuilder entry }
         end
 
-    fun convert ({ procs = procs, main = main as { entry = entry, ... } } : Anf.program) =
-        let val blockBuilder = Cfg.Builder.empty ()
-        in convertCfg blockBuilder (Label.fresh () (* HACK *)) main
+    fun convert { procs = procs, main = main as { entry = entry, blocks = blocks } } =
+        let val halt = Label.fresh () (* HACK *)
+            val cfgBuilder = Cfg.Builder.empty ()
+            fun k triv = Continue (halt, Vector.fromList [triv])
+        in convertBlock cfgBuilder entry k blocks
          ; { procs = NameMap.map convertProc procs
-           , main = Cfg.Builder.build blockBuilder (SOME entry) }
+           , main = Cfg.Builder.build cfgBuilder entry }
         end
 end

@@ -18,6 +18,7 @@ signature VECTOR_EXT = sig
     val flatten : 'a vector vector -> 'a vector
 
     val flatMap : ('a -> 'b vector) -> 'a vector -> 'b vector
+    val remove : ('a -> bool) -> 'a vector -> 'a vector
 end
 
 structure VectorExt :> VECTOR_EXT = struct
@@ -51,4 +52,5 @@ structure VectorExt :> VECTOR_EXT = struct
     fun flatten vv = Vector.foldl (fn (v, acc) => concat v acc) (empty ()) vv
 
     fun flatMap f = Vector.foldl (fn (v, acc) => concat acc (f v)) (empty ())
+    fun remove pred = flatMap (fn v => if pred v then empty () else singleton v)
 end
