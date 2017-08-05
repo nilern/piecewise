@@ -1,3 +1,23 @@
+signature ANF_EXPR = sig
+    structure Triv : TRIV
+
+    datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+               | Triv of Pos.t * Triv.t
+
+    val pos : t -> Pos.t
+    val toDoc : t -> PPrint.doc
+end
+
+signature ANF_STMT = sig
+    structure Expr : ANF_EXPR
+
+    datatype t = Def of Pos.t * Name.t * Expr.t
+               | Expr of Expr.t
+
+    val pos : t -> Pos.t
+    val toDoc : t -> PPrint.doc
+end
+
 structure Anf : sig
     structure Expr : ANF_EXPR
     structure Stmt : ANF_STMT
@@ -46,8 +66,36 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Expr = AnfExpr
-    structure Stmt = AnfStmt
+    structure Expr = struct
+        structure Triv = FlatTriv1
+
+        datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+                   | Triv of Pos.t * Triv.t
+
+        val pos = fn PrimApp (pos, _, _) => pos
+                   | Triv (pos, _) => pos
+
+        val toDoc =
+            fn PrimApp (_, po, args) =>
+               PP.parens (PP.punctuate PP.space
+                          (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
+             | Triv (_, t) => Triv.toDoc t
+    end
+
+    structure Stmt = struct
+        structure Expr = Expr
+
+        datatype t = Def of Pos.t * Name.t * Expr.t
+                   | Expr of Expr.t
+
+        val pos =
+            fn Def (pos, _, _) => pos
+             | Expr expr => Expr.pos expr
+
+        val toDoc =
+            fn Def (_, name, expr) => Name.toDoc name <+> PP.text "=" <+> Expr.toDoc expr
+             | Expr expr => Expr.toDoc expr
+    end
 
     structure Argv = Argv1
 

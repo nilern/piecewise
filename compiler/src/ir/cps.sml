@@ -52,8 +52,8 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Expr = AnfExpr
-    structure Stmt = AnfStmt
+    structure Expr = Anf.Expr
+    structure Stmt = Anf.Stmt
 
     structure Transfer = struct
         datatype t = Continue of Label.t * Expr.Triv.t vector
@@ -69,9 +69,6 @@ end = struct
     end
 
     structure Argv = struct
-        val op^^ = PPrint.^^
-        val op<+> = PPrint.<+>
-
         type t = {self: Name.t, params: Name.t, denv: Name.t, ret: Label.t}
 
         fun toDoc {self = self, params = params, denv = denv, ret = ret} =

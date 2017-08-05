@@ -20,9 +20,9 @@ end = struct
 
     fun expandPat newBinding pat access parentId (cond, binds) =
         case Cst.unwrapE pat
-        of CExpr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
-         | CExpr.Block _ => raise Pattern (Cst.exprPos pat, pat)
-         | CExpr.App (pos, f, args) =>
+        of Cst.Expr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
+         | Cst.Expr.Block _ => raise Pattern (Cst.exprPos pat, pat)
+         | Cst.Expr.App (pos, f, args) =>
            let val unapply = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "unapply")))
                val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
                val f' = expandExpr f
@@ -35,10 +35,10 @@ end = struct
                val access'' = FixE (Expr.PrimApp (pos, Primop.Repr, Vector.fromList [access']))
            in expandArgs newBinding args access'' (SOME parentId') (cond', binds)
            end
-         | CExpr.PrimApp (_, po, args) => raise Fail "unimplemented"
-         | CExpr.Triv (_, CTriv.Var var) =>
+         | Cst.Expr.PrimApp (_, po, args) => raise Fail "unimplemented"
+         | Cst.Expr.Triv (_, CTriv.Var var) =>
            (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
-         | CExpr.Triv (pos, CTriv.Const c) =>
+         | Cst.Expr.Triv (pos, CTriv.Const c) =>
            let val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
                val c' = FixE (Triv (pos, Const c))
                val newCondExpr = FixE (Ast.app (pos, eq, Vector.fromList [access, c']))
@@ -81,29 +81,30 @@ end = struct
 
     and expandExpr (Cst.FixE expr) =
         FixE (case expr
-              of CExpr.Fn (pos, name, cases) =>
+              of Cst.Expr.Fn (pos, name, cases) =>
                  let val params = Name.freshFromString "params"
                      fun expandCase (prologue, body) =
                          (expandPrologue pos prologue params, expandExpr body)
                  in Fn (pos, Option.map AVar.fromCVar name, params, Vector.map expandCase cases)
                  end
-               | CExpr.Block (pos, block) => Block (pos, expandBlock block)
-               | CExpr.App (pos, f, args) =>
+               | Cst.Expr.Block (pos, block) => Block (pos, expandBlock block)
+               | Cst.Expr.App (pos, f, args) =>
                  Ast.app (pos, expandExpr f, Vector.map expandExpr args)
-               | CExpr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map expandExpr args)
-               | CExpr.Triv (pos, CTriv.Var v) => Triv (pos, Var (AVar.fromCVar v))
-               | CExpr.Triv (pos, CTriv.Const c) => Triv (pos, Const c))
+               | Cst.Expr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map expandExpr args)
+               | Cst.Expr.Triv (pos, CTriv.Var v) => Triv (pos, Var (AVar.fromCVar v))
+               | Cst.Expr.Triv (pos, CTriv.Const c) => Triv (pos, Const c))
 
     and expandStmt (Cst.FixS stmt) =
         let fun expandDef newDef (bind as Cst.Bind (pat, _)) expr =
                 (* FIXME: tuple etc. pats get treated as fn definitions *)
                 case bind
-                of Cst.Bind (Cst.FixE (CExpr.App (pos, f, args)), cond) =>
+                of Cst.Bind (Cst.FixE (Cst.Expr.App (pos, f, args)), cond) =>
                    let val name = case f
-                                  of Cst.FixE (CExpr.Triv (_, CTriv.Var name)) => SOME name
+                                  of Cst.FixE (Cst.Expr.Triv (_, CTriv.Var name)) => SOME name
                                    | _ => NONE
                        val cases = VectorExt.singleton (Cst.Prolog (args, cond), expr)
-                   in expandDef newDef (Cst.Bind (f, NONE)) (Cst.FixE (CExpr.Fn (pos, name, cases)))
+                   in expandDef newDef (Cst.Bind (f, NONE))
+                                       (Cst.FixE (Cst.Expr.Fn (pos, name, cases)))
                    end
                  | _ =>
                    (case expandExpr expr
@@ -117,8 +118,8 @@ end = struct
                                 end)
         in
             case stmt
-            of CStmt.Def (bind, expr) => expandDef Def bind expr
-             | CStmt.AugDef (bind, expr) => expandDef AugDef bind expr
+            of Cst.Stmt.Def (bind, expr) => expandDef Def bind expr
+             | Cst.Stmt.AugDef (bind, expr) => expandDef AugDef bind expr
         end
 
     and expandBlock (stmts, expr) = (VectorExt.flatMap expandStmt stmts, expandExpr expr)
