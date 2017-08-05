@@ -18,8 +18,7 @@ end = struct
 
         fun fromGuard cond dest = Vector.map (fn clause => (clause, dest)) (DNF.toClauses cond)
 
-        (* FIXME: honor atom deps! *)
-        fun pickCond (clauses : t) = DNF.Clause.first (#1 (Vector.sub (clauses, 0)))
+        fun pickCond (clauses : t) = DNF.Clause.someDepLeaf (#1 (Vector.sub (clauses, 0)))
 
         fun prune clauses cond v =
             let fun info aexpr = if aexpr = cond then SOME v else NONE

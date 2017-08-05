@@ -9,6 +9,9 @@ structure DNF :> sig
         val neg : 'expr t -> 'expr t
 
         val isNeverWhen : ('e -> bool option) -> 'e t -> bool
+        val dependsOn : 'e t -> 'e t -> bool
+        val id : 'e t -> id
+        val deps : 'e t -> id vector
         val expr : 'e t -> 'e
         val map : ('e -> 'f) -> 'e t -> 'f t
 
@@ -26,10 +29,11 @@ structure DNF :> sig
         val length : 'e t -> int
         val isAlways : 'e t -> bool
         val isNeverWhen : ('e -> bool option) -> 'e t -> bool
+        val isDepLeaf : 'e t -> 'e Atom.t -> bool
         val exprs : 'e t -> 'e vector
-        val first : 'e t -> 'e
         val map : ('e -> 'f) -> 'e t -> 'f t
         val remove : ('e -> bool) -> 'e t -> 'e t
+        val someDepLeaf : 'e t -> 'e
 
         val toDoc : ('expr -> PPrint.doc) -> 'expr t -> PPrint.doc
     end
@@ -84,8 +88,19 @@ end = struct
                 of SOME true => true
                  | _ => false)
 
+        val id = fn Require (id, _, _) => id
+                  | Forbid (id, _, _) => id
+
+        val deps = fn Require (_, deps, _) => deps
+                    | Forbid (_, deps, _) => deps
+
         fun expr (Require (_, _, e)) = e
           | expr (Forbid (_, _, e)) = e
+
+        fun dependsOn atom depCandidate =
+            let val dcId = id depCandidate
+            in Vector.exists (fn dep => dep = dcId) (deps atom)
+            end
 
         fun map f (Require (id, deps, expr)) = Require (id, deps, f expr)
           | map f (Forbid (id, deps, expr)) = Forbid (id, deps, f expr)
@@ -113,13 +128,15 @@ end = struct
 
         fun isNeverWhen info atoms = Vector.exists (Atom.isNeverWhen info) atoms
 
-        fun exprs atoms = Vector.map Atom.expr atoms
+        fun isDepLeaf atoms atom = not (Vector.exists (Atom.dependsOn atom) atoms)
 
-        fun first atoms = Atom.expr (Vector.sub (atoms, 0))
+        fun exprs atoms = Vector.map Atom.expr atoms
 
         fun map f atoms = Vector.map (Atom.map f) atoms
 
         fun remove pred = VectorExt.remove (pred o Atom.expr)
+
+        fun someDepLeaf atoms = Atom.expr (valOf (Vector.find (isDepLeaf atoms) atoms))
 
         fun toDoc exprToDoc atoms =
             case Vector.length atoms
