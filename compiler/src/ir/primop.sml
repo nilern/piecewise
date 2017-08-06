@@ -2,7 +2,7 @@ structure Primop = struct
     structure PP = PPrint
     datatype t = IAdd
                | Tuple
-               | Close | FnPtr | FnGet | Call
+               | Close | FnPtr | FnGet
                | Tag | Repr
                | AGet
                | Box | BSet
@@ -14,7 +14,6 @@ structure Primop = struct
       | fromString "close" = Close
       | fromString "fnPtr" = FnPtr
       | fromString "fnGet" = FnGet
-      | fromString "call" = Call
       | fromString "tag" = Tag
       | fromString "repr" = Repr
       | fromString "aget" = AGet
@@ -30,7 +29,6 @@ structure Primop = struct
       | toDoc Close = PP.text "__close"
       | toDoc FnPtr = PP.text "__fnPtr"
       | toDoc FnGet = PP.text "__fnGet"
-      | toDoc Call = PP.text "__call"
       | toDoc Tag = PP.text "__tag"
       | toDoc Repr = PP.text "__repr"
       | toDoc AGet = PP.text "__aget"

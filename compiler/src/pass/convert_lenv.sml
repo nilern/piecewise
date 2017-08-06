@@ -264,7 +264,7 @@ end = struct
 
     fun elabExpr procs env (AuglessAst.FixE expr) =
         FixE (case expr
-              of Expr.Fn (pos, name, params, cases) =>
+              of AuglessAst.Expr.Fn (pos, name, params, cases) =>
                  let fun elabCase env (AuglessAst.Prolog (cond, bindStmts), body) =
                          let val env' = Env.pushCaseFrame env (stmtVecBindings bindStmts)
                              val cond' = DNF.map (elabExpr procs env') cond
@@ -284,15 +284,14 @@ end = struct
                      val cexprs = (* HACK: *)
                          Vector.map (fn name =>
                                         AuglessAst.FixE
-                                            (Expr.Triv (pos,
-                                                   ATriv.Var (ATag.Lex,
+                                            (AuglessAst.Expr.Triv (pos,
+                                                   ATriv.Var (AATag.Lex,
                                                               Name.fromString
                                                                (Name.chars name)))))
                                      clovers
                      val close = elabExpr procs env
                                           (AuglessAst.FixE
-                                              (Expr.PrimApp (pos, Primop.Close,
-                                                             cexprs)))
+                                              (AuglessAst.Expr.PrimApp (pos, Primop.Close, cexprs)))
                  in
                      case close (* HACK *)
                      of FlatAst0.FixE (FlatAst0.Expr.PrimApp (pos, Primop.Close, cexprs)) =>
@@ -301,21 +300,21 @@ end = struct
                         end
                       | _ => raise Fail "unreachable"
                  end
-               | Expr.Block (pos, block as (stmts, _)) =>
+               | AuglessAst.Expr.Block (pos, block as (stmts, _)) =>
                  let val env' = Env.pushBlockFrame env (stmtVecBindings stmts)
                  in Block (pos, elabBlock procs env' block)
                  end
-               | Expr.PrimApp (pos, po, args) =>
+               | AuglessAst.Expr.PrimApp (pos, po, args) =>
                  (* MAYBE: add the self-closure arg to App:s *)
                  PrimApp (pos, po, Vector.map (elabExpr procs env) args)
-               | Expr.Triv (pos, ATriv.Var (var as (ATag.Dyn, _))) =>
+               | AuglessAst.Expr.Triv (pos, ATriv.Var (var as (AATag.Dyn, _))) =>
                  Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
-               | Expr.Triv (pos, ATriv.Var (var as (ATag.UpperDyn, _))) =>
+               | AuglessAst.Expr.Triv (pos, ATriv.Var (var as (AATag.UpperDyn, _))) =>
                  Triv (pos, Var (valOf (FlatVar0.fromAVar var)))
-               | Expr.Triv (pos, ATriv.Var (varTag, name)) =>
+               | AuglessAst.Expr.Triv (pos, ATriv.Var (varTag, name)) =>
                  let val skip = case varTag
-                                of ATag.Lex => 0
-                                 | ATag.UpperLex => 1
+                                of AATag.Lex => 0
+                                 | AATag.UpperLex => 1
                                  | _ => raise Fail "unreachable"
                  in case Env.use skip env name
                     of SOME (Env.Direct name) => Triv (pos, Var (FlatTag0.Lex, name))
@@ -329,7 +328,7 @@ end = struct
                        end
                      | NONE => raise Unbound (pos, name)
                 end
-              | Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
+              | AuglessAst.Expr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
 
     and elabStmt procs env (AuglessAst.FixS stmt) =
         FixS (case stmt

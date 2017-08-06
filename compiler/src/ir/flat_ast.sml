@@ -24,11 +24,21 @@ structure Argv1 = struct
                                PPrint.text "denv =" <+> Name.toDoc denv)
 end
 
-functor FlatAstFn(structure E: FLAT_EXPR
-                  structure S: AUGLESS_STMT
+functor FlatAstFn(structure T: TRIV
+                  structure S: ASTMT
                   structure A: TO_DOC) : sig
-    structure Expr : FLAT_EXPR
-    structure Stmt : AUGLESS_STMT
+    structure Expr : sig
+        structure Triv : TRIV
+
+        datatype ('expr, 'stmt) t = Block of Pos.t * ('expr, 'stmt) Block.t
+                                  | PrimApp of Pos.t * Primop.t * 'expr vector
+                                  | Triv of Pos.t * Triv.t
+
+        val pos : ('expr, 'stmt) t -> Pos.t
+
+        val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t -> PPrint.doc
+    end
+    structure Stmt : ASTMT
     structure Argv : TO_DOC
 
     datatype expr = FixE of (expr, stmt) Expr.t
@@ -61,7 +71,31 @@ end = struct
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Expr = E
+    structure Expr = struct
+        structure PP = PPrint
+        val op^^ = PP.^^
+        val op<+> = PP.<+>
+        val op<$> = PP.<$>
+
+        structure Triv = T
+
+        datatype ('expr, 'stmt) t = Block of Pos.t * ('expr, 'stmt) Block.t
+                                  | PrimApp of Pos.t * Primop.t * 'expr vector
+                                  | Triv of Pos.t * Triv.t
+
+        fun pos (Block (pos, _)) = pos
+          | pos (PrimApp (pos, _, _)) = pos
+          | pos (Triv (pos, _)) = pos
+
+        fun toDoc exprToDoc stmtToDoc =
+            fn Block (_, block) => PP.braces (PP.nest 4 (Block.toDoc exprToDoc stmtToDoc block))
+             | PrimApp (_, po, args) =>
+               let fun step (arg, acc) = acc <+> exprToDoc arg
+               in PP.parens (PP.align (Vector.foldl step (Primop.toDoc po) args))
+               end
+             | Triv (_, t) => Triv.toDoc t
+    end
+
     structure Stmt = S
     structure Argv = A
 
@@ -107,9 +141,9 @@ end = struct
         end
 end
 
-structure FlatAst0 = FlatAstFn(structure E = FlatExpr0
+structure FlatAst0 = FlatAstFn(structure T = FlatTriv0
                                structure S = FlatStmt0
                                structure A = Argv0)
-structure FlatAst1 = FlatAstFn(structure E = FlatExpr1
+structure FlatAst1 = FlatAstFn(structure T = FlatTriv1
                                structure S = FlatStmt1
                                structure A = Argv1)

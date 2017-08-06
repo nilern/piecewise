@@ -1,70 +1,80 @@
 structure DesugarAugs :> sig
-    exception ReAssignment of Pos.t * AVar.t
+    exception ReAssignment of Pos.t * RVar.t
 
     val desugar : (Ast.expr, Ast.stmt) Block.t -> (AuglessAst.expr, AuglessAst.stmt) Block.t
+end = struct
+    structure Expr = AuglessAst.Expr
+    structure Stmt = AuglessAst.Stmt
+    structure Triv = Expr.Triv
 
-    end = struct
-
-    exception ReAssignment of Pos.t * AVar.t
-
-    structure Env :> sig
-        type t
-
-        val empty : t
-        val lookup : t -> AVar.t -> (AVar.t option * int)
-        val init : t -> CVar.t -> int -> t
-        val insert : t -> CVar.t -> AVar.t -> t
-    end = struct
-        structure Map = BinaryMapFn(type ord_key = AVar.t
-                                    val compare = AVar.compare)
-
-        type t = (AVar.t option * int) Map.map
-
-        val empty = Map.empty
-
-        fun lookup env key = Map.lookup (env, key)
-
-        fun init env var i = Map.insert (env, AVar.fromCVar var, (NONE, i))
-
-        fun insert env var var' =
-            let val avar = AVar.fromCVar var
-                val (_, fi) = lookup env avar
-            in Map.insert (env, avar, (SOME var', fi))
-            end
-    end (* structure Env *)
+    structure AExpr = Ast.Expr
+    structure AStmt = Ast.Stmt
+    structure ATriv = AExpr.Triv
 
     val FixE = AuglessAst.FixE
     val FixS = AuglessAst.FixS
     val Prolog = AuglessAst.Prolog
     val Fn = Expr.Fn
     val Block = Expr.Block
-    val PrimApp = Expr.PrimApp
+    val Call = Expr.Call
+    val PrimCall = Expr.PrimCall
     val Triv = Expr.Triv
-    val Def = AuglessStmt.Def
-    val Guard = AuglessStmt.Guard
-    val Expr = AuglessStmt.Expr
-    val Var = ATriv.Var
-    val Const = ATriv.Const
+    val Def = Stmt.Def
+    val Guard = Stmt.Guard
+    val Expr = Stmt.Expr
+    val Var = Triv.Var
+    val Const = Triv.Const
+
+    exception ReAssignment of Pos.t * RVar.t
+
+    structure Env :> sig
+        type t
+
+        val empty : t
+        val lookup : t -> RVar.t -> (RVar.t option * int)
+        val init : t -> BaseVar.t -> int -> t
+        val insert : t -> BaseVar.t -> RVar.t -> t
+    end = struct
+        structure Map = BinaryMapFn(type ord_key = RVar.t
+                                    val compare = RVar.compare)
+
+        type t = (RVar.t option * int) Map.map
+
+        val empty = Map.empty
+
+        fun lookup env key = Map.lookup (env, key)
+
+        fun init env var i = Map.insert (env, RVar.fromBaseVar var, (NONE, i))
+
+        fun insert env var var' =
+            let val rv = RVar.fromBaseVar var
+                val (_, fi) = lookup env rv
+            in Map.insert (env, rv, (SOME var', fi))
+            end
+    end (* structure Env *)
 
     fun analyzeStmt (i, Ast.FixS stmt, env) =
         case stmt
-        of AStmt.Def (_, var, _) => Env.init env var i
-         | AStmt.AugDef (_, var, _) => Env.init env var i
+        of AStmt.Def (_, LVar.Def var, _) => Env.init env var i
+         | AStmt.Def (_, LVar.Aug var, _) => Env.init env var i
          | AStmt.Guard _ => env
+         | AStmt.Expr _ => env
 
     fun elabExpr (Ast.FixE expr) =
         FixE (case expr
-              of Expr.Fn (pos, name, params, cases) =>
-                 Fn (pos, name, params, Vector.map elabCase cases)
-               | Expr.Block (pos, block) => Block (pos, elabBlock block)
-               | Expr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map elabExpr args)
-               | Expr.Triv (pos, t) => Triv (pos, t))
+              of AExpr.Fn (pos, name, params, cases) =>
+                 Fn (pos, Option.map RVar.fromBaseVar name, params, Vector.map elabCase cases)
+               | AExpr.Block (pos, block) => Block (pos, elabBlock block)
+               | AExpr.Call (pos, f, args) => Call (pos, elabExpr f, Vector.map elabExpr args)
+               | AExpr.PrimCall (pos, po, args) => PrimCall (pos, po, Vector.map elabExpr args)
+               | AExpr.Triv (pos, ATriv.Var v) => Triv (pos, Var (RVar.fromBaseVar v))
+               | AExpr.Triv (pos, ATriv.Const c) => Triv (pos, Const c))
 
     (* OPTIMIZE: can actually use lexicals for all temporaries created here: *)
     and elabStmt (i, Ast.FixS stmt, (stmts', env)) =
         case stmt
-        of AStmt.Def (pos, var, expr) =>
-           let val avar = AVar.fromCVar var
+        of AStmt.Def (pos, LVar.Def var, expr) =>
+           let val avar = RVar.fromBaseVar var
                val (envVar, fi) = Env.lookup env avar
            in
                if Option.isSome envVar
@@ -72,27 +82,28 @@ structure DesugarAugs :> sig
                else let val (var', env') =
                             if i = fi
                             then (var, env)
-                            else let val var' = CVar.fresh var
-                                 in (var', Env.insert env var (AVar.fromCVar var'))
+                            else let val var' = BaseVar.fresh var
+                                 in (var', Env.insert env var (RVar.fromBaseVar var'))
                                  end
                         val stmt' = FixS (Def (pos, var', elabExpr expr))
                     in (VectorExt.conj stmts' stmt', env')
                     end
            end
-         | AStmt.AugDef (pos, var, expr) =>
-           let val avar = AVar.fromCVar var
-               val (envVar, fi) = Env.lookup env avar
+         | AStmt.Def (pos, LVar.Aug var, expr) =>
+           let val (envVar, fi) = Env.lookup env (RVar.fromBaseVar var)
                val (var', env') =
                    if i = fi
                    then (var, env)
-                   else let val var' = CVar.fresh var
-                        in (var', Env.insert env var (AVar.fromCVar var'))
+                   else let val var' = BaseVar.fresh var
+                        in (var', Env.insert env var (RVar.fromBaseVar var'))
                         end
-               val oldVar = getOpt (envVar, valOf (AVar.upper avar))
+               val oldVar = getOpt (envVar, RVar.upper var)
                val ovExpr = FixE (Triv (pos, Var oldVar))
-               val fnMerge = FixE (Expr.Triv (pos, Var (ATag.Lex, Name.fromString "fnMerge")))
-               val merge = FixE (AuglessAst.app (pos, fnMerge,
-                                                 Vector.fromList [ovExpr, elabExpr expr]))
+               val fnMerge =
+                   FixE (Expr.Triv (pos,
+                                    Var (RVar.Current (BaseVar.Lex (Name.fromString "fnMerge")))))
+               val merge = FixE (Call (pos, fnMerge, (* TODO: via `apply` *)
+                                       Vector.fromList [ovExpr, elabExpr expr]))
                val stmt' = FixS (Def (pos, var', merge))
            in (VectorExt.conj stmts' stmt', env')
            end
@@ -117,4 +128,4 @@ structure DesugarAugs :> sig
         end
 
     val desugar = elabBlock
-end (* structure DesugarAugs *)
+end

@@ -1,17 +1,12 @@
-signature STMT = sig
-    type 'expr t
-    val pos : ('e -> Pos.t) -> 'e t -> Pos.t
-    val toDoc : ('e -> PPrint.doc) -> 'e t -> PPrint.doc
-end
-
 signature AST = sig
-    structure Stmt : STMT
+    structure Expr : HIGHER_ORDER_EXPR
+    structure Stmt : ASTMT
 
     datatype expr = FixE of (expr, stmt, prologue) Expr.t
     and stmt = FixS of expr Stmt.t
     and prologue = Prolog of expr DNF.t * stmt vector
 
-    val app : Pos.t * expr * expr vector -> (expr, stmt, prologue) Expr.t
+    (*val app : Pos.t * expr * expr vector -> (expr, stmt, prologue) Expr.t*)
 
     val unwrapE : expr -> (expr, stmt, prologue) Expr.t
     val unwrapS : stmt -> expr Stmt.t
@@ -25,26 +20,18 @@ signature AST = sig
     val toDoc : (expr, stmt) Block.t -> PPrint.doc
 end
 
-functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
-    val PrimApp = Expr.PrimApp
-    val Triv = Expr.Triv
+functor AstFn(structure RV : TO_DOC structure LV : TO_DOC) : AST = struct
     structure PP = PPrint
     val op^^ = PP.^^
     val op<+> = PP.<+>
     val op<$> = PP.<$>
 
-    structure Stmt = S
+    structure Expr = HigherOrderExpr(RV)
+    structure Stmt = StmtFn(LV)
 
     datatype expr = FixE of (expr, stmt, prologue) Expr.t
     and stmt = FixS of expr Stmt.t
     and prologue = Prolog of expr DNF.t * stmt vector
-
-    fun app (pos, f, args) =
-        let val apply = FixE (Triv (pos, ATriv.Var (ATag.Lex, Name.fromString "apply")))
-            val argsExpr = FixE (PrimApp (pos, Primop.Tuple, args))
-            val metaArgs = FixE (PrimApp (pos, Primop.Tuple, Vector.fromList [f, argsExpr]))
-        in PrimApp (pos, Primop.Call, Vector.fromList [apply, metaArgs])
-        end
 
     fun unwrapE (FixE expr) = expr
     fun unwrapS (FixS stmt) = stmt
@@ -62,5 +49,12 @@ functor AstFn(S : STMT) :> AST where type 'expr Stmt.t = 'expr S.t = struct
     fun toDoc stmts = Block.toDoc exprToDoc stmtToDoc stmts
 end
 
-structure Ast = AstFn(AStmt)
-structure AuglessAst = AstFn(AuglessStmt)
+structure Ast = AstFn(struct
+    structure RV = BaseVar
+    structure LV = LVar
+end)
+
+structure AuglessAst = AstFn(struct
+    structure RV = RVar
+    structure LV = BaseVar
+end)

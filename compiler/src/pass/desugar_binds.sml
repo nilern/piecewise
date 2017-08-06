@@ -1,47 +1,56 @@
+(* TODO: call this `ApplyUnApply` and perform also the `foo bar baz -> apply foo (bar, baz)` *)
+
 structure DesugarBinds :> sig
     val desugar : (Cst.expr, Cst.stmt) Block.t -> (Ast.expr, Ast.stmt) Block.t
 
     exception Pattern of Pos.t * Cst.expr
 end = struct
+    structure CExpr = Cst.Expr
+    structure CTriv = CExpr.Triv
+
+    structure Expr = Ast.Expr
+    structure Stmt = Ast.Stmt
+    structure Triv = Ast.Expr.Triv
+
     val FixE = Ast.FixE
     val FixS = Ast.FixS
     val Prolog = Ast.Prolog
     val Fn = Expr.Fn
     val Block = Expr.Block
-    val PrimApp = Expr.PrimApp
+    val Call = Expr.Call
+    val PrimCall = Expr.PrimCall
     val Triv = Expr.Triv
-    val Def = AStmt.Def
-    val AugDef = AStmt.AugDef
-    val Guard = AStmt.Guard
-    val Var = ATriv.Var
-    val Const = ATriv.Const
+    val Def = Stmt.Def
+    val Guard = Stmt.Guard
+    val Var = Triv.Var
+    val Const = Triv.Const
 
     exception Pattern of Pos.t * Cst.expr
 
     fun expandPat newBinding pat access parentId (cond, binds) =
         case Cst.unwrapE pat
-        of Cst.Expr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
-         | Cst.Expr.Block _ => raise Pattern (Cst.exprPos pat, pat)
-         | Cst.Expr.App (pos, f, args) =>
-           let val unapply = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "unapply")))
-               val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
+        of CExpr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
+         | CExpr.Block _ => raise Pattern (Cst.exprPos pat, pat)
+         | CExpr.Call (pos, f, args) =>
+           let val unapply = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "unapply"))))
+               val eq = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "=="))))
                val f' = expandExpr f
-               val access' = FixE (Ast.app (pos, unapply, Vector.fromList [f', access]))
-               val tag = FixE (Expr.PrimApp (pos, Primop.Tag, VectorExt.singleton access'))
+               val access' = FixE (Call (pos, unapply, Vector.fromList [f', access]))
+               val tag = FixE (Expr.PrimCall (pos, Primop.Tag, VectorExt.singleton access'))
                val some = FixE (Triv (pos, Const (Const.Symbol "Some")))
-               val newCondExpr = FixE (Ast.app (pos, eq, Vector.fromList [tag, some]))
+               val newCondExpr = FixE (Call (pos, eq, Vector.fromList [tag, some]))
                val (newCond, parentId') = DNF.require newCondExpr (OptionExt.toList parentId)
                val cond' = DNF.conj (Vector.fromList [cond, newCond])
-               val access'' = FixE (Expr.PrimApp (pos, Primop.Repr, Vector.fromList [access']))
+               val access'' = FixE (Expr.PrimCall (pos, Primop.Repr, Vector.fromList [access']))
            in expandArgs newBinding args access'' (SOME parentId') (cond', binds)
            end
-         | Cst.Expr.PrimApp (_, po, args) => raise Fail "unimplemented"
-         | Cst.Expr.Triv (_, CTriv.Var var) =>
+         | CExpr.PrimCall (_, po, args) => raise Fail "unimplemented"
+         | CExpr.Triv (_, CTriv.Var var) =>
            (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
-         | Cst.Expr.Triv (pos, CTriv.Const c) =>
-           let val eq = FixE (Triv (pos, Var (ATag.Lex, Name.fromString "==")))
+         | CExpr.Triv (pos, CTriv.Const c) =>
+           let val eq = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "=="))))
                val c' = FixE (Triv (pos, Const c))
-               val newCondExpr = FixE (Ast.app (pos, eq, Vector.fromList [access, c']))
+               val newCondExpr = FixE (Call (pos, eq, Vector.fromList [access, c']))
                val (newCond, _) = DNF.require newCondExpr (OptionExt.toList parentId)
            in
                ( DNF.conj (Vector.fromList [cond, newCond])
@@ -52,7 +61,7 @@ end = struct
         let fun expandArg (i, arg) =
                 let val pos = Cst.exprPos arg
                     val ie = FixE (Triv (pos, Const (Const.Int (Int.toString i))))
-                    val argAccess = FixE (Expr.PrimApp (pos, Primop.AGet,
+                    val argAccess = FixE (Expr.PrimCall (pos, Primop.AGet,
                                                         Vector.fromList [parentAccess, ie]))
                 in expandPat newBinding arg argAccess parentId
                              (DNF.always (), VectorExt.empty ())
@@ -75,51 +84,58 @@ end = struct
         end
 
     and expandPrologue pos (Cst.Prolog (args, cond)) params =
-        let val access = FixE (Triv (pos, Var (ATag.Lex, params)))
-        in Prolog (expandArgs (FixS o Def) args access NONE (DNF.always (), VectorExt.empty ()))
+        let val access = FixE (Triv (pos, Var (BaseVar.Lex params)))
+            fun newBinding (pos, var, expr) = FixS (Def (pos, LVar.Def var, expr))
+        in Prolog (expandArgs newBinding args access NONE (DNF.always (), VectorExt.empty ()))
         end
 
     and expandExpr (Cst.FixE expr) =
         FixE (case expr
-              of Cst.Expr.Fn (pos, name, cases) =>
-                 let val params = Name.freshFromString "params"
-                     fun expandCase (prologue, body) =
+              of CExpr.Fn (pos, name, params, cases) =>
+                 let fun expandCase (prologue, body) =
                          (expandPrologue pos prologue params, expandExpr body)
-                 in Fn (pos, Option.map AVar.fromCVar name, params, Vector.map expandCase cases)
+                 in Fn (pos, name, params, Vector.map expandCase cases)
                  end
-               | Cst.Expr.Block (pos, block) => Block (pos, expandBlock block)
-               | Cst.Expr.App (pos, f, args) =>
-                 Ast.app (pos, expandExpr f, Vector.map expandExpr args)
-               | Cst.Expr.PrimApp (pos, po, args) => PrimApp (pos, po, Vector.map expandExpr args)
-               | Cst.Expr.Triv (pos, CTriv.Var v) => Triv (pos, Var (AVar.fromCVar v))
-               | Cst.Expr.Triv (pos, CTriv.Const c) => Triv (pos, Const c))
+               | CExpr.Block (pos, block) => Block (pos, expandBlock block)
+               | CExpr.Call (pos, f, args) =>
+                 Call (pos, expandExpr f, Vector.map expandExpr args)
+               | CExpr.PrimCall (pos, po, args) => PrimCall (pos, po, Vector.map expandExpr args)
+               | CExpr.Triv (pos, CTriv.Var v) =>  Triv (pos, Var v)
+               | CExpr.Triv (pos, CTriv.Const c) => Triv (pos, Const c))
 
     and expandStmt (Cst.FixS stmt) =
         let fun expandDef newDef (bind as Cst.Bind (pat, _)) expr =
                 (* FIXME: tuple etc. pats get treated as fn definitions *)
                 case bind
-                of Cst.Bind (Cst.FixE (Cst.Expr.App (pos, f, args)), cond) =>
+                of Cst.Bind (Cst.FixE (CExpr.Call (pos, f, args)), cond) =>
                    let val name = case f
-                                  of Cst.FixE (Cst.Expr.Triv (_, CTriv.Var name)) => SOME name
+                                  of Cst.FixE (CExpr.Triv (_, CTriv.Var name)) => SOME name
                                    | _ => NONE
+                       val params = Name.freshFromString "params"
                        val cases = VectorExt.singleton (Cst.Prolog (args, cond), expr)
                    in expandDef newDef (Cst.Bind (f, NONE))
-                                       (Cst.FixE (Cst.Expr.Fn (pos, name, cases)))
+                                       (Cst.FixE (CExpr.Fn (pos, name, params, cases)))
                    end
                  | _ =>
                    (case expandExpr expr
                     of expr' as Ast.FixE (Expr.Triv _) => expandBind (FixS o newDef) bind expr'
                      | expr' => let val pos = Cst.exprPos pat
                                     val triv = Name.freshFromString "v"
-                                    val trivDef = FixS (Def (pos, (CTag.Lex, triv), expr'))
-                                    val trivUse = FixE (Expr.Triv (pos, Var (ATag.Lex, triv)))
+                                    val trivDef =
+                                        FixS (Def (pos, LVar.Def (BaseVar.Lex triv),
+                                                   expr'))
+                                    val trivUse = FixE (Expr.Triv (pos, Var (BaseVar.Lex triv)))
                                     val bindStmts = expandBind (FixS o newDef) bind trivUse
                                 in VectorExt.prepend bindStmts trivDef
                                 end)
         in
             case stmt
-            of Cst.Stmt.Def (bind, expr) => expandDef Def bind expr
-             | Cst.Stmt.AugDef (bind, expr) => expandDef AugDef bind expr
+            of Cst.Stmt.Def (bind, expr) =>
+               expandDef (fn (pos, var, expr) => Def (pos, LVar.Def var, expr))
+                         bind expr
+             | Cst.Stmt.AugDef (bind, expr) =>
+               expandDef (fn (pos, var, expr) => Def (pos, LVar.Aug var, expr))
+                         bind expr
         end
 
     and expandBlock (stmts, expr) = (VectorExt.flatMap expandStmt stmts, expandExpr expr)

@@ -16,16 +16,19 @@ local
     ir/block.sml
     ir/triv.sml
     ir/dnf.sml
-    ir/expr.sml
-    ir/stmt.sml
+    ir/higher_order_expr.sml
+    ir/astmt.sml
 
     ir/cst.sml
+    pass/parser.grm.sig
+    pass/parser.grm.sml
+    pass/lexer.lex.sml
 
     ir/ast.sml
     pass/desugar_binds.sml
     pass/desugar_augs.sml
 
-    ir/flat_ast.sml
+    (*ir/flat_ast.sml
     pass/convert_lenv.sml
     pass/convert_denv.sml
 
@@ -33,11 +36,7 @@ local
     pass/anf_convert.sml
 
     ir/cps.sml
-    pass/cps_convert.sml
-
-    pass/parser.grm.sig
-    pass/parser.grm.sml
-    pass/lexer.lex.sml
+    pass/cps_convert.sml*)
 in
     main.sml
 end
