@@ -1,7 +1,8 @@
 signature ANF_EXPR = sig
     structure Triv : TRIV
 
-    datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+    datatype t = Call of Pos.t * Triv.t * Triv.t vector
+               | PrimCall of Pos.t * Primop.t * Triv.t vector
                | Triv of Pos.t * Triv.t
 
     val pos : t -> Pos.t
@@ -25,6 +26,7 @@ structure Anf : sig
 
     structure ValExpr : sig
         datatype t = Triv of Pos.t * Expr.Triv.t
+                   | Call of Pos.t * Expr.Triv.t * Expr.Triv.t vector
                    | Guard of Pos.t * Label.t DNF.t * Label.t
 
         val pos : t -> Pos.t
@@ -67,16 +69,21 @@ end = struct
     val op<$> = PP.<$>
 
     structure Expr = struct
-        structure Triv = FlatTriv1
+        structure Triv = FlatAst1.Expr.Triv
 
-        datatype t = PrimApp of Pos.t * Primop.t * Triv.t vector
+        datatype t = Call of Pos.t * Triv.t * Triv.t vector
+                   | PrimCall of Pos.t * Primop.t * Triv.t vector
                    | Triv of Pos.t * Triv.t
 
-        val pos = fn PrimApp (pos, _, _) => pos
+        val pos = fn Call (pos, _, _) => pos
+                   | PrimCall (pos, _, _) => pos
                    | Triv (pos, _) => pos
 
         val toDoc =
-            fn PrimApp (_, po, args) =>
+            fn Call (_, f, args) =>
+               PP.parens (PP.punctuate PP.space
+                          (VectorExt.prepend (Vector.map Triv.toDoc args) (Triv.toDoc f)))
+             | PrimCall (_, po, args) =>
                PP.parens (PP.punctuate PP.space
                           (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
              | Triv (_, t) => Triv.toDoc t
@@ -101,13 +108,16 @@ end = struct
 
     structure ValExpr = struct
         datatype t = Triv of Pos.t * Expr.Triv.t
+                   | Call of Pos.t * Expr.Triv.t * Expr.Triv.t vector
                    | Guard of Pos.t * Label.t DNF.t * Label.t
 
         val pos = fn Triv (pos, _) => pos
+                   | Call (pos, _, _) => pos
                    | Guard (pos, _, _) => pos
 
         val toDoc =
             fn Triv (_, t) => Expr.Triv.toDoc t
+             | Call fields => Expr.toDoc (Expr.Call fields)
              | Guard (_, dnf, dest) =>
                PP.text "@guard" <+> DNF.toDoc Label.toDoc dnf <+> PP.text "->" <+> Label.toDoc dest
     end

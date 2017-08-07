@@ -37,14 +37,14 @@ end = struct
                     val _ = print (PPrint.pretty 80 (Ast.toDoc ast) ^ "\n---\n\n")
                     val aast = DesugarAugs.desugar ast
                     val _ = print (PPrint.pretty 80 (AuglessAst.toDoc aast) ^ "\n---\n\n")
-                    (*val fast0 = ConvertLEnv.convert aast
+                    val fast0 = ConvertLEnv.convert aast
                     val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0) ^ "\n---\n\n")
                     val fast1 = ConvertDEnv.convert fast0
                     val _ = print (PPrint.pretty 80 (FlatAst1.toDoc fast1) ^ "\n---\n\n")
                     val anf = AnfConvert.convert fast1
                     val _ = print (PPrint.pretty 80 (Anf.toDoc anf) ^ "\n---\n\n")
                     val cps = CpsConvert.convert anf
-                    val _ = print (PPrint.pretty 80 (Cps.toDoc cps))*)
+                    val _ = print (PPrint.pretty 80 (Cps.toDoc cps))
                 in
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -52,19 +52,17 @@ end = struct
                 end
         in
             loop lexer
-            (*handle
+            handle
                 ConvertLEnv.Unbound (pos, name) =>
                     print ("Unbound name: " ^ Name.toString name ^
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarBinds.Pattern (pos, pat) =>
-                    print ("Invalid pattern: " ^
-                           PPrint.pretty 80 (Cst.exprToDoc pat) ^
+                    print ("Invalid pattern: " ^ PPrint.pretty 80 (Cst.exprToDoc pat) ^
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarAugs.ReAssignment (pos, var) =>
-                    print ("Reassignment of " ^
-                           PPrint.pretty 80 (AVar.toDoc var) ^
-                           " at " ^ Pos.toString pos ^ "\n")*)
+                    print ("Reassignment of " ^ PPrint.pretty 80 (RVar.toDoc var) ^
+                           " at " ^ Pos.toString pos ^ "\n")
         end
-end (* structure Parser *)
+end
 
 val _ = Parser.parse ()

@@ -5,14 +5,18 @@ end = struct
     structure Expr = Anf.Expr
     structure Stmt = Anf.Stmt
     structure ValExpr = Anf.ValExpr
+    structure Triv = Expr.Triv
 
-    val PrimApp = Expr.PrimApp
+    structure FExpr = FlatAst1.Expr
+    structure FStmt = FlatAst1.Stmt
+
+    val Call = Expr.Call
+    val PrimCall = Expr.PrimCall
     val Triv = Expr.Triv
     val Def = Stmt.Def
     val Expr = Stmt.Expr
     val Guard = ValExpr.Guard
-    val Var = Expr.Triv.Var
-    val Local = FlatTag1.Local
+    val Var = Triv.Var
 
     structure BlockBuilder :> sig
         type t
@@ -39,42 +43,61 @@ end = struct
     end
 
     fun trivialize blockBuilder =
-        fn Anf.Expr.Triv (_, triv) => triv
+        fn Expr.Triv (_, triv) => triv
          | expr => let val name = Name.freshFromString "v"
                    in BlockBuilder.append blockBuilder (Def (Expr.pos expr, name, expr))
-                    ; Var (Local, name)
+                    ; Var (FlatVar1.Data name)
                    end
 
     fun convertExpr cfgBuilder blockBuilder (FlatAst1.FixE expr) =
         case expr
-        of FlatAst1.Expr.Block (_, (stmts, expr)) =>
+        of FExpr.Block (_, (stmts, expr)) =>
            ( convertStmts cfgBuilder blockBuilder stmts
            ; convertExpr cfgBuilder blockBuilder expr )
-         | FlatAst1.Expr.PrimApp (pos, po, args) =>
-           let val args' = Vector.map (exprToTriv cfgBuilder blockBuilder) args
-           in PrimApp (pos, po, args')
+         | FExpr.Call (pos, f, args) =>
+           let val f' = exprToTriv cfgBuilder blockBuilder f
+               val args' = Vector.map (exprToTriv cfgBuilder blockBuilder) args
+           in Call (pos, f', args')
            end
-         | FlatAst1.Expr.Triv posTriv => Triv posTriv
+         | FExpr.PrimCall (pos, po, args) =>
+           let val args' = Vector.map (exprToTriv cfgBuilder blockBuilder) args
+           in PrimCall (pos, po, args')
+           end
+         | FExpr.Triv posTriv => Triv posTriv
 
     and exprToTriv cfgBuilder blockBuilder expr =
         trivialize blockBuilder (convertExpr cfgBuilder blockBuilder expr)
+
+    and convertTailExpr cfgBuilder blockBuilder (FlatAst1.FixE expr) =
+        case expr
+        of FExpr.Block (_, (stmts, expr)) =>
+           ( convertStmts cfgBuilder blockBuilder stmts
+           ; convertTailExpr cfgBuilder blockBuilder expr )
+         | FExpr.Call (pos, f, args) =>
+           let val f' = exprToTriv cfgBuilder blockBuilder f
+               val args' = Vector.map (exprToTriv cfgBuilder blockBuilder) args
+           in ValExpr.Call (pos, f', args')
+           end
+         | FExpr.PrimCall (pos, _, _) =>
+           ValExpr.Triv (pos, exprToTriv cfgBuilder blockBuilder (FlatAst1.FixE expr))
+         | FExpr.Triv posTriv => ValExpr.Triv posTriv
 
     and convertStmts cfgBuilder blockBuilder stmts =
         let fun convert stmts =
                 if VectorSlice.length stmts > 0
                 then case VectorSlice.sub (stmts, 0)
-                     of FlatAst1.FixS (FlatAst1.Stmt.Def (pos, name, expr)) =>
+                     of FlatAst1.FixS (FStmt.Def (pos, name, expr)) =>
                         let val expr' = convertExpr cfgBuilder blockBuilder expr
                         in BlockBuilder.append blockBuilder (Def (pos, name, expr'))
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
                         end
-                      | FlatAst1.FixS (FlatAst1.Stmt.Guard (pos, dnf)) =>
+                      | FlatAst1.FixS (FStmt.Guard (pos, dnf)) =>
                         let val dnf' = convertDnf cfgBuilder dnf
                             val (label, block) = BlockBuilder.take blockBuilder pos dnf'
                         in Cfg.Builder.insert (cfgBuilder, label, block)
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
                         end
-                      | FlatAst1.FixS (FlatAst1.Stmt.Expr expr) =>
+                      | FlatAst1.FixS (FStmt.Expr expr) =>
                         let val expr' = convertExpr cfgBuilder blockBuilder expr
                         in BlockBuilder.append blockBuilder (Expr expr')
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
@@ -95,8 +118,7 @@ end = struct
     and convertBlock cfgBuilder entry (stmts, expr) =
         let val blockBuilder = BlockBuilder.empty entry
             val _ = convertStmts cfgBuilder blockBuilder stmts
-            val triv = exprToTriv cfgBuilder blockBuilder expr
-            val vexpr = ValExpr.Triv (FlatAst1.exprPos expr, triv)
+            val vexpr = convertTailExpr cfgBuilder blockBuilder expr
             val (label, block) = BlockBuilder.build blockBuilder vexpr
         in Cfg.Builder.insert (cfgBuilder, label, block)
         end

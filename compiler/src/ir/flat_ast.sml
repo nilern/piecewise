@@ -1,37 +1,15 @@
 structure NameMap = BinaryMapFn(type ord_key = Name.t
                                 val compare = Name.compare)
 
-structure Argv0 = struct
-    val op^^ = PPrint.^^
-    val op<+> = PPrint.<+>
-
-    type t = {self: Name.t, params: Name.t}
-
-    fun toDoc {self = self, params = params} =
-        PPrint.parens (PPrint.text "self =" <+> Name.toDoc self ^^ PPrint.text "," <+>
-                           PPrint.text "params =" <+> Name.toDoc params)
-end
-
-structure Argv1 = struct
-    val op^^ = PPrint.^^
-    val op<+> = PPrint.<+>
-
-    type t = {self: Name.t, params: Name.t, denv: Name.t}
-
-    fun toDoc {self = self, params = params, denv = denv} =
-        PPrint.parens (PPrint.text "self =" <+> Name.toDoc self ^^ PPrint.text "," <+>
-                           PPrint.text "params =" <+> Name.toDoc params ^^ PPrint.text "," <+>
-                               PPrint.text "denv =" <+> Name.toDoc denv)
-end
-
-functor FlatAstFn(structure T: TRIV
-                  structure S: ASTMT
+functor FlatAstFn(structure RV: TO_DOC
+                  structure LV: TO_DOC
                   structure A: TO_DOC) : sig
     structure Expr : sig
         structure Triv : TRIV
 
         datatype ('expr, 'stmt) t = Block of Pos.t * ('expr, 'stmt) Block.t
-                                  | PrimApp of Pos.t * Primop.t * 'expr vector
+                                  | Call of Pos.t * 'expr * 'expr vector
+                                  | PrimCall of Pos.t * Primop.t * 'expr vector
                                   | Triv of Pos.t * Triv.t
 
         val pos : ('expr, 'stmt) t -> Pos.t
@@ -77,26 +55,33 @@ end = struct
         val op<+> = PP.<+>
         val op<$> = PP.<$>
 
-        structure Triv = T
+        structure Triv = TrivFn(structure V = RV
+                                structure C = Const)
 
         datatype ('expr, 'stmt) t = Block of Pos.t * ('expr, 'stmt) Block.t
-                                  | PrimApp of Pos.t * Primop.t * 'expr vector
+                                  | Call of Pos.t * 'expr * 'expr vector
+                                  | PrimCall of Pos.t * Primop.t * 'expr vector
                                   | Triv of Pos.t * Triv.t
 
         fun pos (Block (pos, _)) = pos
-          | pos (PrimApp (pos, _, _)) = pos
+          | pos (Call (pos, _, _)) = pos
+          | pos (PrimCall (pos, _, _)) = pos
           | pos (Triv (pos, _)) = pos
 
         fun toDoc exprToDoc stmtToDoc =
             fn Block (_, block) => PP.braces (PP.nest 4 (Block.toDoc exprToDoc stmtToDoc block))
-             | PrimApp (_, po, args) =>
+             | Call (_, f, args) =>
+               let fun step (arg, acc) = acc <+> exprToDoc arg
+               in PP.parens (PP.align (Vector.foldl step (exprToDoc f) args))
+               end
+             | PrimCall (_, po, args) =>
                let fun step (arg, acc) = acc <+> exprToDoc arg
                in PP.parens (PP.align (Vector.foldl step (Primop.toDoc po) args))
                end
              | Triv (_, t) => Triv.toDoc t
     end
 
-    structure Stmt = S
+    structure Stmt = StmtFn(LV)
     structure Argv = A
 
     datatype expr = FixE of (expr, stmt) Expr.t
@@ -141,9 +126,9 @@ end = struct
         end
 end
 
-structure FlatAst0 = FlatAstFn(structure T = FlatTriv0
-                               structure S = FlatStmt0
+structure FlatAst0 = FlatAstFn(structure RV = FlatVar0
+                               structure LV = BaseVar
                                structure A = Argv0)
-structure FlatAst1 = FlatAstFn(structure T = FlatTriv1
-                               structure S = FlatStmt1
+structure FlatAst1 = FlatAstFn(structure RV = FlatVar1
+                               structure LV = Name
                                structure A = Argv1)

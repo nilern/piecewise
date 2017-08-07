@@ -15,6 +15,7 @@ local
     ir/primop.sml
     ir/block.sml
     ir/triv.sml
+    ir/argv.sml
     ir/dnf.sml
     ir/higher_order_expr.sml
     ir/astmt.sml
@@ -28,7 +29,7 @@ local
     pass/desugar_binds.sml
     pass/desugar_augs.sml
 
-    (*ir/flat_ast.sml
+    ir/flat_ast.sml
     pass/convert_lenv.sml
     pass/convert_denv.sml
 
@@ -36,7 +37,7 @@ local
     pass/anf_convert.sml
 
     ir/cps.sml
-    pass/cps_convert.sml*)
+    pass/cps_convert.sml
 in
     main.sml
 end

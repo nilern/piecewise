@@ -3,8 +3,9 @@ structure Cps : sig
     structure Stmt : ANF_STMT
 
     structure Transfer : sig
-        datatype t = Continue of Label.t * Expr.Triv.t vector
-                   | Branch of Expr.Triv.t * Label.t * Label.t
+        datatype t = Continue of Pos.t * Label.t * Expr.Triv.t vector
+                   | Call of Pos.t * Label.t * Expr.Triv.t * Expr.Triv.t vector
+                   | Branch of Pos.t * Expr.Triv.t * Label.t * Label.t
 
         val toDoc : t -> PPrint.doc
     end
@@ -56,16 +57,22 @@ end = struct
     structure Stmt = Anf.Stmt
 
     structure Transfer = struct
-        datatype t = Continue of Label.t * Expr.Triv.t vector
-                   | Branch of Expr.Triv.t * Label.t * Label.t
+        datatype t = Continue of Pos.t * Label.t * Expr.Triv.t vector
+                   | Call of Pos.t * Label.t * Expr.Triv.t * Expr.Triv.t vector
+                   | Branch of Pos.t * Expr.Triv.t * Label.t * Label.t
 
         val toDoc =
-            fn Continue (label, args) =>
-               PP.text "__continue" <+> Label.toDoc label <+>
-                   PP.punctuate PP.space (Vector.map Expr.Triv.toDoc args)
-             | Branch (cond, conseq, alt) =>
-               PP.text "@if" <+> Expr.Triv.toDoc cond <+>
-                   Label.toDoc conseq <+> PP.text "|" <+> Label.toDoc alt
+            fn Continue (_, label, args) =>
+               PP.punctuate (PP.space ^^ PP.text ",") (Vector.map Expr.Triv.toDoc args) <+>
+                   PP.text "->" <+> Label.toDoc label
+             | Call (_, label, f, args) =>
+               PP.parens (PP.punctuate PP.space
+                         (VectorExt.prepend (Vector.map Expr.Triv.toDoc args)
+                                            (Expr.Triv.toDoc f))) <+>
+                   PP.text "->" <+> Label.toDoc label
+             | Branch (_, cond, conseq, alt) =>
+               Expr.Triv.toDoc cond <+>
+                   PP.text "->" <+> Label.toDoc conseq <+> PP.text "|" <+> Label.toDoc alt
     end
 
     structure Argv = struct
