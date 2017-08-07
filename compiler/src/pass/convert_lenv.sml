@@ -287,7 +287,8 @@ end = struct
                      val name = valOf (Env.self env')
                      val cases' = Vector.map (elabCase env') cases
                      val clovers = Option.valOf (Env.clovers env')
-                     val proc = { name = name
+                     val proc = { pos = pos
+                                , name = name
                                 , clovers = clovers
                                 , args = { self = valOf (Env.self env')
                                          , params = valOf (Env.params env') }

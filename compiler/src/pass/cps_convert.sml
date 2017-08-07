@@ -103,7 +103,7 @@ end = struct
              end
         else ()
 
-    fun convertProc { name = name, clovers = clovers
+    fun convertProc { pos = pos, name = name, clovers = clovers
                     , args = { self = self, params = params, denv = denv }
                     , cases = cases } =
         let fun casesBlocks (cases : Anf.procCase vector) =
@@ -117,7 +117,7 @@ end = struct
             val ks = Vector.fromList [ret]
             val entry = (* FIXME: proc should carry a Pos.t for this *)
                 convertDispatch cfgBuilder dispatcher ks blocks (Dispatcher.Cases Pos.def)
-        in { name = name
+        in { pos = pos, name = name
            , clovers = clovers
            , args = { self = self, params = params, denv = denv, ret = ret }
            , cfg = Cfg.Builder.build cfgBuilder entry }

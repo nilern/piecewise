@@ -132,10 +132,10 @@ end = struct
            , cfg = Cfg.Builder.build cfgBuilder }
         end
 
-    fun convertProc { name = name, clovers = clovers
+    fun convertProc { pos = pos, name = name, clovers = clovers
                     , args = { self = self, params = params, denv = denv }
                     , cases = cases } =
-        { name = name, clovers = clovers
+        { pos = pos, name = name, clovers = clovers
         , args = { self = self, params = params, denv = denv }
         , cases = Vector.map convertCase cases }
 

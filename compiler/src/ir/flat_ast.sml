@@ -24,7 +24,8 @@ functor FlatAstFn(structure RV: TO_DOC
 
     type prologue = expr DNF.t * stmt vector
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cases: (prologue * expr) vector }
@@ -89,7 +90,8 @@ end = struct
 
     type prologue = expr DNF.t * stmt vector
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cases: (prologue * expr) vector }
@@ -107,7 +109,7 @@ end = struct
     fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc expr
     and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc stmt
 
-    fun procToDoc {name = name, clovers = clovers, args = args, cases = cases} =
+    fun procToDoc { pos = _, name = name, clovers = clovers, args = args, cases = cases } =
         let fun caseToDoc ((cond, bindStmts), body) =
                 PP.text "case" <+> DNF.toDoc exprToDoc cond ^^ PP.text ":" <$>
                     Block.toDoc exprToDoc stmtToDoc (bindStmts, body)

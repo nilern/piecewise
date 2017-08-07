@@ -38,7 +38,8 @@ structure Cps : sig
         end
     end
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cfg: Cfg.t }
@@ -133,7 +134,8 @@ end = struct
         end
     end
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cfg: Cfg.t }
@@ -141,7 +143,7 @@ end = struct
     type program = { procs: proc NameMap.map
                    , main: Cfg.t }
 
-    fun procToDoc { name = name, clovers = clovers, args = args, cfg = cfg } =
+    fun procToDoc { pos = _, name = name, clovers = clovers, args = args, cfg = cfg } =
         let val nameDoc = Name.toDoc name
             val cloversDoc = PP.braces (PP.punctuate (PP.text ", ") (Vector.map Name.toDoc clovers))
             val argsDoc = Argv.toDoc args

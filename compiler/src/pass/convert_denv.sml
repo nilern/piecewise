@@ -128,7 +128,8 @@ end = struct
             else stmts'
         end
 
-    fun elabProc { name = name, clovers = clovers, args = { self = self, params = params }
+    fun elabProc { pos = pos, name = name, clovers = clovers
+                 , args = { self = self, params = params }
                  , cases = cases } =
         let val envName = Name.freshFromString "denv"
             fun elabCase ((cond, bindStmts), body) =
@@ -143,7 +144,7 @@ end = struct
                    , elabExpr env body )
                 end
         in
-            { name = name
+            { pos = pos, name = name
             , clovers = clovers
             , args = { self = self, params = params, denv = envName }
             , cases = Vector.map elabCase cases }

@@ -53,7 +53,8 @@ structure Anf : sig
     type procCase = { cond: Label.t DNF.t
                     , cfg: Cfg.t }
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cases: procCase vector }
@@ -145,7 +146,8 @@ end = struct
     type procCase = { cond: Label.t DNF.t
                     , cfg: Cfg.t }
 
-    type proc = { name: Name.t
+    type proc = { pos: Pos.t
+                , name: Name.t
                 , clovers: Name.t vector
                 , args: Argv.t
                 , cases: procCase vector }
@@ -166,7 +168,7 @@ end = struct
     fun caseToDoc { cond = cond, cfg = cfg } =
         PP.text "case" <+> DNF.toDoc Label.toDoc cond ^^ PP.text ":" <$> cfgToDoc cfg
 
-    fun procToDoc { name = name, clovers = clovers, args = args, cases = cases } =
+    fun procToDoc { pos = _, name = name, clovers = clovers, args = args, cases = cases } =
         let val nameDoc = Name.toDoc name
             val cloversDoc = PP.braces (PP.punctuate (PP.text ", ") (Vector.map Name.toDoc clovers))
             val argsDoc = Argv.toDoc args

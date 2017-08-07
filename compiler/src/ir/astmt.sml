@@ -29,7 +29,3 @@ functor StmtFn(LV : TO_DOC) : ASTMT = struct
          | Guard (_, dnf) => PP.text "@guard" <+> PP.parens (DNF.toDoc exprToDoc dnf)
          | Expr expr => exprToDoc expr
 end
-
-(*structure AuglessStmt = StmtFn(Var)
-structure FlatStmt0 = AuglessStmt
-structure FlatStmt1 = StmtFn(Name)*)
