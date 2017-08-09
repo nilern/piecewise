@@ -2,8 +2,7 @@ structure NameMap = BinaryMapFn(type ord_key = Name.t
                                 val compare = Name.compare)
 
 functor FlatAstFn(structure RV: TO_DOC
-                  structure LV: TO_DOC
-                  structure A: TO_DOC) : sig
+                  structure LV: TO_DOC) : sig
     structure Expr : sig
         structure Triv : TRIV
 
@@ -17,7 +16,6 @@ functor FlatAstFn(structure RV: TO_DOC
         val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('e, 's) t -> PPrint.doc
     end
     structure Stmt : ASTMT
-    structure Argv : TO_DOC
 
     datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of expr Stmt.t
@@ -83,7 +81,6 @@ end = struct
     end
 
     structure Stmt = StmtFn(LV)
-    structure Argv = A
 
     datatype expr = FixE of (expr, stmt) Expr.t
     and stmt = FixS of expr Stmt.t
@@ -129,8 +126,6 @@ end = struct
 end
 
 structure FlatAst0 = FlatAstFn(structure RV = FlatVar0
-                               structure LV = BaseVar
-                               structure A = Argv0)
+                               structure LV = BaseVar)
 structure FlatAst1 = FlatAstFn(structure RV = FlatVar1
-                               structure LV = Name
-                               structure A = Argv1)
+                               structure LV = Name)

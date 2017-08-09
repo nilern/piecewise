@@ -290,8 +290,9 @@ end = struct
                      val proc = { pos = pos
                                 , name = name
                                 , clovers = clovers
-                                , args = { self = valOf (Env.self env')
-                                         , params = valOf (Env.params env') }
+                                , args = { names = Vector.fromList [ valOf (Env.self env')
+                                                                   , valOf (Env.params env') ]
+                                         , types = Vector.fromList [ Type.Fn, Type.Any ] }
                                 , cases = cases' }
                      val _ = NameHashTable.insert procs (name, proc)
                      val cexprs = (* HACK: *)

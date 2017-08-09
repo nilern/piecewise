@@ -11,8 +11,8 @@ end = struct
     val Branch = Cps.Transfer.Branch
 
     structure Dispatcher = struct
-        type t = (Label.t DNF.Clause.t * Label.t) vector
-        datatype target_res = Success of Label.t | Fail
+        type t = (Name.t DNF.Clause.t * Name.t) vector
+        datatype target_res = Success of Name.t | Fail
         datatype fail_dest = Cases of Pos.t | Guard
 
         fun fromCases cases =
@@ -57,7 +57,7 @@ end = struct
                      | Dispatcher.Guard => Cfg.Builder.genGuardFail cfgBuilder (valOf pos))
                  | NONE =>
                    let val condCont = Dispatcher.pickCond dispatcher
-                       val pos = SOME (Anf.blockPos (LabelMap.lookup (blocks, condCont)))
+                       val pos = SOME (Anf.blockPos (NameMap.lookup (blocks, condCont)))
                        val ks = Vector.fromList [ convertAssuming dispatcher condCont true pos
                                                 , convertAssuming dispatcher condCont false pos ]
                    in convertBlock cfgBuilder condCont ks blocks
@@ -68,7 +68,7 @@ end = struct
 
     and convertBlock cfgBuilder label ks blocks =
         if not (Cfg.Builder.contains cfgBuilder label)
-        then let val (stmts, vexpr) = LabelMap.lookup (blocks, label)
+        then let val (stmts, vexpr) = NameMap.lookup (blocks, label)
              in case vexpr
                 of Anf.ValExpr.Triv (pos, triv) =>
                    let val transfer = case Vector.length ks
@@ -77,54 +77,52 @@ end = struct
                                        | 2 =>
                                          Branch (pos, triv, Vector.sub (ks, 0), Vector.sub (ks, 1))
                                        | _ => raise Fail "unreachable"
-                       val cont = { args = Vector.fromList [], block = (stmts, transfer) }
+                       val cont = { args = Argv.empty, block = (stmts, transfer) }
                    in Cfg.Builder.insert (cfgBuilder, label, cont)
                    end
                  | Anf.ValExpr.Call (pos, f, args) =>
                    let val block = case Vector.length ks
                                    of 1 => (stmts, Transfer.Call (pos, Vector.sub (ks, 0), f, args))
                                     | 2 => let val name = Name.freshFromString "v"
+                                               val ty = Type.Any (* TODO: sharper information *)
                                                val callExpr = Expr.Call (pos, f, args)
-                                               val callStmt = Stmt.Def (pos, name, callExpr)
+                                               val callStmt = Stmt.Def (pos, name, ty, callExpr)
                                            in ( VectorExt.conj stmts callStmt
                                               , Branch ( pos, Triv.Var (Data name)
                                                        , Vector.sub (ks, 0), Vector.sub (ks, 1) ) )
                                            end
                                     | _ => raise Fail "unreachable"
-                       val cont = { args = Vector.fromList [], block = block }
+                       val cont = { args = Argv.empty, block = block }
                    in Cfg.Builder.insert (cfgBuilder, label, cont)
                    end
                  | Anf.ValExpr.Guard (pos, dnf, dest) =>
                    let val dispatcher = Dispatcher.fromGuard dnf dest
-                       val dispatchLabel =
+                       val dispatchName =
                            convertDispatch cfgBuilder dispatcher ks blocks Dispatcher.Guard
-                   in Cfg.Builder.prependStmts (cfgBuilder, dispatchLabel, stmts)
+                   in Cfg.Builder.prependStmts (cfgBuilder, dispatchName, stmts)
                    end
              end
         else ()
 
-    fun convertProc { pos = pos, name = name, clovers = clovers
-                    , args = { self = self, params = params, denv = denv }
-                    , cases = cases } =
+    fun convertProc { pos = pos, name = name, clovers = clovers, args = args, cases = cases } =
         let fun casesBlocks (cases : Anf.procCase vector) =
-                let fun step (cs, blocks) = LabelMap.unionWith #1 (#blocks (#cfg cs), blocks)
-                in Vector.foldl step LabelMap.empty cases
+                let fun step (cs, blocks) = NameMap.unionWith #1 (#blocks (#cfg cs), blocks)
+                in Vector.foldl step NameMap.empty cases
                 end
             val cfgBuilder = Cfg.Builder.empty ()
             val dispatcher = Dispatcher.fromCases cases
             val blocks = casesBlocks cases
-            val ret = Label.fresh ()
+            val ret = Name.freshFromString "ret"
             val ks = Vector.fromList [ret]
-            val entry = (* FIXME: proc should carry a Pos.t for this *)
-                convertDispatch cfgBuilder dispatcher ks blocks (Dispatcher.Cases Pos.def)
+            val entry = convertDispatch cfgBuilder dispatcher ks blocks (Dispatcher.Cases pos)
+            val _ = Cfg.Builder.assocArgs (cfgBuilder, entry, Argv.append args ret Type.Cont)
         in { pos = pos, name = name
            , clovers = clovers
-           , args = { self = self, params = params, denv = denv, ret = ret }
            , cfg = Cfg.Builder.build cfgBuilder entry }
         end
 
     fun convert { procs = procs, main = main as { entry = entry, blocks = blocks } } =
-        let val halt = Label.fresh () (* HACK *)
+        let val halt = Name.freshFromString "__halt" (* HACK *)
             val cfgBuilder = Cfg.Builder.empty ()
             val ks = Vector.fromList [halt]
         in convertBlock cfgBuilder entry ks blocks

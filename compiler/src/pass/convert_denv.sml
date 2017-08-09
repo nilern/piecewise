@@ -128,9 +128,7 @@ end = struct
             else stmts'
         end
 
-    fun elabProc { pos = pos, name = name, clovers = clovers
-                 , args = { self = self, params = params }
-                 , cases = cases } =
+    fun elabProc { pos = pos, name = name, clovers = clovers, args = args, cases = cases } =
         let val envName = Name.freshFromString "denv"
             fun elabCase ((cond, bindStmts), body) =
                 (* MAYBE: We might not need the boxes here if we leave the order of argument binding
@@ -146,7 +144,7 @@ end = struct
         in
             { pos = pos, name = name
             , clovers = clovers
-            , args = { self = self, params = params, denv = envName }
+            , args = Argv.append args envName Type.DynEnv
             , cases = Vector.map elabCase cases }
         end
 

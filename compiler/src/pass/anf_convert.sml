@@ -21,12 +21,12 @@ end = struct
     structure BlockBuilder :> sig
         type t
 
-        val empty : Label.t -> t
+        val empty : Name.t -> t
         val append : t -> Stmt.t -> unit
-        val build : t -> ValExpr.t -> Label.t * Anf.block
-        val take : t -> Pos.t -> Label.t DNF.t -> Label.t * Anf.block
+        val build : t -> ValExpr.t -> Name.t * Anf.block
+        val take : t -> Pos.t -> Name.t DNF.t -> Name.t * Anf.block
     end = struct
-        type t = Label.t ref * Stmt.t VectorExt.Builder.t
+        type t = Name.t ref * Stmt.t VectorExt.Builder.t
 
         fun empty label = (ref label, VectorExt.Builder.empty ())
 
@@ -35,7 +35,7 @@ end = struct
         fun build (label, stmts) vexpr = (!label, (VectorExt.Builder.build stmts, vexpr))
 
         fun take (label, stmts) pos dnf =
-            let val label' = Label.fresh ();
+            let val label' = Name.freshFromString "l";
                 val res = (!label, (VectorExt.Builder.build stmts, Guard (pos, dnf, label')))
             in (label := label'; VectorExt.Builder.clear stmts)
              ; res
@@ -45,7 +45,8 @@ end = struct
     fun trivialize blockBuilder =
         fn Expr.Triv (_, triv) => triv
          | expr => let val name = Name.freshFromString "v"
-                   in BlockBuilder.append blockBuilder (Def (Expr.pos expr, name, expr))
+                       val ty = Type.Any (* TODO: sharper information *)
+                   in BlockBuilder.append blockBuilder (Def (Expr.pos expr, name, ty, expr))
                     ; Var (FlatVar1.Data name)
                    end
 
@@ -87,8 +88,9 @@ end = struct
                 if VectorSlice.length stmts > 0
                 then case VectorSlice.sub (stmts, 0)
                      of FlatAst1.FixS (FStmt.Def (pos, name, expr)) =>
-                        let val expr' = convertExpr cfgBuilder blockBuilder expr
-                        in BlockBuilder.append blockBuilder (Def (pos, name, expr'))
+                        let val ty = Type.Any (* TODO: sharper information *)
+                            val expr' = convertExpr cfgBuilder blockBuilder expr
+                        in BlockBuilder.append blockBuilder (Def (pos, name, ty, expr'))
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
                         end
                       | FlatAst1.FixS (FStmt.Guard (pos, dnf)) =>
@@ -108,7 +110,7 @@ end = struct
 
     and convertDnf cfgBuilder dnf =
         let fun convertAExpr expr =
-                let val entry = Label.fresh ()
+                let val entry = Name.freshFromString "l"
                 in convertBlock cfgBuilder entry (Vector.fromList [], expr)
                  ; entry
                 end
@@ -124,7 +126,7 @@ end = struct
         end
 
     fun convertCase ((cond, bindStmts), body) =
-        let val entry = Label.fresh ()
+        let val entry = Name.freshFromString "l"
             val cfgBuilder = Cfg.Builder.empty entry
             val cond' = convertDnf cfgBuilder cond
         in convertBlock cfgBuilder entry (bindStmts, body)
@@ -132,15 +134,12 @@ end = struct
            , cfg = Cfg.Builder.build cfgBuilder }
         end
 
-    fun convertProc { pos = pos, name = name, clovers = clovers
-                    , args = { self = self, params = params, denv = denv }
-                    , cases = cases } =
-        { pos = pos, name = name, clovers = clovers
-        , args = { self = self, params = params, denv = denv }
+    fun convertProc { pos = pos, name = name, clovers = clovers, args = args, cases = cases } =
+        { pos = pos, name = name, clovers = clovers, args = args
         , cases = Vector.map convertCase cases }
 
     fun convert { procs = procs, main = main } =
-        let val entry = Label.fresh ()
+        let val entry = Name.freshFromString "entry"
             val cfgBuilder = Cfg.Builder.empty entry
         in convertBlock cfgBuilder entry main
          ; { procs = NameMap.map convertProc procs

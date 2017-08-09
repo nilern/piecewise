@@ -12,7 +12,7 @@ end
 signature ANF_STMT = sig
     structure Expr : ANF_EXPR
 
-    datatype t = Def of Pos.t * Name.t * Expr.t
+    datatype t = Def of Pos.t * Name.t * Type.t * Expr.t
                | Expr of Expr.t
 
     val pos : t -> Pos.t
@@ -22,12 +22,11 @@ end
 structure Anf : sig
     structure Expr : ANF_EXPR
     structure Stmt : ANF_STMT
-    structure Argv : TO_DOC
 
     structure ValExpr : sig
         datatype t = Triv of Pos.t * Expr.Triv.t
                    | Call of Pos.t * Expr.Triv.t * Expr.Triv.t vector
-                   | Guard of Pos.t * Label.t DNF.t * Label.t
+                   | Guard of Pos.t * Name.t DNF.t * Name.t
 
         val pos : t -> Pos.t
         val toDoc : t -> PPrint.doc
@@ -38,19 +37,19 @@ structure Anf : sig
     val blockPos : block -> Pos.t
 
     structure Cfg : sig
-        type t = { entry: Label.t
-                 , blocks: block LabelMap.map }
+        type t = { entry: Name.t
+                 , blocks: block NameMap.map }
 
         structure Builder : sig
             type builder
 
-            val empty : Label.t -> builder
-            val insert : builder * Label.t * block -> unit
+            val empty : Name.t -> builder
+            val insert : builder * Name.t * block -> unit
             val build : builder -> t
         end
     end
 
-    type procCase = { cond: Label.t DNF.t
+    type procCase = { cond: Name.t DNF.t
                     , cfg: Cfg.t }
 
     type proc = { pos: Pos.t
@@ -93,24 +92,24 @@ end = struct
     structure Stmt = struct
         structure Expr = Expr
 
-        datatype t = Def of Pos.t * Name.t * Expr.t
+        datatype t = Def of Pos.t * Name.t * Type.t * Expr.t
                    | Expr of Expr.t
 
         val pos =
-            fn Def (pos, _, _) => pos
+            fn Def (pos, _, _, _) => pos
              | Expr expr => Expr.pos expr
 
         val toDoc =
-            fn Def (_, name, expr) => Name.toDoc name <+> PP.text "=" <+> Expr.toDoc expr
+            fn Def (_, name, ty, expr) =>
+               Name.toDoc name ^^ PP.text ":" <+> Type.toDoc ty <+> PP.text "=" <+>
+                   Expr.toDoc expr
              | Expr expr => Expr.toDoc expr
     end
-
-    structure Argv = Argv1
 
     structure ValExpr = struct
         datatype t = Triv of Pos.t * Expr.Triv.t
                    | Call of Pos.t * Expr.Triv.t * Expr.Triv.t vector
-                   | Guard of Pos.t * Label.t DNF.t * Label.t
+                   | Guard of Pos.t * Name.t DNF.t * Name.t
 
         val pos = fn Triv (pos, _) => pos
                    | Call (pos, _, _) => pos
@@ -120,7 +119,7 @@ end = struct
             fn Triv (_, t) => Expr.Triv.toDoc t
              | Call fields => Expr.toDoc (Expr.Call fields)
              | Guard (_, dnf, dest) =>
-               PP.text "@guard" <+> DNF.toDoc Label.toDoc dnf <+> PP.text "->" <+> Label.toDoc dest
+               PP.text "@guard" <+> DNF.toDoc Name.toDoc dnf <+> PP.text "->" <+> Name.toDoc dest
     end
 
     type block = (ValExpr.t, Stmt.t) Block.t
@@ -128,22 +127,22 @@ end = struct
     val blockPos = Block.pos ValExpr.pos Stmt.pos
 
     structure Cfg = struct
-        type t = { entry: Label.t
-                 , blocks: block LabelMap.map }
+        type t = { entry: Name.t
+                 , blocks: block NameMap.map }
 
         structure Builder = struct
-            type builder = Label.t * block LabelMap.map ref
+            type builder = Name.t * block NameMap.map ref
 
-            fun empty entry = (entry, ref LabelMap.empty)
+            fun empty entry = (entry, ref NameMap.empty)
 
             fun insert ((_, blocks), label, block) =
-                blocks := LabelMap.insert (!blocks, label, block)
+                blocks := NameMap.insert (!blocks, label, block)
 
             fun build (entry, blocks) = { entry = entry, blocks = !blocks }
         end
     end
 
-    type procCase = { cond: Label.t DNF.t
+    type procCase = { cond: Name.t DNF.t
                     , cfg: Cfg.t }
 
     type proc = { pos: Pos.t
@@ -158,15 +157,15 @@ end = struct
     fun cfgToDoc { entry = entry, blocks = blocks } =
         let fun pairToDoc (label, block) =
                 (if label = entry
-                 then PP.text "-> " ^^ Label.toDoc label
-                 else Label.toDoc label) ^^ PP.text ": " ^^
+                 then PP.text "-> " ^^ Name.toDoc label
+                 else Name.toDoc label) ^^ PP.text ": " ^^
                     PP.align (Block.toDoc ValExpr.toDoc Stmt.toDoc block)
         in PP.punctuate (PP.line ^^ PP.line)
-                        (Vector.map pairToDoc (Vector.fromList (LabelMap.listItemsi blocks)))
+                        (Vector.map pairToDoc (Vector.fromList (NameMap.listItemsi blocks)))
         end
 
     fun caseToDoc { cond = cond, cfg = cfg } =
-        PP.text "case" <+> DNF.toDoc Label.toDoc cond ^^ PP.text ":" <$> cfgToDoc cfg
+        PP.text "case" <+> DNF.toDoc Name.toDoc cond ^^ PP.text ":" <$> cfgToDoc cfg
 
     fun procToDoc { pos = _, name = name, clovers = clovers, args = args, cases = cases } =
         let val nameDoc = Name.toDoc name

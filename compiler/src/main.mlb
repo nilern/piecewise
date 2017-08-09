@@ -10,6 +10,7 @@ local
     util/pos.sml
     util/name.sml
 
+    ir/type.sml
     ir/const.sml
     ir/var.sml
     ir/primop.sml
