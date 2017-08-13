@@ -1,0 +1,15 @@
+
+__callCC entry {
+    entry(dump: Dump, k: Cont, denv: DynEnv, f: Fn) {
+        label = __fnPtr(f);
+        args = __tuple(k);
+        label(dump, k, f, denv, args)
+    }
+}
+
+__continue entry {
+    entry(dump: Dump, k: Cont, v) {
+        label = __fnPtr(k);
+        label(dump, k, v)
+    }
+}

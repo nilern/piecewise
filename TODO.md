@@ -3,7 +3,9 @@
 ## CPS
 
 * [x] Types
+* [ ] Only Var:s can act as subexpressions (Const:s must be materialized)
 * [ ] Proof variables
+* [ ] Parser
 
 # Passes
 

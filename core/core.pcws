@@ -1,0 +1,27 @@
+
+{
+    force = apply _ ();
+
+    prompt = { tag thunk handler =>
+        __callCC { k =>
+            __dumpPush tag k handler;
+            v = force thunk;
+            k = __dumpPop ();
+            __continue k v
+        }
+    };
+
+    abort = { tag v =>
+        __callCC { hk =>
+            (lk, handler, tks) = __dumpSplit tag;
+            kf = { v =>
+                __dumpCat tks;
+                __continue hk v
+            };
+            res = handler kf v;
+            __continue lk res
+        }
+    };
+
+    @export { prompt, abort }
+}
