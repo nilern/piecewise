@@ -156,170 +156,93 @@ QUESTION: what about ``?
     mapList(p) = p '->' p (',' p '->' p)*
                / '->'
 
-# IRs
+# Data
 
-    data Const = Int IntInf
-               | Float FloatInf
-               | Char Char
-               | String UTFString
-               | Symbol UTFString
+* Injection: creates a new value of type T
+* Ejection: disassembles value if it is of type T
+* Classification: `typeOf value` returns the type T of value
+* Membership: `value : T` tells whether value is a member of T
 
-    data Var = LexVar UTFString
-             | DynVar UTFString
 
-    data AVar = GlobVar Name
-              | LexVar Name
-              | DynVar Name
 
-    data Name = Name UTFString
-              | UniqueName UTFString Int
+## Builtin Types
 
-    module CST where
-        data Expr = Fn (Expr+, Expr, Expr)+
-                  | Block Stmt+
-                  | App Expr Expr+
-                  | PrimApp PrimOp Expr+
-                  | Var Var
-                  | Const Const
+Int, Float, Char, Bool
 
-        data Stmt = Def Expr Expr
-                  | AugDef Expr Expr
-                  | Expr Expr
+Symbol
 
-    module AST var where
-        data Expr = Fn [(var+, Expr, Expr)]
-                  | Block Stmt+
-                  | If Expr Expr Expr
-                  | App Expr Expr+
-                  | PrimApp PrimOp Expr+
-                  | Var var
-                  | Const Const
+Tuple
 
-        data Stmt = Def var Expr
-                  | Expr Expr
+Some and None
 
-# Compilation Pipeline
+Fn, Type
 
-    Text
-    -(Lexer)-> Tokens -(WSLexer)-> Tokens
-    -(parse)-> CST
-    -(desugarScope)-> AST
+Any (?, supporting this would probably mean that
+        (:) != { a b => typeOf a == typeOf b})
 
-desugarScope is an alphatization pass that embeds pattern expansion and
-AugDef hoisting.
+## User-defined Types
 
-## Lexer
+A way to create injector-ejector Fn:s is all that is required, for example:
 
-Transform text into token stream.
+    (Pair, newPair, viewPair) = recordType :Pair (Any, Any);
 
-## WSLexer
+    {
+        p = newPair 1 2;
+        viewPair a b = p;
+        p : Pair
+    };
 
-Add whitespace-based tokens (NEWLINE, INDENT, DEDENT) into token stream.
+For added convenience you can
 
-## Parse
+    apply += {(_ == Pair, fields) => apply newPair fields};
+    unapply += {(_ == Pair, v) => viewPair v};
 
-Parse token stream into AST.
+    {
+        p = Pair 1 2;
+        Pair a b = p;
+        p : Pair
+    };
 
-## Expand
+Types are first-class objects but not very interesting ones. By default they
+only support `toString` and `==`. Type introspection is left unspecified;
+implementations are free to provide whatever is convenient (e.g. Types can be
+represented as Class objects in a JVM-hosted implementation).
 
-Expand macros. A preorder traversal that iterates on every node until
-stabilization.
+<!-- Could also have some sugar for integer or name-indexed fields (with getters
+also returning Option to avoid the Haskell record problems). -->
 
-## Flatten
+### Derivation
 
-Identify variable references as Local, Clover or Global, alphatize and perform
-closure conversion, yielding an alphatized FAST (First order AST). A 'down-up'
-traversal that uniquely renames variables on the way down with the help of an
-inherited environment attribute and records closed over variables on lambdas and
-creates the FAST on the way up.
+    typeOf = { v => __typeOf v};
 
-## CPSConvert
+    (:) = { a b => typeOf a == typeOf b};
 
-Perform CPS conversion. Some sort of post order traversal, needs to be
-clarified. At least it is not the extremely confusing higher-order one.
+    Type = __new :TagPair Type :Type;
 
-## Liveness
+    toString += {(t : Type) => __repr t};
 
-Annotate escaping closures with the variables they need to close over (which
-they do by saving them on the stack below the frame pointer and return address
-stuff).
+    recordType = { name fieldTypes =>
+        T = __new :TagPair Type name;
 
-## RegAlloc
+        injectT = {
+            @args fields | count fields == count fieldTypes
+                           @&& every {:} fields fieldTypes =>
+                __new :TagPair T fields
+        };
 
-Register allocation. With the current instruction design it is awkward to use
-more than 64 registers. More importantly each closure creation and call requires
-shuffling the registers carefully while minimizing the amount of moves as much
-as possible.
+        ejectT = {
+            value | value : T => Some {__repr value};
+            _ => None
+        };
 
-## bytecode::Assembler
+        (T, injectT, ejectT)
+    };
 
-Feed the low-level CPS program to the bytecode assembler to obtain bytecode
-objects. The assembler takes care of the tedious details of clover, const and
-global indexing as well as jump offset resolution.
+# Functions
 
-# Value Representation
+Functions can be
 
-* Values are either *immediate* or *allocated*
-* Immediate values include
-    - Small integers `v & 3 == 0`
-    - Object headers `v & 3 == 3`
-    - Small floats `v & 3 == 2`
-* Allocated values are represented by pointers tagged so that `v & 3 == 1` and
-  include
-    - Tagpairs `[Header, ValueRef, ValueRef]`
-    - Tuples `[Header, ValueRef*]`
-    - Blobs `[Header, u8*]`
-
-# VM
-
-## ISA
-
-### Arithmetic
-
-#### Binops
-
-\((a: Int_{l|c}, b: Int_{l|c}) \rightarrow \kappa(d: Int)\)
-
-    iadd d a b
-    isub d a b
-    imul d a b
-    idiv d a b
-
-\((a: Int_{l|c}, b: Int_{l|c}) \rightarrow \kappa(d: Bool)\)
-
-    ieq d a b
-    ile d a b
-    ige d a b
-    ilt d a b
-    igt d a b
-
-### Branches
-
-\(() \rightarrow \kappa()\)
-
-    br offset
-
-\((cond: Bool_{l|c}) \rightarrow \kappa_1() | \kappa_2()\)
-
-    brf cond offset
-
-#### Calls
-
-\(() \rightarrow \kappa_1()\)
-
-    call fnreg argc
-
-\(() \rightarrow \kappa_1()\)
-
-    next argc
-
-\((cond: Bool_{l|c}) \rightarrow \kappa_1() | \kappa_2()\)
-
-    nextf cond argc
-
-#### Returns
-
-\((v: Any_{l|c}) \rightarrow \kappa (Any)\)
-
-    ret v
-    halt v
+* Applied: `foo bar baz` or `apply foo (bar, baz)`
+* Reverse applied: `foo bar baz = foo 1 2` or `unapply foo (foo 1 2)`
+* Queried about their domain and range
+* Combined: `foo += {3 => 4}` or `foo <|> {3 => 4}`
