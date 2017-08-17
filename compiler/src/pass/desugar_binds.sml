@@ -31,7 +31,7 @@ end = struct
         case Cst.unwrapE pat
         of CExpr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
          | CExpr.Block _ => raise Pattern (Cst.exprPos pat, pat)
-         | CExpr.Call (pos, f, args) =>
+         | CExpr.Call (pos, f, args) => (* FIXME: check that lengths match *)
            let val unapply = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "unapply"))))
                val eq = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "=="))))
                val f' = expandExpr f
@@ -86,7 +86,10 @@ end = struct
     and expandPrologue pos (Cst.Prolog (args, cond)) params =
         let val access = FixE (Triv (pos, Var (BaseVar.Lex params)))
             fun newBinding (pos, var, expr) = FixS (Def (pos, LVar.Def var, expr))
-        in Prolog (expandArgs newBinding args access NONE (DNF.always (), VectorExt.empty ()))
+            val tuple =
+                Cst.FixE (CExpr.Triv (pos, CExpr.Triv.Var (BaseVar.Lex (Name.fromString "tuple"))))
+            val pat = Cst.FixE (CExpr.Call (pos, tuple, args))
+        in Prolog (expandPat newBinding pat access NONE (DNF.always (), VectorExt.empty ()))
         end
 
     and expandExpr (Cst.FixE expr) =
