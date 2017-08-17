@@ -81,11 +81,11 @@ end = struct
 
         val toDoc =
             fn Call (_, f, args) =>
-               PP.parens (PP.punctuate PP.space
-                          (VectorExt.prepend (Vector.map Triv.toDoc args) (Triv.toDoc f)))
+               Triv.toDoc f ^^ PP.parens (PP.punctuate (PP.text "," ^^ PP.space)
+                                                       (Vector.map Triv.toDoc args))
              | PrimCall (_, po, args) =>
-               PP.parens (PP.punctuate PP.space
-                          (VectorExt.prepend (Vector.map Triv.toDoc args) (Primop.toDoc po)))
+               Primop.toDoc po ^^ PP.parens (PP.punctuate (PP.text "," ^^ PP.space)
+                                                          (Vector.map Triv.toDoc args))
              | Triv (_, t) => Triv.toDoc t
     end
 
@@ -174,7 +174,7 @@ end = struct
             val casesDoc = PP.punctuate (PP.semi ^^ PP.line) (Vector.map caseToDoc cases)
         in
             nameDoc ^^ cloversDoc ^^ argsDoc <+> PP.text "=" <+> PP.lBrace <$>
-                PP.nest 4 casesDoc <$> PP.rBrace
+                PP.nest 4 (PP.line ^^ casesDoc) <$> PP.rBrace
         end
 
     fun toDoc { procs = procs, main = main } =

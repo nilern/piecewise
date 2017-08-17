@@ -61,17 +61,18 @@ end = struct
                    | Branch of Pos.t * Expr.Triv.t * Name.t * Name.t
 
         val toDoc =
-            fn Continue (_, label, args) =>
-               PP.punctuate (PP.space ^^ PP.text ",") (Vector.map Expr.Triv.toDoc args) <+>
-                   PP.text "->" <+> Name.toDoc label
-             | Call (_, label, f, args) =>
-               PP.parens (PP.punctuate PP.space
-                         (VectorExt.prepend (Vector.map Expr.Triv.toDoc args)
-                                            (Expr.Triv.toDoc f))) <+>
-                   PP.text "->" <+> Name.toDoc label
+            fn Continue (pos, label, args) =>
+               Name.toDoc label ^^
+                   PP.parens (PP.punctuate (PP.text "," ^^ PP.space)
+                                           (Vector.map Expr.Triv.toDoc args))
+             | Call (pos, label, f, args) =>
+               let val lExpr = Expr.Triv.Var (FlatVar1.Label label)
+               in Expr.toDoc (Expr.Call (pos, f, VectorExt.prepend args lExpr))
+               end
              | Branch (_, cond, conseq, alt) =>
-               Expr.Triv.toDoc cond <+>
-                   PP.text "->" <+> Name.toDoc conseq <+> PP.text "|" <+> Name.toDoc alt
+               PP.parens (Expr.Triv.toDoc cond <+> PP.text "?" <+>
+                              Name.toDoc conseq <+> PP.text "|" <+> Name.toDoc alt) ^^
+                   PP.parens (PP.empty)
     end
 
     structure Cont = struct
@@ -79,8 +80,8 @@ end = struct
                  , block: (Transfer.t, Stmt.t) Block.t }
 
         fun toDoc { args = args, block = block } =
-            Argv.toDoc args <+> PP.lBrace <$>
-                PP.nest 4 (Block.toDoc Transfer.toDoc Stmt.toDoc block) <$> PP.rBrace
+            Argv.toDoc args <+> PP.lBrace ^^
+                PP.nest 4 (PP.line ^^ Block.toDoc Transfer.toDoc Stmt.toDoc block) <$> PP.rBrace
     end
 
     structure Cfg = struct
@@ -89,11 +90,11 @@ end = struct
 
         fun toDoc { entry = entry, conts = conts } =
             let fun pairToDoc (label, cont) =
-                    (if label = entry
-                     then PP.text "-> " ^^ Name.toDoc label
-                     else Name.toDoc label) <+> PP.align (Cont.toDoc cont)
-            in PP.punctuate (PP.line ^^ PP.line)
-                            (Vector.map pairToDoc (Vector.fromList (NameMap.listItemsi conts)))
+                    PP.line ^^ Name.toDoc label <+> Cont.toDoc cont
+                val contsDoc =
+                    PP.punctuate PP.line
+                        (Vector.map pairToDoc (Vector.fromList (NameMap.listItemsi conts)))
+            in Name.toDoc entry <+> PP.lBrace ^^ PP.nest 4 contsDoc <$> PP.rBrace
             end
 
         structure Builder = struct
@@ -140,8 +141,7 @@ end = struct
         let val nameDoc = Name.toDoc name
             val cloversDoc = PP.braces (PP.punctuate (PP.text ", ") (Vector.map Name.toDoc clovers))
             val cfgDoc = Cfg.toDoc cfg
-        in nameDoc ^^ cloversDoc <+> PP.text "=" <+> PP.lBrace <$>
-               PP.nest 4 cfgDoc <$> PP.rBrace
+        in nameDoc ^^ cloversDoc <+> cfgDoc
         end
 
     fun toDoc { procs = procs, main = main } =

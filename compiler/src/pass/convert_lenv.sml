@@ -291,8 +291,11 @@ end = struct
                                 , name = name
                                 , clovers = clovers
                                 , args = { names = Vector.fromList [ valOf (Env.self env')
+                                                                   , Name.freshFromString "m"
                                                                    , valOf (Env.params env') ]
-                                         , types = Vector.fromList [ Type.Fn, Type.Any ] }
+                                         , types = Vector.fromList [ Type.Fn
+                                                                   , Type.Int
+                                                                   , Type.Any ] }
                                 , cases = cases' }
                      val _ = NameHashTable.insert procs (name, proc)
                      val cexprs = (* HACK: *)
@@ -320,9 +323,14 @@ end = struct
                  end
                | AAExpr.Call (pos, f, args) =>
                  let val f' = elabExpr procs env f
+                     val m = FixE (Triv (pos, Const (Const.Int "0")))
                      val fnPtr =
-                         FixE (PrimCall (AuglessAst.exprPos f, Primop.FnPtr, Vector.fromList [f']))
-                     val args' = VectorExt.prepend (Vector.map (elabExpr procs env) args) f'
+                         FixE (PrimCall (AuglessAst.exprPos f, Primop.FnPtr,
+                                         Vector.fromList [f', m]))
+                     val args' =
+                         VectorExt.concat
+                             (Vector.fromList [f', FixE (Triv (pos, Const (Const.Int "0")))])
+                             (Vector.map (elabExpr procs env) args)
                  in Call (pos, fnPtr, args')
                  end
                | AAExpr.PrimCall (pos, po, args) =>

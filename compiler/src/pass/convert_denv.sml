@@ -144,7 +144,7 @@ end = struct
         in
             { pos = pos, name = name
             , clovers = clovers
-            , args = Argv.append args envName Type.DynEnv
+            , args = Argv.prepend args envName Type.DynEnv
             , cases = Vector.map elabCase cases }
         end
 

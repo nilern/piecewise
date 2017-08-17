@@ -2,6 +2,8 @@ structure Argv = struct
     type t = { names: Name.t vector, types: Type.t vector }
 
     val empty: t = { names = Vector.fromList [], types = Vector.fromList [] }
+    fun prepend { names = names, types = types } name t =
+        { names = VectorExt.prepend names name, types = VectorExt.prepend types t }
     fun append { names = names, types = types } name t =
         { names = VectorExt.conj names name, types = VectorExt.conj types t }
 

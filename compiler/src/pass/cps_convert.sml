@@ -115,7 +115,7 @@ end = struct
             val ret = Name.freshFromString "ret"
             val ks = Vector.fromList [ret]
             val entry = convertDispatch cfgBuilder dispatcher ks blocks (Dispatcher.Cases pos)
-            val _ = Cfg.Builder.assocArgs (cfgBuilder, entry, Argv.append args ret Type.Cont)
+            val _ = Cfg.Builder.assocArgs (cfgBuilder, entry, Argv.prepend args ret Type.Closure)
         in { pos = pos, name = name
            , clovers = clovers
            , cfg = Cfg.Builder.build cfgBuilder entry }
