@@ -45,8 +45,7 @@ end = struct
     fun trivialize blockBuilder =
         fn Expr.Triv (_, triv) => triv
          | expr => let val name = Name.freshFromString "v"
-                       val ty = Type.Any (* TODO: sharper information *)
-                   in BlockBuilder.append blockBuilder (Def (Expr.pos expr, name, ty, expr))
+                   in BlockBuilder.append blockBuilder (Def (Expr.pos expr, name, expr))
                     ; Var (FlatVar1.Data name)
                    end
 
@@ -88,9 +87,8 @@ end = struct
                 if VectorSlice.length stmts > 0
                 then case VectorSlice.sub (stmts, 0)
                      of FlatAst1.FixS (FStmt.Def (pos, name, expr)) =>
-                        let val ty = Type.Any (* TODO: sharper information *)
-                            val expr' = convertExpr cfgBuilder blockBuilder expr
-                        in BlockBuilder.append blockBuilder (Def (pos, name, ty, expr'))
+                        let val expr' = convertExpr cfgBuilder blockBuilder expr
+                        in BlockBuilder.append blockBuilder (Def (pos, name, expr'))
                          ; convert (VectorSlice.subslice (stmts, 1, NONE))
                         end
                       | FlatAst1.FixS (FStmt.Guard (pos, dnf)) =>

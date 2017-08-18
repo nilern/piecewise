@@ -82,7 +82,7 @@ end = struct
 
     fun checkStmt (stmt, env) =
         case stmt
-        of Stmt.Def (_, name, _, expr) => (* TODO: get rid of the unused type field of Stmt.Def *)
+        of Stmt.Def (_, name, expr) =>
            let val ty = exprType env expr
            in Env.assoc env name ty
            end

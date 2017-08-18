@@ -12,7 +12,7 @@ end
 signature ANF_STMT = sig
     structure Expr : ANF_EXPR
 
-    datatype t = Def of Pos.t * Name.t * Type.t * Expr.t
+    datatype t = Def of Pos.t * Name.t * Expr.t
                | Expr of Expr.t
 
     val pos : t -> Pos.t
@@ -92,17 +92,16 @@ end = struct
     structure Stmt = struct
         structure Expr = Expr
 
-        datatype t = Def of Pos.t * Name.t * Type.t * Expr.t
+        datatype t = Def of Pos.t * Name.t * Expr.t
                    | Expr of Expr.t
 
         val pos =
-            fn Def (pos, _, _, _) => pos
+            fn Def (pos, _, _) => pos
              | Expr expr => Expr.pos expr
 
         val toDoc =
-            fn Def (_, name, ty, expr) =>
-               Name.toDoc name ^^ PP.text ":" <+> Type.toDoc ty <+> PP.text "=" <+>
-                   Expr.toDoc expr
+            fn Def (_, name, expr) =>
+               Name.toDoc name <+> PP.text "=" <+> Expr.toDoc expr
              | Expr expr => Expr.toDoc expr
     end
 

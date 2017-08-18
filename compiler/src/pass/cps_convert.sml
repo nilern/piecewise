@@ -85,17 +85,15 @@ end = struct
                  | Anf.ValExpr.Call (pos, f, args) =>
                    let val block = case Vector.length ks
                                    of 0 => let val name = Name.freshFromString "v"
-                                               val ty = Type.Any (* TODO: remove *)
                                                val callExpr = Expr.Call (pos, f, args)
-                                               val callStmt = Stmt.Def (pos, name, ty, callExpr)
+                                               val callStmt = Stmt.Def (pos, name, callExpr)
                                            in ( VectorExt.conj stmts callStmt
                                               , Halt (pos, Triv.Var (Data name)) )
                                            end
                                     | 1 => (stmts, Transfer.Call (pos, Vector.sub (ks, 0), f, args))
                                     | 2 => let val name = Name.freshFromString "v"
-                                               val ty = Type.Any (* TODO: remove *)
                                                val callExpr = Expr.Call (pos, f, args)
-                                               val callStmt = Stmt.Def (pos, name, ty, callExpr)
+                                               val callStmt = Stmt.Def (pos, name, callExpr)
                                            in ( VectorExt.conj stmts callStmt
                                               , Branch ( pos, Triv.Var (Data name)
                                                        , Vector.sub (ks, 0), Vector.sub (ks, 1) ) )
