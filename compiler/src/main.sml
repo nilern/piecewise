@@ -45,6 +45,7 @@ end = struct
                     val _ = print (PPrint.pretty 80 (Anf.toDoc anf) ^ "\n---\n\n")
                     val cps = CpsConvert.convert anf
                     val _ = print (PPrint.pretty 80 (Cps.toDoc cps))
+                    val _ = CpsTypecheck.typecheck cps
                 in
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -61,6 +62,18 @@ end = struct
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarAugs.ReAssignment (pos, var) =>
                     print ("Reassignment of " ^ PPrint.pretty 80 (RVar.toDoc var) ^
+                           " at " ^ Pos.toString pos ^ "\n")
+              | CpsTypecheck.Argc (pos, expected, got) =>
+                    print ("Expected " ^ Int.toString expected ^ " arguments, got " ^
+                           Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")
+              | CpsTypecheck.Unbound (pos, name) =>
+                    print ("Unbound name: " ^ Name.toString name ^
+                           " at " ^ Pos.toString pos ^ "\n")
+              | CpsTypecheck.Type (pos, expected, got) =>
+                    print ("Expected " ^ (PPrint.pretty 80 (Type.toDoc expected)) ^ ", got " ^
+                           (PPrint.pretty 80 (Type.toDoc got)) ^ " at " ^ Pos.toString pos ^ "\n")
+              | CpsTypecheck.NonLabel (pos, ty) =>
+                    print ("Expected a Label(...), got " ^ PPrint.pretty 80 (Type.toDoc ty) ^
                            " at " ^ Pos.toString pos ^ "\n")
         end
 end

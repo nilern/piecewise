@@ -10,6 +10,7 @@ structure Cps : sig
         datatype t = Continue of Pos.t * Name.t * Expr.Triv.t vector
                    | Call of Pos.t * Name.t * Expr.Triv.t * Expr.Triv.t vector
                    | Branch of Pos.t * Expr.Triv.t * Name.t * Name.t
+                   | Halt of Pos.t * Expr.Triv.t
 
         val successors : t -> Name.t vector
 
@@ -50,7 +51,8 @@ structure Cps : sig
     end
 
     structure DominatorTree : sig
-        type t
+        datatype t = Branch of Name.t * t vector
+                   | Leaf of Name.t
 
         val ofCfg : Cfg.t -> t
         val toDoc : t -> PPrint.doc
@@ -78,11 +80,13 @@ end = struct
         datatype t = Continue of Pos.t * Name.t * Expr.Triv.t vector
                    | Call of Pos.t * Name.t * Expr.Triv.t * Expr.Triv.t vector
                    | Branch of Pos.t * Expr.Triv.t * Name.t * Name.t
+                   | Halt of Pos.t * Expr.Triv.t
 
         val successors =
             fn Continue (_, succ, _) => Vector.fromList [succ]
              | Call (_, succ, _, _) => Vector.fromList [succ]
              | Branch (_, _, succ1, succ2) => Vector.fromList [succ1, succ2]
+             | Halt _ => Vector.fromList []
 
         val toDoc =
             fn Continue (pos, label, args) =>
@@ -97,6 +101,7 @@ end = struct
                PP.parens (Expr.Triv.toDoc cond <+> PP.text "?" <+>
                               Name.toDoc conseq <+> PP.text "|" <+> Name.toDoc alt) ^^
                    PP.parens (PP.empty)
+             | Halt (_, v) => PP.text "__halt" ^^ PP.parens (Expr.Triv.toDoc v)
     end
 
     structure Cont = struct

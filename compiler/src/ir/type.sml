@@ -3,13 +3,21 @@ structure Type = struct
                | Int | Float | Bool | Char
                | Fn
                | Closure | DynEnv
+               | Label of t vector
 
-    val toDoc = fn Any => PPrint.text "Any"
-                 | Int => PPrint.text "Int"
-                 | Float => PPrint.text "Float"
-                 | Bool => PPrint.text "Bool"
-                 | Char => PPrint.text "Char"
-                 | Fn => PPrint.text "Fn"
-                 | Closure => PPrint.text "Closure"
-                 | DynEnv => PPrint.text "DynEnv"
+    local structure PP = PPrint
+          val op^^ = PP.^^
+    in val rec toDoc = fn Any => PP.text "Any"
+                        | Int => PP.text "Int"
+                        | Float => PP.text "Float"
+                        | Bool => PP.text "Bool"
+                        | Char => PP.text "Char"
+                        | Fn => PP.text "Fn"
+                        | Closure => PP.text "Closure"
+                        | DynEnv => PP.text "DynEnv"
+                        | Label argTypes =>
+                          PP.text "Label" ^^
+                              PP.parens (PP.punctuate (PP.text "," ^^ PP.space)
+                                                      (Vector.map toDoc argTypes))
+    end
 end

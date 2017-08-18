@@ -9,6 +9,7 @@ end = struct
     val Data = FlatVar1.Data
     val Continue = Cps.Transfer.Continue
     val Branch = Cps.Transfer.Branch
+    val Halt = Cps.Transfer.Halt
 
     structure Dispatcher = struct
         type t = (Name.t DNF.Clause.t * Name.t) vector
@@ -72,7 +73,8 @@ end = struct
              in case vexpr
                 of Anf.ValExpr.Triv (pos, triv) =>
                    let val transfer = case Vector.length ks
-                                      of 1 =>
+                                      of 0 => Halt (pos, triv)
+                                       | 1 =>
                                          Continue (pos, Vector.sub (ks, 0), Vector.fromList [triv])
                                        | 2 =>
                                          Branch (pos, triv, Vector.sub (ks, 0), Vector.sub (ks, 1))
@@ -82,9 +84,16 @@ end = struct
                    end
                  | Anf.ValExpr.Call (pos, f, args) =>
                    let val block = case Vector.length ks
-                                   of 1 => (stmts, Transfer.Call (pos, Vector.sub (ks, 0), f, args))
+                                   of 0 => let val name = Name.freshFromString "v"
+                                               val ty = Type.Any (* TODO: remove *)
+                                               val callExpr = Expr.Call (pos, f, args)
+                                               val callStmt = Stmt.Def (pos, name, ty, callExpr)
+                                           in ( VectorExt.conj stmts callStmt
+                                              , Halt (pos, Triv.Var (Data name)) )
+                                           end
+                                    | 1 => (stmts, Transfer.Call (pos, Vector.sub (ks, 0), f, args))
                                     | 2 => let val name = Name.freshFromString "v"
-                                               val ty = Type.Any (* TODO: sharper information *)
+                                               val ty = Type.Any (* TODO: remove *)
                                                val callExpr = Expr.Call (pos, f, args)
                                                val callStmt = Stmt.Def (pos, name, ty, callExpr)
                                            in ( VectorExt.conj stmts callStmt
@@ -122,9 +131,8 @@ end = struct
         end
 
     fun convert { procs = procs, main = main as { entry = entry, blocks = blocks } } =
-        let val halt = Name.freshFromString "__halt" (* HACK *)
-            val cfgBuilder = Cfg.Builder.empty ()
-            val ks = Vector.fromList [halt]
+        let val cfgBuilder = Cfg.Builder.empty ()
+            val ks = Vector.fromList []
         in convertBlock cfgBuilder entry ks blocks
          ; { procs = NameMap.map convertProc procs
            , main = Cfg.Builder.build cfgBuilder entry }
