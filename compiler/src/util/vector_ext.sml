@@ -8,6 +8,8 @@ signature VECTOR_EXT = sig
         val build : 'a t -> 'a vector
     end
 
+    val toList : 'a vector -> 'a list
+
     val empty : unit -> 'a vector
     val singleton : 'a -> 'a vector
 
@@ -18,6 +20,7 @@ signature VECTOR_EXT = sig
     val flatten : 'a vector vector -> 'a vector
 
     val flatMap : ('a -> 'b vector) -> 'a vector -> 'b vector
+    val filter : ('a -> bool) -> 'a vector -> 'a vector
     val remove : ('a -> bool) -> 'a vector -> 'a vector
 end
 
@@ -33,6 +36,8 @@ structure VectorExt :> VECTOR_EXT = struct
 
         fun build builder = Vector.fromList (List.rev (!builder))
     end
+
+    fun toList vec = Vector.foldr op:: [] vec
 
     fun empty () = Vector.fromList []
     fun singleton v = Vector.fromList [v]
@@ -52,5 +57,6 @@ structure VectorExt :> VECTOR_EXT = struct
     fun flatten vv = Vector.foldl (fn (v, acc) => concat v acc) (empty ()) vv
 
     fun flatMap f = Vector.foldl (fn (v, acc) => concat acc (f v)) (empty ())
-    fun remove pred = flatMap (fn v => if pred v then empty () else singleton v)
+    fun filter pred = Vector.fromList o List.filter pred o toList
+    fun remove pred = filter (not o pred)
 end
