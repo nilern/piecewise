@@ -19,6 +19,7 @@ signature VECTOR_EXT = sig
     val concat : 'a vector -> 'a vector -> 'a vector
     val flatten : 'a vector vector -> 'a vector
 
+    val app2 : ('a * 'b -> unit) -> 'a vector -> 'b vector -> unit
     val flatMap : ('a -> 'b vector) -> 'a vector -> 'b vector
     val filter : ('a -> bool) -> 'a vector -> 'a vector
     val remove : ('a -> bool) -> 'a vector -> 'a vector
@@ -56,6 +57,7 @@ structure VectorExt :> VECTOR_EXT = struct
     fun concat u v = Vector.concat [u, v]
     fun flatten vv = Vector.foldl (fn (v, acc) => concat v acc) (empty ()) vv
 
+    fun app2 f vec1 vec2 = Vector.appi (fn (i, v) => f (v, Vector.sub (vec2, i))) vec1
     fun flatMap f = Vector.foldl (fn (v, acc) => concat acc (f v)) (empty ())
     fun filter pred = Vector.fromList o List.filter pred o toList
     fun remove pred = filter (not o pred)

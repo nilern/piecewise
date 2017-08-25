@@ -5,6 +5,8 @@ structure Type = struct
                | Closure | DynEnv
                | Label of t vector
 
+    val methodLabel = Label (Vector.fromList [Closure, DynEnv, Fn, Int, Any])
+
     local structure PP = PPrint
           val op^^ = PP.^^
     in val rec toDoc = fn Any => PP.text "Any"

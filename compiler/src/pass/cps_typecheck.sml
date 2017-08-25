@@ -61,6 +61,11 @@ end = struct
                           env names
     end
 
+    fun checkArgc pos expected args =
+        let val argc = Vector.length args
+        in if argc = expected then () else raise Argc (pos, expected, argc)
+        end
+
     val constType =
         fn Const.Int _ => Type.Int
          | Const.Char _ => Type.Char
@@ -73,10 +78,19 @@ end = struct
     fun exprType env =
         fn Expr.Call (_, f, args) => raise Fail "unimplemented"
          | Expr.PrimCall (pos, Primop.EmptyDEnv, args) =>
-           let val argc = Vector.length args
-           in if argc = 0 then Type.DynEnv else raise Argc (pos, 0, argc)
+           (checkArgc pos 0 args; Type.DynEnv)
+         | Expr.PrimCall (pos, Primop.FnPtr, args) =>
+           let val pTypes = Vector.fromList [Type.Fn, Type.Int]
+           in checkArgc pos 2 args
+            ; VectorExt.app2 (checkArg pos env) args pTypes
+            ; Type.methodLabel
            end
          | Expr.Triv (_, triv) => trivType env triv
+
+    and checkArg pos env (triv, expectedTy) =
+        let val ty = trivType env triv
+        in if ty = expectedTy then () else raise Type (pos, expectedTy, ty)
+        end
 
     fun checkExpr env expr = ignore (exprType env expr)
 
