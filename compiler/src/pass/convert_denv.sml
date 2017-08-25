@@ -88,8 +88,10 @@ end = struct
                  Triv (pos, Var (FlatVar1.Data name))
                | PExpr.Triv (pos, PTriv.Var (FlatVar0.Data var)) =>
                  let val (name, skip) = case var
-                                        of RVar.Current (BaseVar.Dyn name) => (name, Const.Int "0")
-                                         | RVar.Upper (BaseVar.Dyn name) => (name, Const.Int "1")
+                                        of RVar.Current (BaseVar.Dyn name) =>
+                                           (name, Const.Int (Int.toLarge 0))
+                                         | RVar.Upper (BaseVar.Dyn name) =>
+                                           (name, Const.Int (Int.toLarge 1))
                                          | _ => raise Fail "unreachable"
                      val nameSym = Const.Symbol (Name.toString name)
                  in PrimCall (pos, Primop.DGet,
@@ -113,7 +115,8 @@ end = struct
                                                   [ FixE (Triv ( pos
                                                                , Var (FlatVar1.Data
                                                                       (Env.name env))))
-                                                  , FixE (Triv (pos, Const (Const.Int "0")))
+                                                  , FixE (Triv (pos,
+                                                                Const (Const.Int (Int.toLarge 0))))
                                                   , FixE (Triv (pos, Const nameSym)) ])))
                          in
                              Expr (FixE (PrimCall (pos, Primop.BSet,

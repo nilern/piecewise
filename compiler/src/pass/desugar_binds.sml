@@ -22,6 +22,7 @@ end = struct
     val Triv = Expr.Triv
     val Def = Stmt.Def
     val Guard = Stmt.Guard
+    val Expr = Stmt.Expr
     val Var = Triv.Var
     val Const = Triv.Const
 
@@ -60,7 +61,7 @@ end = struct
     and expandArgs newBinding args parentAccess parentId (cond, binds) =
         let fun expandArg (i, arg) =
                 let val pos = Cst.exprPos arg
-                    val ie = FixE (Triv (pos, Const (Const.Int (Int.toString i))))
+                    val ie = FixE (Triv (pos, Const (Const.Int (Int.toLarge i))))
                     val argAccess = FixE (Expr.PrimCall (pos, Primop.AGet,
                                                         Vector.fromList [parentAccess, ie]))
                 in expandPat newBinding arg argAccess parentId
@@ -139,6 +140,7 @@ end = struct
              | Cst.Stmt.AugDef (bind, expr) =>
                expandDef (fn (pos, var, expr) => Def (pos, LVar.Aug var, expr))
                          bind expr
+             | Cst.Stmt.Expr expr => Vector.fromList [FixS (Expr (expandExpr expr))]
         end
 
     and expandBlock (stmts, expr) = (VectorExt.flatMap expandStmt stmts, expandExpr expr)

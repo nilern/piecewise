@@ -176,7 +176,8 @@ simple : LPAREN expr RPAREN (expr)
 datum : prim     (prim)
       | compound (compound)
 
-prim : INT    (Cst.FixE (Cst.Expr.Triv (INTleft, Cst.Expr.Triv.Const (Const.Int INT))))
+prim : INT (Cst.FixE (Cst.Expr.Triv (INTleft, Cst.Expr.Triv.Const
+                                                  (Const.Int (valOf (LargeInt.fromString INT))))))
      | STRING (Cst.FixE (Cst.Expr.Triv (STRINGleft, Cst.Expr.Triv.Const (Const.String STRING))))
      | CHAR   (Cst.FixE (Cst.Expr.Triv (CHARleft, Cst.Expr.Triv.Const (Const.Char CHAR))))
 

@@ -37,7 +37,9 @@ end = struct
                     val _ = print (PPrint.pretty 80 (Ast.toDoc ast) ^ "\n---\n\n")
                     val aast = DesugarAugs.desugar ast
                     val _ = print (PPrint.pretty 80 (AuglessAst.toDoc aast) ^ "\n---\n\n")
-                    val fast0 = ConvertLEnv.convert aast
+                    val res = CekAst.interpret aast
+                    val _ = print (PPrint.pretty 80 (Value.toDoc res))
+                    (*val fast0 = ConvertLEnv.convert aast
                     val _ = print (PPrint.pretty 80 (FlatAst0.toDoc fast0) ^ "\n---\n\n")
                     val fast1 = ConvertDEnv.convert fast0
                     val _ = print (PPrint.pretty 80 (FlatAst1.toDoc fast1) ^ "\n---\n\n")
@@ -45,7 +47,7 @@ end = struct
                     val _ = print (PPrint.pretty 80 (Anf.toDoc anf) ^ "\n---\n\n")
                     val cps = CpsConvert.convert anf
                     val _ = print (PPrint.pretty 80 (Cps.toDoc cps))
-                    val _ = CpsTypecheck.typecheck cps
+                    val _ = CpsTypecheck.typecheck cps*)
                 in
                     if PcwsParser.sameToken(nextToken, dummyEOF)
                     then ()
@@ -54,16 +56,16 @@ end = struct
         in
             loop lexer
             handle
-                ConvertLEnv.Unbound (pos, name) =>
+                (* ConvertLEnv.Unbound (pos, name) =>
                     print ("Unbound name: " ^ Name.toString name ^
                            " at " ^ Pos.toString pos ^ "\n")
-              | DesugarBinds.Pattern (pos, pat) =>
+              | *) DesugarBinds.Pattern (pos, pat) =>
                     print ("Invalid pattern: " ^ PPrint.pretty 80 (Cst.exprToDoc pat) ^
                            " at " ^ Pos.toString pos ^ "\n")
               | DesugarAugs.ReAssignment (pos, var) =>
                     print ("Reassignment of " ^ PPrint.pretty 80 (RVar.toDoc var) ^
                            " at " ^ Pos.toString pos ^ "\n")
-              | CpsTypecheck.Argc (pos, expected, got) =>
+              (*| CpsTypecheck.Argc (pos, expected, got) =>
                     print ("Expected " ^ Int.toString expected ^ " arguments, got " ^
                            Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")
               | CpsTypecheck.Unbound (pos, name) =>
@@ -74,7 +76,7 @@ end = struct
                            (PPrint.pretty 80 (Type.toDoc got)) ^ " at " ^ Pos.toString pos ^ "\n")
               | CpsTypecheck.NonLabel (pos, ty) =>
                     print ("Expected a Label(...), got " ^ PPrint.pretty 80 (Type.toDoc ty) ^
-                           " at " ^ Pos.toString pos ^ "\n")
+                           " at " ^ Pos.toString pos ^ "\n") *)
         end
 end
 

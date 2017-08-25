@@ -323,13 +323,15 @@ end = struct
                  end
                | AAExpr.Call (pos, f, args) =>
                  let val f' = elabExpr procs env f
-                     val m = FixE (Triv (pos, Const (Const.Int "0")))
+                     val m = FixE (Triv (pos, Const (Const.Int (Int.toLarge 0))))
                      val fnPtr =
                          FixE (PrimCall (AuglessAst.exprPos f, Primop.FnPtr,
                                          Vector.fromList [f', m]))
                      val args' =
                          VectorExt.concat
-                             (Vector.fromList [f', FixE (Triv (pos, Const (Const.Int "0")))])
+                             (Vector.fromList [f'
+                                              , FixE (Triv (pos,
+                                                            Const (Const.Int (Int.toLarge 0))))])
                              (Vector.map (elabExpr procs env) args)
                  in Call (pos, fnPtr, args')
                  end
@@ -349,7 +351,7 @@ end = struct
                        Triv (pos, Var (FlatVar0.Data (RVar.Current (BaseVar.Lex name))))
                      | SOME (Env.Clover (self, i)) =>
                        let val selfVar = Var (FlatVar0.Data (RVar.Current (BaseVar.Lex self)))
-                           val index = Const (Const.Int (Int.toString i))
+                           val index = Const (Const.Int (Int.toLarge i))
                        in PrimCall ( pos
                                   , Primop.FnGet
                                   , Vector.fromList [ FixE (Triv (pos, selfVar))
