@@ -1,4 +1,6 @@
 structure CekAst :> sig
+    structure Value : TO_DOC
+
     val interpret : (AuglessAst.expr, AuglessAst.stmt) Block.t -> Value.t
 end = struct
     structure AAst = AuglessAst
@@ -10,15 +12,15 @@ end = struct
     (* TODO: type ctx = { cont = Frame.t, lenv = Env.t, denv = Env.t } *)
 
     structure Env :> sig (* HACK: raises Option in various places *)
-        type t
+        type 'v t
 
-        val empty : t
-        val find : t -> Name.t -> Value.t
-        val pushBlock : t -> NameSet.set -> t
-        val def : t -> Name.t -> Value.t -> unit
+        val empty : 'v t
+        val find : 'v t -> Name.t -> 'v
+        val pushBlock : 'v t -> NameSet.set -> 'v t
+        val def : 'v t -> Name.t -> 'v -> unit
     end = struct
-        datatype t = Block of t * Value.t option ref NameMap.map
-                   | Top
+        datatype 'v t = Block of 'v t * 'v option ref NameMap.map
+                      | Top
 
         val empty = Top
 
@@ -37,17 +39,34 @@ end = struct
         fun def env name value = valOf (findVar env name) := SOME value
     end
 
-    type envs = {lex: Env.t, dyn: Env.t}
+    type 'v envs = {lex: 'v Env.t, dyn: 'v Env.t}
 
     structure Frame :> sig
-        datatype t = Block of t * envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
-                   | Def of t * envs * BaseVar.t
-                   | Halt
+        datatype 'v t = Block of 'v t * 'v envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
+                      | Def of 'v t * 'v envs * BaseVar.t
+                      | Halt
     end = struct
-        datatype t = Block of t * envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
-                   | Def of t * envs * BaseVar.t
-                   | Halt
+        datatype 'v t = Block of 'v t * 'v envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
+                      | Def of 'v t * 'v envs * BaseVar.t
+                      | Halt
     end
+
+    structure Value = struct
+        datatype t = Int of LargeInt.int
+                   | Float of LargeReal.real
+                   | Char of WideChar.char
+                   | Bool of bool
+
+        val toString =
+            fn Int i => LargeInt.toString i
+             | Float f => LargeReal.toString f
+             | Char c => WideChar.toString c
+             | Bool true => "True"
+             | Bool false => "False"
+
+        val toDoc = PPrint.text o toString
+    end
+
 
     fun stmtVecBindings stmts =
         let fun step (AAst.FixS stmt, bs as (lbs, dbs)) =

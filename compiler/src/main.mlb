@@ -41,7 +41,6 @@ local
     pass/cps_convert.sml
     pass/cps_typecheck.sml
 
-    eval/value.sml
     eval/cek_ast.sml
 in
     main.sml
