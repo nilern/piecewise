@@ -9,8 +9,6 @@ end = struct
     structure Triv = Expr.Triv
     structure LVar = BaseVar
 
-    (* TODO: type ctx = { cont = Frame.t, lenv = Env.t, denv = Env.t } *)
-
     structure Env :> sig (* HACK: raises Option in various places *)
         type 'v t
 
@@ -41,13 +39,11 @@ end = struct
 
     type 'v envs = {lex: 'v Env.t, dyn: 'v Env.t}
 
-    structure Frame :> sig
-        datatype 'v t = Block of 'v t * 'v envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
-                      | Def of 'v t * 'v envs * BaseVar.t
-                      | Halt
-    end = struct
-        datatype 'v t = Block of 'v t * 'v envs * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
-                      | Def of 'v t * 'v envs * BaseVar.t
+    structure Frame = struct
+        type ('f, 'v) ctx = {cont: 'f, env: 'v envs}
+
+        datatype 'v t = Block of ('v t, 'v) ctx * int * (AuglessAst.expr, AuglessAst.stmt) Block.t
+                      | Def of ('v t, 'v) ctx * BaseVar.t
                       | Halt
     end
 
@@ -67,7 +63,6 @@ end = struct
         val toDoc = PPrint.text o toString
     end
 
-
     fun stmtVecBindings stmts =
         let fun step (AAst.FixS stmt, bs as (lbs, dbs)) =
                 case stmt
@@ -78,47 +73,47 @@ end = struct
         in Vector.foldl step (NameSet.empty, NameSet.empty) stmts
         end
 
-    fun continue cont envs value =
+    fun continue {cont = cont, env = _} value =
         case cont
-        of Frame.Block (cont, envs, i, block as (stmts, expr)) =>
+        of Frame.Block (ctx as {cont = _, env = env}, i, block as (stmts, expr)) =>
            let val i = i + 1
            in if i < Vector.length stmts
-              then evalStmt (Frame.Block (cont, envs, i, block)) envs (Vector.sub (stmts, i))
-              else evalExpr cont envs expr
+              then evalStmt {cont = Frame.Block (ctx, i, block), env = env} (Vector.sub (stmts, i))
+              else evalExpr ctx expr
            end
-         | Frame.Def (cont, envs, LVar.Lex name) =>
-           ( Env.def (#lex envs) name value
-           ; continue cont envs value) (* HACK: value is always ignored so just returns something *)
+         | Frame.Def (ctx as {cont = _, env = {lex = lenv, dyn = _}}, LVar.Lex name) =>
+           ( Env.def lenv name value
+           ; continue ctx value) (* HACK: just returns something *)
          | Frame.Halt => value
 
-    and evalConst cont envs const =
+    and evalConst ctx const =
         case const
-        of Const.Int i => continue cont envs (Value.Int i)
+        of Const.Int i => continue ctx (Value.Int i)
 
-    and evalTriv cont envs triv =
+    and evalTriv ctx triv =
         case triv
-        of Triv.Var (RVar.Current (LVar.Lex name)) =>
-           continue cont envs (Env.find (#lex envs) name)
-         | Triv.Const const => evalConst cont envs const
+        of Triv.Var (RVar.Current (LVar.Lex name)) => continue ctx (Env.find (#lex (#env ctx)) name)
+         | Triv.Const const => evalConst ctx const
 
-    and evalExpr cont envs (AAst.FixE expr) =
+    and evalExpr ctx (AAst.FixE expr) =
         case expr
-        of Expr.Block (_, block) => evalBlock cont envs block
-         | Expr.Triv (_, triv) => evalTriv cont envs triv
+        of Expr.Block (_, block) => evalBlock ctx block
+         | Expr.Triv (_, triv) => evalTriv ctx triv
 
-    and evalStmt cont envs (AAst.FixS stmt) =
+    and evalStmt (ctx as {cont = _, env = env}) (AAst.FixS stmt) =
         case stmt
-        of Stmt.Def (_, var, expr) => evalExpr (Frame.Def (cont, envs, var)) envs expr
-         | Stmt.Expr expr => evalExpr cont envs expr
+        of Stmt.Def (_, var, expr) => evalExpr {cont = Frame.Def (ctx, var), env = env} expr
+         | Stmt.Expr expr => evalExpr ctx expr
 
-    and evalBlock cont envs (block as (stmts, expr)) =
+    and evalBlock {cont = cont, env = {lex = lenv, dyn = denv}} (block as (stmts, expr)) =
         let val (lbs, _ (* TODO: dbs *)) = stmtVecBindings stmts
-            val envs = { lex = Env.pushBlock (#lex envs) lbs
-                       , dyn = #dyn envs }
+            val env = { lex = Env.pushBlock lenv lbs
+                      , dyn = denv }
         in case Vector.length stmts
-           of 0 => evalExpr cont envs expr
-            | n => evalStmt (Frame.Block (cont, envs, 0, block)) envs (Vector.sub (stmts, 0))
+           of 0 => evalExpr {cont = cont, env = env} expr
+            | n => evalStmt {cont = Frame.Block ({cont = cont, env = env}, 0, block), env = env}
+                            (Vector.sub (stmts, 0))
         end
 
-    val interpret = evalBlock Frame.Halt {lex = Env.empty, dyn = Env.empty}
+    val interpret = evalBlock {cont = Frame.Halt, env = {lex = Env.empty, dyn = Env.empty}}
 end
