@@ -90,24 +90,24 @@ end = struct
            ; continue ctx value) (* HACK: just returns something *)
          | Frame.Halt => value
 
-    and evalConst ctx const =
-        case const
-        of Const.Int i => continue ctx (Value.Int i)
-
-    and evalTriv ctx triv =
-        case triv
-        of Triv.Var (RVar.Current var) =>
-           let val value = case var
-                           of LVar.Lex name => Env.find (#lex (#env ctx)) name
-                            | LVar.Dyn name => Env.find (#dyn (#env ctx)) name
-           in continue ctx value
-           end
-         | Triv.Const const => evalConst ctx const
-
     and evalExpr ctx (AAst.FixE expr) =
-        case expr
-        of Expr.Block (_, block) => evalBlock ctx block
-         | Expr.Triv (_, triv) => evalTriv ctx triv
+        let fun evalTriv ctx triv =
+                let fun evalConst ctx const =
+                        case const
+                        of Const.Int i => continue ctx (Value.Int i)
+                in case triv
+                   of Triv.Var (RVar.Current var) =>
+                      let val value = case var
+                                      of LVar.Lex name => Env.find (#lex (#env ctx)) name
+                                       | LVar.Dyn name => Env.find (#dyn (#env ctx)) name
+                      in continue ctx value
+                      end
+                    | Triv.Const const => evalConst ctx const
+                end
+        in case expr
+           of Expr.Block (_, block) => evalBlock ctx block
+            | Expr.Triv (_, triv) => evalTriv ctx triv
+        end
 
     and evalStmt (ctx as {cont = _, env = env}) (AAst.FixS stmt) =
         case stmt
