@@ -1,6 +1,6 @@
 structure Primop = struct
-    structure PP = PPrint
-    datatype t = IAdd
+    datatype t = Apply
+               | IAdd
                | Tuple
                | Close | FnPtr | FnGet
                | Tag | Repr
@@ -9,7 +9,8 @@ structure Primop = struct
                | DEnv | EmptyDEnv | DGet
                | Panic
 
-    fun fromString "iadd" = IAdd
+    fun fromString "apply" = Apply
+      | fromString "iadd" = IAdd
       | fromString "tuple" = Tuple
       | fromString "close" = Close
       | fromString "fnPtr" = FnPtr
@@ -24,18 +25,21 @@ structure Primop = struct
       | fromString "dget" = DGet
       | fromString "panic" = Panic
 
-    fun toDoc IAdd = PP.text "__iadd"
-      | toDoc Tuple = PP.text "__tuple"
-      | toDoc Close = PP.text "__close"
-      | toDoc FnPtr = PP.text "__fnPtr"
-      | toDoc FnGet = PP.text "__fnGet"
-      | toDoc Tag = PP.text "__tag"
-      | toDoc Repr = PP.text "__repr"
-      | toDoc AGet = PP.text "__aget"
-      | toDoc Box = PP.text "__box"
-      | toDoc BSet = PP.text "__bset"
-      | toDoc DEnv = PP.text "__denv"
-      | toDoc EmptyDEnv = PP.text "__emptyDenv"
-      | toDoc DGet = PP.text "__dget"
-      | toDoc Panic = PP.text "__panic"
+    fun toString Apply = "__apply"
+      | toString IAdd = "__iadd"
+      | toString Tuple = "__tuple"
+      | toString Close = "__close"
+      | toString FnPtr = "__fnPtr"
+      | toString FnGet = "__fnGet"
+      | toString Tag = "__tag"
+      | toString Repr = "__repr"
+      | toString AGet = "__aget"
+      | toString Box = "__box"
+      | toString BSet = "__bset"
+      | toString DEnv = "__denv"
+      | toString EmptyDEnv = "__emptyDenv"
+      | toString DGet = "__dget"
+      | toString Panic = "__panic"
+
+    val toDoc = PPrint.text o toString
 end

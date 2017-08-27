@@ -37,6 +37,8 @@ end = struct
                     val _ = print (PPrint.pretty 80 (Ast.toDoc ast) ^ "\n---\n\n")
                     val aast = DesugarAugs.desugar ast
                     val _ = print (PPrint.pretty 80 (AuglessAst.toDoc aast) ^ "\n---\n\n")
+                    val aast = DesugarCalls.desugar aast
+                    val _ = print (PPrint.pretty 80 (AuglessAst.toDoc aast) ^ "\n---\n\n")
                     val res = CekAst.interpret aast
                     val _ = print (PPrint.pretty 80 (CekAst.Value.toDoc res))
                     (*val fast0 = ConvertLEnv.convert aast
@@ -65,6 +67,9 @@ end = struct
               | DesugarAugs.ReAssignment (pos, var) =>
                     print ("Reassignment of " ^ PPrint.pretty 80 (RVar.toDoc var) ^
                            " at " ^ Pos.toString pos ^ "\n")
+              | DesugarCalls.Argc (pos, po, expected, got) =>
+                print (Primop.toString po ^ " expected " ^ Int.toString expected ^
+                       " arguments, got " ^ Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")
               (*| CpsTypecheck.Argc (pos, expected, got) =>
                     print ("Expected " ^ Int.toString expected ^ " arguments, got " ^
                            Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")

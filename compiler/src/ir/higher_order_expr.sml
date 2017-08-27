@@ -8,6 +8,9 @@ signature HIGHER_ORDER_EXPR = sig
                                          | PrimCall of Pos.t * Primop.t * 'expr vector
                                          | Triv of Pos.t * Triv.t
 
+    val map : (('e -> 'e) -> 's -> 's) -> (('e -> 'e) -> 'p -> 'p)
+            -> ('e -> 'e) -> ('e, 's, 'p) t -> ('e, 's, 'p) t
+
     val pos : ('e, 's, 'p) t -> Pos.t
     val toDoc : ('e -> PPrint.doc) -> ('s -> PPrint.doc) -> ('p -> PPrint.doc) -> ('e, 's, 'p) t
               -> PPrint.doc
@@ -29,6 +32,16 @@ functor HigherOrderExpr(RV : TO_DOC) : HIGHER_ORDER_EXPR = struct
                                          | Call of Pos.t * 'expr * 'expr vector
                                          | PrimCall of Pos.t * Primop.t * 'expr vector
                                          | Triv of Pos.t * Triv.t
+
+    fun map mapStmtExprs mapPrologueExprs f =
+        fn Fn (pos, name, params, cases) =>
+           let fun mapCaseExprs (prologue, body) = (mapPrologueExprs f prologue, f body)
+           in Fn (pos, name, params, Vector.map mapCaseExprs cases)
+           end
+         | Block (pos, block) => Block (pos, Block.mapExprs mapStmtExprs f block)
+         | Call (pos, callee, args) => Call (pos, f callee, Vector.map f args)
+         | PrimCall (pos, po, args) => PrimCall (pos, po, Vector.map f args)
+         | t as Triv _ => t
 
     val pos = fn Fn (pos, _, _, _) => pos
                | Block (pos, _) => pos

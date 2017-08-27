@@ -29,6 +29,7 @@ local
     ir/ast.sml
     pass/desugar_binds.sml
     pass/desugar_augs.sml
+    pass/desugar_calls.sml
 
     ir/flat_ast.sml
     pass/convert_lenv.sml

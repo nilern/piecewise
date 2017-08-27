@@ -5,6 +5,8 @@ signature ASTMT = sig
                      | Guard of Pos.t * 'expr DNF.t
                      | Expr of 'expr
 
+    val mapExprs : ('e -> 'e) -> 'e t -> 'e t
+
     val pos : ('e -> Pos.t) -> 'e t -> Pos.t
     val toDoc : ('e -> PPrint.doc) -> 'e t -> PPrint.doc
 end
@@ -18,6 +20,11 @@ functor StmtFn(LV : TO_DOC) : ASTMT = struct
     datatype 'expr t = Def of Pos.t * LVar.t * 'expr
                      | Guard of Pos.t * 'expr DNF.t
                      | Expr of 'expr
+
+    fun mapExprs f =
+        fn Def (pos, var, expr) => Def (pos, var, f expr)
+         | Guard (pos, dnf) => Guard (pos, DNF.map f dnf)
+         | Expr expr => Expr (f expr)
 
     fun pos exprPos =
         fn Def (pos, _, _) => pos
