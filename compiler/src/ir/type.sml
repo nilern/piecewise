@@ -1,6 +1,7 @@
 structure Type = struct
     datatype t = Any
                | Int | Float | Bool | Char
+               | Tuple
                | Fn
                | Closure | DynEnv
                | Label of t vector
@@ -14,6 +15,7 @@ structure Type = struct
                         | Float => PP.text "Float"
                         | Bool => PP.text "Bool"
                         | Char => PP.text "Char"
+                        | Tuple => PP.text "Tuple"
                         | Fn => PP.text "Fn"
                         | Closure => PP.text "Closure"
                         | DynEnv => PP.text "DynEnv"

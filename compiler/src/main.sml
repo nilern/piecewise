@@ -70,6 +70,12 @@ end = struct
               | DesugarCalls.Argc (pos, po, expected, got) =>
                 print (Primop.toString po ^ " expected " ^ Int.toString expected ^
                        " arguments, got " ^ Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")
+              | CekAst.Argc (pos, expected, got) =>
+                print ("Expected " ^ Int.toString expected ^ " arguments, got " ^
+                       Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")
+              | CekAst.Type (pos, expected, got) =>
+                    print ("Expected " ^ (PPrint.pretty 80 (Type.toDoc expected)) ^ ", got " ^
+                           (PPrint.pretty 80 (Type.toDoc got)) ^ " at " ^ Pos.toString pos ^ "\n")
               (*| CpsTypecheck.Argc (pos, expected, got) =>
                     print ("Expected " ^ Int.toString expected ^ " arguments, got " ^
                            Int.toString got ^ " at " ^ Pos.toString pos ^ "\n")

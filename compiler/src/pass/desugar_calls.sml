@@ -24,8 +24,8 @@ end = struct
            let val apply =
                    FixE (Triv (pos, Var (RVar.Current (LVar.Lex (Name.fromString "apply")))))
                val argtup = FixE (PrimCall (pos, Primop.Tuple, args))
-               val args = Vector.fromList [f, argtup]
-           in FixE (Call (pos, apply, args))
+               val metaArgtup = FixE (PrimCall (pos, Primop.Tuple, Vector.fromList [f, argtup]))
+           in FixE (Call (pos, apply, Vector.fromList [metaArgtup]))
            end
          | AAst.FixE (Expr.PrimCall (pos, Primop.Apply, args)) =>
            if Vector.length args = 2
