@@ -5,7 +5,7 @@ a TypeRef. The TypeRef is used by the program and runtime to interpret the bag
 of bits/bytes.
 
 Since we need to encode recursive types (linked lists and such) and fit values
-in registers we actually pass around ValueRef:s instead of the full values. 
+in registers we actually pass around ValueRef:s instead of the full values.
 ValueRef is a "tagged pointer.
 
 ## TypeIndices
@@ -98,7 +98,7 @@ The GC can find the pointers as follows:
 
     1. If the last bits of the ValueRef are not 11, there are none.
     2. If the ValueRef tag is 0b011, there are (*v).header.length() ValueRefs at
-    3. If the ValueRef tag is 0b011, 
+    3. If the ValueRef tag is 0b011,
 
 ## Object Headers
 
@@ -151,22 +151,40 @@ The GC can find the pointers as follows:
 
     fn redirect[T](v: Indirection[T]) -> T throws Uninitialized
 
-<!--
-
 # IRs
+
+    data Stmt = Def Pos Pattern (Option Expr) Expr
+              | Expr Expr
+
+    data Expr = Fn Pos (Option Name) [([Pattern], Option Expr, Expr)]
+              | Block Pos [Stmt] Expr
+              | Call Pos Expr [Expr]
+              | PrimCall Pos Primop [Expr]
+              | Triv Pos (Triv RVar)
+
+    data Pattern = Call Pos Expr [Pattern]
+                 | Triv Pos (Triv PatVar)
+
+    data Triv rvar = Const Const
+                   | Var rvar
+
+    data BaseVar = Lex Name
+                 | Dyn Name
+
+    data RVar = Current BaseVar
+              | Upper BaseVar
+
+    data PatVar = Bind BaseVar
+                | Ignore
 
     data Const = Int IntInf
                | Float FloatInf
                | Char Char
+               | Bool Bool
                | String UTFString
                | Symbol UTFString
 
-    data Var = LexVar UTFString
-             | DynVar UTFString
-
-    data AVar = GlobVar Name
-              | LexVar Name
-              | DynVar Name
+<!--
 
     data Name = Name UTFString
               | UniqueName UTFString Int
@@ -266,4 +284,3 @@ global indexing as well as jump offset resolution.
     - Tagpairs `[Header, ValueRef, ValueRef]`
     - Tuples `[Header, ValueRef*]`
     - Blobs `[Header, u8*]` -->
-
