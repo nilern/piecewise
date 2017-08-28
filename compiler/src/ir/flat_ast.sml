@@ -31,9 +31,6 @@ functor FlatAstFn(structure RV: TO_DOC
     type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
 
-    val unwrapE : expr -> (expr, stmt) Expr.t
-    val unwrapS : stmt -> expr Stmt.t
-
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
     val blockPos : (expr, stmt) Block.t -> Pos.t
@@ -95,9 +92,6 @@ end = struct
 
     type program = { procs: proc NameMap.map
                    , main: (expr, stmt) Block.t }
-
-    fun unwrapE (FixE expr) = expr
-    fun unwrapS (FixS stmt) = stmt
 
     fun exprPos (FixE expr) = Expr.pos expr
     and stmtPos (FixS stmt) = Stmt.pos exprPos stmt

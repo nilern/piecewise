@@ -28,10 +28,10 @@ end = struct
 
     exception Pattern of Pos.t * Cst.expr
 
-    fun expandPat newBinding pat access parentId (cond, binds) =
-        case Cst.unwrapE pat
-        of CExpr.Fn _ => raise Pattern (Cst.exprPos pat, pat)
-         | CExpr.Block _ => raise Pattern (Cst.exprPos pat, pat)
+    fun expandPat newBinding (Cst.FixE pat) access parentId (cond, binds) =
+        case pat
+        of CExpr.Fn (pos, _, _, _) => raise Pattern (pos, Cst.FixE pat)
+         | CExpr.Block (pos, _) => raise Pattern (pos, Cst.FixE pat)
          | CExpr.Call (pos, f, args) => (* FIXME: check that lengths match *)
            let val unapply = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "unapply"))))
                val eq = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "=="))))
@@ -46,8 +46,8 @@ end = struct
            in expandArgs newBinding args access'' (SOME parentId') (cond', binds)
            end
          | CExpr.PrimCall (_, po, args) => raise Fail "unimplemented"
-         | CExpr.Triv (_, CTriv.Var var) =>
-           (cond, VectorExt.conj binds (newBinding (Cst.exprPos pat, var, access)))
+         | CExpr.Triv (pos, CTriv.Var var) =>
+           (cond, VectorExt.conj binds (newBinding (pos, var, access)))
          | CExpr.Triv (pos, CTriv.Const c) =>
            let val eq = FixE (Triv (pos, Var (BaseVar.Lex (Name.fromString "=="))))
                val c' = FixE (Triv (pos, Const c))

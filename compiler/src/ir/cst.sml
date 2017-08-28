@@ -16,12 +16,6 @@ structure Cst : sig
     and bind = Bind of expr * expr option
     and prologue = Prolog of expr vector * expr option
 
-    val wrapE : (expr, stmt, prologue) Expr.t -> expr
-    val wrapS : (expr, bind) Stmt.t -> stmt
-
-    val unwrapE : expr -> (expr, stmt, prologue) Expr.t
-    val unwrapS : stmt -> (expr, bind) Stmt.t
-
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
 
@@ -60,18 +54,12 @@ end = struct
     and bind = Bind of expr * expr option
     and prologue = Prolog of expr vector * expr option
 
-    val wrapE = FixE
-    val wrapS = FixS
-
-    fun unwrapE (FixE expr) = expr
-    fun unwrapS (FixS stmt) = stmt
-
-    val exprPos = Expr.pos o unwrapE
+    fun exprPos (FixE expr) = Expr.pos expr
     fun bindPos (Bind (pat, _)) = exprPos pat
-    val stmtPos = Stmt.pos exprPos bindPos o unwrapS
+    fun stmtPos (FixS stmt) = Stmt.pos exprPos bindPos stmt
 
-    fun exprToDoc expr = Expr.toDoc exprToDoc stmtToDoc prologueToDoc (unwrapE expr)
-    and stmtToDoc stmt = Stmt.toDoc exprToDoc bindToDoc (unwrapS stmt)
+    fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc prologueToDoc expr
+    and stmtToDoc (FixS stmt) = Stmt.toDoc exprToDoc bindToDoc stmt
     and bindToDoc (Bind (pat, cond)) =
         exprToDoc pat ^^ (OptionExt.toDoc (fn ce => PP.space ^^ PP.text "|" <+> exprToDoc ce) cond)
     and prologueToDoc (Prolog (pats, cond)) =

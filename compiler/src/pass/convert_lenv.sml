@@ -369,7 +369,7 @@ end = struct
                  in
                      case status'
                      of Env.UsedBeforeDef =>
-                        let val pos = FlatAst0.Expr.pos (FlatAst0.unwrapE expr')
+                        let val pos = FlatAst0.Expr.pos ((fn (FlatAst0.FixE expr) => expr) expr')
                             val varExpr =
                                 FixE (Triv (pos,
                                             Var (FlatVar0.Data (RVar.Current (BaseVar.Lex name')))))

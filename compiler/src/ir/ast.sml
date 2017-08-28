@@ -6,9 +6,6 @@ signature AST = sig
     and stmt = FixS of expr Stmt.t
     and prologue = Prolog of expr DNF.t * stmt vector
 
-    val unwrapE : expr -> (expr, stmt, prologue) Expr.t
-    val unwrapS : stmt -> expr Stmt.t
-
     val mapExprExprs : (expr -> expr) -> expr -> expr
     val mapStmtExprs : (expr -> expr) -> stmt -> stmt
     val mapPrologueExprs : (expr -> expr) -> prologue -> prologue
@@ -35,16 +32,13 @@ functor AstFn(structure RV : TO_DOC structure LV : TO_DOC) : AST = struct
     and stmt = FixS of expr Stmt.t
     and prologue = Prolog of expr DNF.t * stmt vector
 
-    fun unwrapE (FixE expr) = expr
-    fun unwrapS (FixS stmt) = stmt
-
     fun mapStmtExprs f (FixS stmt) = FixS (Stmt.mapExprs f stmt)
     fun mapPrologueExprs f (Prolog (cond, bindStmts)) =
         Prolog (DNF.map f cond, Vector.map (mapStmtExprs f) bindStmts)
     fun mapExprExprs f (FixE expr) = FixE (Expr.map mapStmtExprs mapPrologueExprs f expr)
 
-    val exprPos = Expr.pos o unwrapE
-    val stmtPos = Stmt.pos exprPos o unwrapS
+    fun exprPos (FixE expr) = Expr.pos expr
+    fun stmtPos (FixS stmt) = Stmt.pos exprPos stmt
     val blockPos = Block.pos exprPos stmtPos
 
     fun exprToDoc (FixE expr) = Expr.toDoc exprToDoc stmtToDoc prologueToDoc expr
