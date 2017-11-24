@@ -5,6 +5,7 @@ extern crate gc_derive;
 use std::io::{self, Read};
 
 mod util;
+mod value;
 mod ast;
 mod lexer;
 mod parser;

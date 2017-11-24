@@ -5,7 +5,7 @@ use lexer::{Precedence, Tok, LexicalError};
 use lexer::Side::*;
 use lexer::Delimiter::*;
 use lexer::Separator::*;
-use ast::{Expr, Stmt, Block};
+use ast::{Expr, Stmt, Block, Name};
 
 #[LALR] grammar;
 
@@ -17,7 +17,7 @@ Body: Block = {
 
 Expr: Expr = {
     "{" <body: Body> "}" => Expr::Block(body),
-    <name: Name> => Expr::Name(name)
+    <name: Name> => Expr::NameRef(Name::Lex(name))
 };
 
 Stmt: Stmt = {
