@@ -1,0 +1,54 @@
+use gc::Gc;
+
+use util::SrcPos;
+use lexer::{Precedence, Tok, LexicalError};
+use lexer::Side::*;
+use lexer::Delimiter::*;
+use lexer::Separator::*;
+use ast::{Expr, Stmt, Block};
+
+#[LALR] grammar;
+
+pub Program: Block = Body;
+
+Body: Block = {
+    <stmts: (<Stmt> ";")*> <expr: Expr> => Block { stmts, expr: Gc::new(expr) }
+};
+
+Expr: Expr = {
+    "{" <body: Body> "}" => Expr::Block(body),
+    <name: Name> => Expr::Name(name)
+};
+
+Stmt: Stmt = {
+    <expr: Expr> => Stmt::Expr(expr)
+};
+
+extern {
+    type Location = SrcPos;
+    type Error = LexicalError;
+    enum Tok {
+        Name => Tok::Name(<String>),
+        Number => Tok::Number(<String>),
+        String => Tok::String(<String>),
+        Char => Tok::Char(<String>),
+        Op0 => Tok::Op(<String>, Precedence::Zero),
+        Op1 => Tok::Op(<String>, Precedence::One),
+        Op2 => Tok::Op(<String>, Precedence::Two),
+        Op3 => Tok::Op(<String>, Precedence::Three),
+        Op4 => Tok::Op(<String>, Precedence::Four),
+        Op5 => Tok::Op(<String>, Precedence::Five),
+        Op6 => Tok::Op(<String>, Precedence::Six),
+        Op7 => Tok::Op(<String>, Precedence::Seven),
+        "(" => Tok::Delim(Paren, Left),
+        ")" => Tok::Delim(Paren, Right),
+        "[" => Tok::Delim(Bracket, Left),
+        "]" => Tok::Delim(Bracket, Right),
+        "{" => Tok::Delim(Brace, Left),
+        "}" => Tok::Delim(Brace, Right),
+        "," => Tok::Sep(Comma),
+        ";" => Tok::Sep(Semicolon),
+        "=>" => Tok::Arrow,
+        "=" => Tok::Eq
+    }
+}

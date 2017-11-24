@@ -1,0 +1,14 @@
+[package]
+name = "interpreter"
+version = "0.1.0"
+authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
+
+build = "build.rs"
+
+[dependencies]
+gc = "*"
+gc_derive = "*"
+lalrpop-util = "0.13.1"
+
+[build-dependencies]
+lalrpop = "0.13.1"
