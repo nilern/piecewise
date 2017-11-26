@@ -1,3 +1,5 @@
+#![feature(try_from)]
+
 extern crate gc;
 #[macro_use]
 extern crate gc_derive;

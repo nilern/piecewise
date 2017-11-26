@@ -2,6 +2,7 @@ use std::str::CharIndices;
 use std::iter::Peekable;
 use std::fmt;
 use std::fmt::Display;
+use std::str::FromStr;
 
 use util::SrcPos;
 
@@ -59,7 +60,7 @@ pub enum Tok {
     Name(String),
     Op(String, Precedence),
     Symbol(String),
-    Number(String),
+    Int(isize),
 
     Char(String),
     String(String),
@@ -68,12 +69,13 @@ pub enum Tok {
 
     Arrow,
     Eq,
+    Bar,
     Sep(Separator)
 }
 
 type LocTok = (SrcPos, Tok, SrcPos);
 
-const CHAR_TOKENS: &'static str = "()[]{}.;";
+const CHAR_TOKENS: &'static str = "()[]{}.;|";
 
 const TOKEN_DELIMS: &'static str = "'\"";
 
@@ -95,6 +97,8 @@ impl Tok {
 
             ',' => Ok(Sep(Comma)),
             ';' => Ok(Sep(Semicolon)),
+
+            '|' => Ok(Bar),
 
             _ => Err(LexicalError::MalformedTok)
         }
@@ -118,7 +122,7 @@ impl Display for Tok {
         use self::Tok::*;
 
         match self {
-            &Name(_) | &Op(_, _) | &Symbol(_) | &Number(_)
+            &Name(_) | &Op(_, _) | &Symbol(_) | &Int(_)
             | &Char(_) | &String(_) => write!(f, "{:?}", *self),
 
             &Delim(Paren, Left) => write!(f, "("),
@@ -131,7 +135,8 @@ impl Display for Tok {
             &Sep(Comma) => write!(f, ","),
             &Sep(Semicolon) => write!(f, ";"),
             &Eq => write!(f, "="),
-            &Arrow => write!(f, "=>")
+            &Arrow => write!(f, "=>"),
+            &Bar => write!(f, "|"),
         }
     }
 }
@@ -214,7 +219,7 @@ impl<'input> Iterator for Lexer<'input> {
                 _ => {
                     let chars = self.until(is_terminator).unwrap_or(String::new());
                     if c.is_digit(10) {
-                        Ok((start, Tok::Number(chars), self.pos))
+                        Ok((start, Tok::Int(isize::from_str(&chars).unwrap()), self.pos))
                     } else if c.is_alphabetic() || c == '@' {
                         Ok((start, Tok::Name(chars), self.pos))
                     } else {
