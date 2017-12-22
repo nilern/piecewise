@@ -1,0 +1,51 @@
+use std::str::FromStr;
+use gc::Gc;
+
+use ast::{Expr, Stmt, Block, Name, Call, Function, Method, Pattern};
+use value::Value;
+
+pub program -> Block = ws? block:body ws? { block }
+
+body -> Block = stmts:stmt* ws? expr:expr { Block { stmts, expr: Gc::new(expr) } }
+
+stmt -> Stmt = expr:expr ws? ";" { Stmt::Expr(expr) }
+
+pattern -> Pattern = n:int { Pattern::Const(Gc::new(Value::Int(n))) }
+
+expr -> Expr = infix
+
+infix -> Expr = #infix<simple> {
+    #L el op:op6 er { Expr::Call(Call { callee: Gc::new(op), args: vec![el, er] }) }
+    #L el op:op7 er { Expr::Call(Call { callee: Gc::new(op), args: vec![el, er] }) }
+}
+
+op<O> = ws? op:$(O) ws? { Expr::NameRef(Name::Lex(op.to_string())) }
+op6 -> Expr = op<[+\-]>
+op7 -> Expr = op<[*/%]>
+
+simple -> Expr
+    = "{" ws? b:body ws? "}" { Expr::Block(b) }
+    / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
+          Expr::Function(Gc::new(Function(methods)))
+      }
+    / "[" ws? b:body ws? "]" { Expr::Function(Gc::new(Function(vec![Method {
+          pattern: Pattern::Const(Gc::new(Value::Bool(true))), // FIXME
+          guard: Expr::Const(Gc::new(Value::Bool(true))),
+          body: Expr::Block(b)
+      }])))}
+    / "(" ws? e:expr ws? ")" { e }
+    / n:int { Expr::Const(Gc::new(Value::Int(n))) }
+
+method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+    Method {
+        pattern,
+        guard: guard.unwrap_or_else(|| Expr::Const(Gc::new(Value::Bool(false)))),
+        body: Expr::Block(body)
+    }
+}
+
+guard -> Expr = "|" ws? e:expr { e }
+
+int -> isize = cs:$([0-9]+) { isize::from_str(cs).unwrap() }
+
+ws -> () = [ \t\r\n]+

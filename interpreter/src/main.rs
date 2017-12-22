@@ -10,17 +10,14 @@ mod util;
 mod value;
 mod ast;
 mod lexer;
-mod parser;
+mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
 mod eval;
 
-use lexer::Lexer;
-use parser::parse_Program;
-use eval::run;
+use parser::program;
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
-    let lexer = Lexer::new(&src);
-    println!("{:?}", run(parse_Program(lexer).unwrap()));
+    println!("{:?}", program(&src));
 }
