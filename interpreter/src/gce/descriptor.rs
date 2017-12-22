@@ -3,11 +3,11 @@ use std::mem::transmute;
 use std::ptr::{self, Unique};
 use std::cell::Cell;
 use std::ops::Index;
+use std::ptr::Shared;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
 use gce::util::{Uninitialized, Initializable, Foam, Span, AllocSat};
 use gce::layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
-use gce::object_model::Object;
 
 // ================================================================================================
 
@@ -17,19 +17,19 @@ pub enum Descriptor {
 }
 
 impl Descriptor {
-    pub fn of(obj: &Object) -> *const Descriptor {
+    pub fn of<Obj>(obj: *const Obj) -> Shared<Descriptor> {
         unsafe {
             let addr: usize = transmute(obj);
             let block_index = (addr & Arena::MASK) >> Block::SHIFT;
             let arena_addr = addr & !Arena::MASK;
-            (arena_addr | block_index << DESCR_SHIFT) as _
+            Shared::new_unchecked((arena_addr | block_index << DESCR_SHIFT) as _)
         }
     }
 
-    pub fn mark_of(&self, obj: &Object) -> u8 {
+    pub fn mark_of<Obj>(&self, obj: Shared<Obj>) -> u8 {
         match self {
             &Descriptor::MSBlock(ref sd) => unsafe {
-                let obj_addr: usize = transmute(obj);
+                let obj_addr: usize = transmute(obj.as_ptr());
                 let index = (obj_addr & Block::MASK) >> Granule::SHIFT;
                 sd.get_mark(index)
             },
@@ -37,10 +37,10 @@ impl Descriptor {
         }
     }
 
-    pub fn set_mark_of(&mut self, obj: &Object, mark: u8, len: GSize) {
+    pub fn set_mark_of<Obj>(&mut self, obj: Shared<Obj>, mark: u8, len: GSize) {
         match self {
             &mut Descriptor::MSBlock(ref mut sd) => unsafe {
-                let obj_addr: usize = transmute(obj);
+                let obj_addr: usize = transmute(obj.as_ptr());
                 let index = (obj_addr & Block::MASK) >> Granule::SHIFT;
                 sd.set_mark(index, mark, len)
             },
@@ -104,7 +104,7 @@ impl MSBlock {
         }
     }
 
-    pub fn get_obj(&self, index: usize) -> *const Object {
+    pub fn get_obj<Obj>(&self, index: usize) -> *const Obj {
         unsafe { self.upcast().start().offset(index as isize) as _ }
     }
 

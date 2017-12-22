@@ -1,20 +1,21 @@
 use core::nonzero::NonZero;
 use std::mem::transmute;
-use std::ptr;
-use std::ptr::{Unique, Shared};
+use std::ptr::{self, Unique};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
+use gce::{Object, ObjectRef, PointyObjectRef};
 use gce::util::{Uninitialized, Initializable, CeilDiv, Foam, Span, AllocSat};
 use gce::layout::{Block, GSize};
 use gce::block::BlockAllocator;
 use gce::descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
-use gce::object_model::{LARGE_OBJ_THRESHOLD, ValueRef, PointyObject, Object};
+
+const LARGE_OBJ_THRESHOLD: usize = Block::WSIZE * 8 / 10;
 
 // FIXME: observe alignment
 // TODO: use singly linked .freelist?
 
-pub struct Generation {
+pub struct Generation<ORef: ObjectRef> {
     freelist: LinkedList<SizedFreeAdapter>,
     bumper: Option<Span<Uninitialized<usize>>>,
     block_allocator: BlockAllocator,
@@ -23,10 +24,12 @@ pub struct Generation {
     large_objs: LinkedList<LargeObjRopeAdapter>,
 
     current_mark: u8,
-    mark_stack: Vec<Shared<PointyObject>>
+    mark_stack: Vec<ORef::PORef>
 }
 
-impl Generation {
+impl<ORef, PORef> Generation<ORef>
+    where ORef: ObjectRef<PORef=PORef>, PORef: PointyObjectRef<ORef=ORef>
+{
     pub fn new(max_heap: usize) -> Self {
         Generation {
             freelist: LinkedList::new(SizedFreeAdapter::new()),
@@ -59,15 +62,16 @@ impl Generation {
     }
 
     /// Mark a single object reference.
-    pub fn mark_ref(&mut self, oref: ValueRef) -> ValueRef {
+    pub fn mark_ref(&mut self, oref: ORef) -> ORef {
         if let Some(ptr) = oref.ptr() {
-            unsafe {
-                if (*ptr.as_ptr()).get_mark() != self.current_mark {
-                    let pointy = oref.is_pointy();
-                    (*ptr.as_ptr()).set_mark(pointy, self.current_mark);
-                    if pointy {
-                        self.mark_stack.push(transmute(ptr));
-                    }
+            let mut descr = Descriptor::of(ptr.as_ptr());
+            let descr = unsafe { descr.as_mut() };
+
+            if descr.mark_of(ptr) != self.current_mark {
+                unsafe { descr.set_mark_of(ptr, self.current_mark, ptr.as_ref().gsize()) };
+
+                if let Some(pref) = oref.pointy_ref() {
+                    self.mark_stack.push(pref);
                 }
             }
         }
@@ -99,8 +103,8 @@ impl Generation {
     }
 
     unsafe fn mark_all(&mut self) {
-        while let Some(oref) = self.mark_stack.pop() {
-            for fref in (*(oref.as_ptr() as *mut PointyObject)).fields_mut() {
+        while let Some(poref) = self.mark_stack.pop() {
+            for fref in poref.obj_refs() {
                 *fref = self.mark_ref(*fref);
             }
         }
@@ -109,7 +113,7 @@ impl Generation {
     unsafe fn sweep_all(&mut self) {
         for block in self.active_blocks.iter() {
             use self::SweepState::*;
-            let mut state = Det;
+            let mut state: SweepState<ORef::Obj> = Det;
             for (i, mark) in block.marks().iter().enumerate() {
                 match state {
                     Det => if *mark == self.current_mark {
@@ -119,7 +123,7 @@ impl Generation {
                     },
                     Free(ptr, len) => if *mark == self.current_mark {
                         if len.get() == GSize::from(Block::WSIZE) {
-                            let descr = Unique::new_unchecked(Descriptor::of(&*ptr) as _);
+                            let descr = Unique::new_unchecked(Descriptor::of(ptr).as_ptr() as _);
                             self.block_allocator.release(descr, NonZero::new_unchecked(1));
                         } else if len.get() >= GSize::of::<SizedFreeObj>() { // FIXME: DRY
                             // TODO: is len is large enough, recycle as a bumper instead
@@ -213,9 +217,9 @@ impl Generation {
 // ================================================================================================
 
 #[derive(Clone, Copy)]
-enum SweepState {
+enum SweepState<Obj> {
     Det,
-    Free(*const Object, NonZero<GSize>),
+    Free(*const Obj, NonZero<GSize>),
     Obj
 }
 
