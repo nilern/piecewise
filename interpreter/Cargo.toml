@@ -8,6 +8,8 @@ build = "build.rs"
 [dependencies]
 gc = "*"
 gc_derive = "*"
+nix = "0.9"
+intrusive-collections = "0.7"
 
 [build-dependencies]
 peg = "0.5"
