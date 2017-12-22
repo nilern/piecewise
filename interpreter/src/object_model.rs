@@ -3,6 +3,7 @@ use std::slice;
 use std::mem::{size_of, transmute};
 use std::ops::Deref;
 use std::fmt::{self, Debug, Formatter};
+use std::collections::HashMap;
 
 use gce::util::CeilDiv;
 use gce::{Object, ObjectRef, PointyObjectRef};
@@ -12,6 +13,31 @@ use gce::layout::{Granule, GSize};
 
 const TAG_MASK: usize = 0b111;
 const PTR_BIT: usize = 0b001;
+
+// ================================================================================================
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum TypeIndex {
+    Type
+}
+
+struct TypeRegistry {
+    types_by_index: HashMap<TypeIndex, ValueRef>,
+    indices_by_type: HashMap<ValueRef, TypeIndex>
+}
+
+impl TypeRegistry {
+    fn index_of(&self, vref: ValueRef) -> TypeIndex {
+        *self.indices_by_type.get(&vref).unwrap()
+    }
+}
+
+lazy_static! {
+    static ref TYPE_REGISTRY: TypeRegistry = TypeRegistry {
+        indices_by_type: HashMap::new(),
+        types_by_index: HashMap::new()
+    };
+}
 
 // ================================================================================================
 
@@ -36,12 +62,12 @@ pub struct HeapValue {
 
 impl HeapValue {
     fn ref_len(&self) -> usize { self.typ.ref_len }
-
-    fn view(&self) -> ValueView { unimplemented!() }
 }
 
 impl Object for HeapValue {
-    fn gsize(&self) -> GSize { From::from(self.typ.size.ceil_div(size_of::<Granule>())) }
+    fn gsize(&self) -> GSize {
+        From::from(self.typ.size.ceil_div(size_of::<Granule>()))
+    }
 }
 
 // ================================================================================================
@@ -67,7 +93,7 @@ impl<T> Deref for GcPtr<T> {
 
 // ================================================================================================
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ValueRef(usize);
 
 impl ValueRef {
@@ -75,7 +101,9 @@ impl ValueRef {
 
     fn view(self) -> ValueView {
         if let Some(sptr) = self.ptr() {
-            unsafe { &*sptr.as_ptr() }.view()
+            match TYPE_REGISTRY.index_of(self) {
+                TypeIndex::Type => ValueView::Type(GcPtr(sptr.as_ptr() as *mut Type))
+            }
         } else {
             match self.0 & TAG_MASK {
                 0b000 => ValueView::Int((self.0 & !TAG_MASK) as isize),

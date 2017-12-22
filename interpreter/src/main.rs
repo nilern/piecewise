@@ -5,6 +5,9 @@ extern crate nix;
 #[macro_use]
 extern crate intrusive_collections;
 
+#[macro_use]
+extern crate lazy_static;
+
 extern crate gc;
 #[macro_use]
 extern crate gc_derive;
