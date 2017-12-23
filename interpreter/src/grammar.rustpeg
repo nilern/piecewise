@@ -1,50 +1,49 @@
 use std::str::FromStr;
 use gc::Gc;
 
-use ast::{Expr, Stmt, Block, Name, Call, Function, Method, Pattern};
-use value::Value;
+use value::{Value, ValueRef};
 
-pub program -> Block = ws? block:body ws? { block }
+pub program -> Value = ws? block:body ws? { block }
 
-body -> Block = stmts:stmt* ws? expr:expr { Block { stmts, expr: Gc::new(expr) } }
+body -> Value = stmts:stmt* ws? expr:expr { Value::Block { stmts, expr: Gc::new(expr) } }
 
-stmt -> Stmt = expr:expr ws? ";" { Stmt::Expr(expr) }
+stmt -> ValueRef = expr:expr ws? ";" { Gc::new(expr) }
 
-pattern -> Pattern = n:int { Pattern::Const(Gc::new(Value::Int(n))) }
+pattern -> Value = n:int { Value::Const(Gc::new(Value::Int(n))) }
 
-expr -> Expr = infix
+expr -> Value = infix
 
-infix -> Expr = #infix<simple> {
-    #L el op:op6 er { Expr::Call(Call { callee: Gc::new(op), args: vec![el, er] }) }
-    #L el op:op7 er { Expr::Call(Call { callee: Gc::new(op), args: vec![el, er] }) }
+infix -> Value = #infix<simple> {
+    #L el op:op6 er { Value::Call { callee: Gc::new(op), args: vec![Gc::new(el), Gc::new(er)] } }
+    #L el op:op7 er { Value::Call { callee: Gc::new(op), args: vec![Gc::new(el), Gc::new(er)] } }
 }
 
-op<O> = ws? op:$(O) ws? { Expr::NameRef(Name::Lex(op.to_string())) }
-op6 -> Expr = op<[+\-]>
-op7 -> Expr = op<[*/%]>
+op<O> = ws? op:$(O) ws? { Value::Lex(Gc::new(Value::Symbol(op.to_string()))) }
+op6 -> Value = op<[+\-]>
+op7 -> Value = op<[*/%]>
 
-simple -> Expr
-    = "{" ws? b:body ws? "}" { Expr::Block(b) }
-    / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
-          Expr::Function(Gc::new(Function(methods)))
+simple -> Value
+    = "{" ws? b:body ws? "}" { b }
+    / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" { Value::Function { methods } }
+    / "[" ws? b:body ws? "]" { Value::Function {
+          methods: vec![Gc::new(Value::Method {
+              pattern: Gc::new(Value::Const(Gc::new(Value::Bool(true)))), // FIXME
+              guard: Gc::new(Value::Const(Gc::new(Value::Bool(true)))),
+              body: Gc::new(b)
+          })]}
       }
-    / "[" ws? b:body ws? "]" { Expr::Function(Gc::new(Function(vec![Method {
-          pattern: Pattern::Const(Gc::new(Value::Bool(true))), // FIXME
-          guard: Expr::Const(Gc::new(Value::Bool(true))),
-          body: Expr::Block(b)
-      }])))}
     / "(" ws? e:expr ws? ")" { e }
-    / n:int { Expr::Const(Gc::new(Value::Int(n))) }
+    / n:int { Value::Const(Gc::new(Value::Int(n))) }
 
-method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
-    Method {
-        pattern,
-        guard: guard.unwrap_or_else(|| Expr::Const(Gc::new(Value::Bool(false)))),
-        body: Expr::Block(body)
-    }
+method -> ValueRef = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+    Gc::new(Value::Method {
+        pattern: Gc::new(pattern),
+        guard: Gc::new(guard.unwrap_or_else(|| Value::Const(Gc::new(Value::Bool(false))))),
+        body: Gc::new(body)
+    })
 }
 
-guard -> Expr = "|" ws? e:expr { e }
+guard -> Value = "|" ws? e:expr { e }
 
 int -> isize = cs:$([0-9]+) { isize::from_str(cs).unwrap() }
 

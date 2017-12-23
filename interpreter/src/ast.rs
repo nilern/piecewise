@@ -24,7 +24,7 @@ pub enum Expr {
     Function(Gc<Function>),
     Call(Call<Expr>),
     PrimCall(PrimCall),
-    
+
     NameRef(Name),
     Const(Gc<Value>)
 }
@@ -129,7 +129,7 @@ pub fn analyze_clauses(clauses: Vec<Clause>) -> Result<Expr, ClauseError> {
                 unreachable!()
             }
         }
-        
+
         if let Some(Stmt::Expr(ref expr)) = stmts.pop() {
             Ok(Block { stmts, expr: Gc::new(expr.clone()) })
         } else {
@@ -141,7 +141,7 @@ pub fn analyze_clauses(clauses: Vec<Clause>) -> Result<Expr, ClauseError> {
         where I: Iterator<Item=Clause>
     {
         let mut methods = Vec::new();
-        
+
         loop {
             let (pattern, guard, stmt) = match clauses.next() {
                 Some(Clause::Method { pattern, guard, body }) => (pattern, guard, body),
