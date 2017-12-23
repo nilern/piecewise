@@ -1,9 +1,9 @@
 use std::ptr::Shared;
 use std::slice;
 use std::mem::{size_of, transmute};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::fmt::{self, Debug, Formatter};
-use std::collections::HashMap;
+use std::marker::PhantomData;
 
 use gce::util::CeilDiv;
 use gce::{Object, ObjectRef, PointyObjectRef};
@@ -21,29 +21,15 @@ enum TypeIndex {
     Type
 }
 
-struct TypeRegistry {
-    types_by_index: HashMap<TypeIndex, ValueRef>,
-    indices_by_type: HashMap<ValueRef, TypeIndex>
-}
-
-impl TypeRegistry {
-    fn index_of(&self, vref: ValueRef) -> TypeIndex {
-        *self.indices_by_type.get(&vref).unwrap()
-    }
-}
-
-lazy_static! {
-    static ref TYPE_REGISTRY: TypeRegistry = TypeRegistry {
-        indices_by_type: HashMap::new(),
-        types_by_index: HashMap::new()
-    };
+trait TypeRegistry {
+    fn index_of(&self, typ: TypedValueRef<Type>) -> TypeIndex;
 }
 
 // ================================================================================================
 
 #[derive(Debug)]
 pub enum ValueView {
-    Type(GcPtr<Type>),
+    Type(TypedValueRef<Type>),
 
     Int(isize),
     Float(f64),
@@ -53,11 +39,10 @@ pub enum ValueView {
 
 // ================================================================================================
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct HeapValue {
     link: ValueRef,
-    typ: GcPtr<Type>
+    typ: TypedValueRef<Type>
 }
 
 impl HeapValue {
@@ -67,6 +52,13 @@ impl HeapValue {
 impl Object for HeapValue {
     fn gsize(&self) -> GSize {
         From::from(self.typ.size.ceil_div(size_of::<Granule>()))
+    }
+}
+
+impl Debug for HeapValue {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        // TODO: fields (may point back to self!)
+        f.debug_struct("HeapValue").finish()
     }
 }
 
@@ -82,27 +74,20 @@ pub struct Type {
 
 // ================================================================================================
 
-#[derive(Clone, Copy, Debug)]
-pub struct GcPtr<T>(*mut T);
-
-impl<T> Deref for GcPtr<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T { unsafe{ &*self.0 } }
-}
-
-// ================================================================================================
-
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ValueRef(usize);
 
 impl ValueRef {
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
-    fn view(self) -> ValueView {
+    fn typ(self) -> TypedValueRef<Type> {
+        unimplemented!()
+    }
+
+    fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
-            match TYPE_REGISTRY.index_of(self) {
-                TypeIndex::Type => ValueView::Type(GcPtr(sptr.as_ptr() as *mut Type))
+            match type_reg.index_of(self.typ()) {
+                TypeIndex::Type => ValueView::Type(unsafe { TypedValueRef::new(self) })
             }
         } else {
             match self.0 & TAG_MASK {
@@ -113,6 +98,12 @@ impl ValueRef {
                 _ => unreachable!()
             }
         }
+    }
+
+    fn fmt<T>(vref: ValueRef, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>
+        where T: TypeRegistry
+    {
+        vref.view(type_reg).fmt(f)
     }
 }
 
@@ -137,8 +128,30 @@ impl ObjectRef for ValueRef {
     }
 }
 
-impl Debug for ValueRef {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> { self.view().fmt(f) }
+// ================================================================================================
+
+pub struct TypedValueRef<T>(usize, PhantomData<T>);
+
+impl<T> TypedValueRef<T> {
+    unsafe fn new(vref: ValueRef) -> Self {
+        TypedValueRef(vref.0, PhantomData::default())
+    }
+}
+
+impl<T> Deref for TypedValueRef<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T { unsafe { transmute(self.0 & !TAG_MASK) } }
+}
+
+impl<T> DerefMut for TypedValueRef<T> {
+    fn deref_mut(&mut self) -> &mut T { unsafe { transmute(self.0 & !TAG_MASK) } }
+}
+
+impl<T: Debug> Debug for TypedValueRef<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.deref().fmt(f)
+    }
 }
 
 // ================================================================================================
@@ -150,9 +163,9 @@ impl PointyObjectRef for PointyValueRef {
     type ORef = ValueRef;
 
     fn obj_refs<'a>(self) -> &'a mut[Self::ORef] {
-        let ptr: *mut HeapValue = ((self.0).0 & !TAG_MASK) as _;
+        let ptr: *const HeapValue = ((self.0).0 & !TAG_MASK) as _;
         unsafe {
-            let data_ptr: *mut ValueRef = ptr.offset(1) as _;
+            let data_ptr = (ptr as *mut ValueRef).offset(1);
             slice::from_raw_parts_mut(data_ptr, (*ptr).ref_len())
         }
     }

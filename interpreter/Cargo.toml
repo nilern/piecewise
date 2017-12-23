@@ -8,7 +8,6 @@ build = "build.rs"
 [dependencies]
 gc = "*"
 gc_derive = "*"
-lazy_static = "1.0"
 nix = "0.9"
 intrusive-collections = "0.7"
 
