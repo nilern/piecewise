@@ -14,7 +14,8 @@ use std::io::{self, Read};
 // HACK: these are pub just for rustdoc
 pub mod util;
 pub mod gce;
-pub mod object_model;
+pub mod object;
+pub mod value_refs;
 pub mod value;
 pub mod ast;
 pub mod lexer;
