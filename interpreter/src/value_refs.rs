@@ -2,11 +2,11 @@ use std::ptr::Shared;
 use std::slice;
 use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
 
 use gce::{ObjectRef, PointyObjectRef};
-use object::{HeapValue, ValueView, Type, TypeIndex, TypeRegistry};
+use object::{DynamicDebug, HeapValue, ValueView, Type, TypeIndex, TypeRegistry};
 
 // ================================================================================================
 
@@ -28,7 +28,10 @@ impl ValueRef {
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
             match type_reg.index_of(self.typ()) {
-                TypeIndex::Type => ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) }))
+                TypeIndex::Type =>
+                    ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) })),
+                TypeIndex::Const =>
+                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) }))
             }
         } else {
             match self.0 & TAG_MASK {
@@ -39,12 +42,6 @@ impl ValueRef {
                 _ => unreachable!()
             }
         }
-    }
-
-    fn fmt<T>(vref: ValueRef, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>
-        where T: TypeRegistry
-    {
-        vref.view(type_reg).fmt(f)
     }
 }
 
@@ -66,6 +63,12 @@ impl ObjectRef for ValueRef {
         } else {
             None
         }
+    }
+}
+
+impl DynamicDebug for ValueRef {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        self.view(type_reg).fmt(f, type_reg)
     }
 }
 
@@ -97,9 +100,9 @@ impl<T> DerefMut for TypedValueRef<T> {
     fn deref_mut(&mut self) -> &mut T { unsafe { transmute(self.0 & !TAG_MASK) } }
 }
 
-impl<T: Debug> Debug for TypedValueRef<T> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        self.deref().fmt(f)
+impl<T: DynamicDebug> DynamicDebug for TypedValueRef<T> {
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, type_reg: &R) -> Result<(), fmt::Error> {
+        self.deref().fmt(f, type_reg)
     }
 }
 
