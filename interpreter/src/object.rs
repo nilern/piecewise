@@ -10,12 +10,14 @@ use value_refs::{ValueRef, TypedValueRef};
 
 // ================================================================================================
 
+/// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
 pub trait DynamicDebug {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>;
 }
 
 // ================================================================================================
 
+/// A reified type tag.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TypeIndex {
     Type,
@@ -23,19 +25,26 @@ pub enum TypeIndex {
     Const
 }
 
+/// Obtain the `TypeIndex` of `Self`.
 trait IndexedType {
     const TYPE_INDEX: TypeIndex;
 }
 
+/// Converts between type values and `TypeIndex`:es.
 pub trait TypeRegistry {
+    /// Add a mapping.
     fn insert(&mut self, index: TypeIndex, typ: TypedValueRef<Type>);
 
+    /// Get the `Type` for `index`.
     fn get(&self, index: TypeIndex) -> TypedValueRef<Type>;
+
+    /// Get the `TypeIndex` for `typ`.
     fn index_of(&self, typ: TypedValueRef<Type>) -> TypeIndex;
 }
 
 // ================================================================================================
 
+/// Unwraps scalars and makes heap value typing static.
 pub enum ValueView {
     Type(TypedValueRef<Type>),
     Const(TypedValueRef<Const>),
@@ -65,9 +74,12 @@ impl DynamicDebug for ValueView {
 
 // ================================================================================================
 
+/// The 'supertype' of all heap values (non-scalars).
 #[repr(C)]
 pub struct HeapValue {
+    /// Multipurpose redirection field
     link: ValueRef,
+    /// Dynamic type
     typ: TypedValueRef<Type>
 }
 
@@ -88,10 +100,13 @@ impl DynamicDebug for HeapValue {
 
 // ================================================================================================
 
+/// A dynamic type.
 #[repr(C)]
 pub struct Type {
     heap_value: HeapValue,
+    /// Instance size in granules
     gsize: GSize,
+    /// How many potentially pointer-valued fields instances have
     ref_len: usize
 }
 
@@ -108,9 +123,11 @@ impl DynamicDebug for Type {
     }
 }
 
+/// An AST node for constants.
 #[repr(C)]
 pub struct Const {
     heap_value: HeapValue,
+    /// The value of the constant
     value: ValueRef
 }
 
@@ -130,11 +147,13 @@ impl DynamicDebug for Const {
 
 // ================================================================================================
 
+/// Memory manager and value factory.
 pub struct ValueManager {
     gc: Generation<ValueRef>
 }
 
 impl ValueManager {
+    /// Create a new `ValueManager` with a maximum heap size of `max_heap`.
     pub fn new<R: TypeRegistry>(type_reg: &mut R, max_heap: usize) -> ValueManager {
         let mut res = ValueManager {
             gc: Generation::new(max_heap)
@@ -149,6 +168,7 @@ impl ValueManager {
         res
     }
 
+    /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
     fn init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
         where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
     {
@@ -161,17 +181,22 @@ impl ValueManager {
         tvref
     }
 
+    /// Allocate a `T` with a granule alignment of 1.
     unsafe fn allocate_t<T>(&mut self) -> Option<Initializable<T>> {
         self.gc.allocate(NonZero::new_unchecked(1),
                          NonZero::new_unchecked(From::from(GSize::of::<T>())))
     }
 
+    /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
+    /// everything but the `HeapValue` part.
     fn create<T, R, F>(&mut self, type_reg: &R, f: F) -> Option<TypedValueRef<T>>
         where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
     {
         unsafe { self.allocate_t() }.map(|typ| Self::init(typ, type_reg, f))
     }
 
+    /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
+    /// potentially pointer-valued fields.
     pub fn create_type<R: TypeRegistry>(&mut self, type_reg: &R, size: usize, ref_len: usize)
         -> Option<TypedValueRef<Type>>
     {
@@ -182,6 +207,7 @@ impl ValueManager {
         })
     }
 
+    /// Create a new `Const` node of `value`.
     pub fn create_const<R: TypeRegistry>(&mut self, types: &R, value: ValueRef)
         -> Option<TypedValueRef<Const>>
     {

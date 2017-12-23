@@ -15,16 +15,19 @@ const PTR_BIT: usize = 0b001;
 
 // ================================================================================================
 
+/// A value reference (tagged pointer).
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct ValueRef(usize);
 
 impl ValueRef {
+    /// Does `self` hold a pointer?
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
     fn typ(self) -> TypedValueRef<Type> {
         unimplemented!()
     }
 
+    /// Get the corresponding `ValueView`.
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
             match type_reg.index_of(self.typ()) {
@@ -74,6 +77,7 @@ impl DynamicDebug for ValueRef {
 
 // ================================================================================================
 
+/// A statically typed `ValueRef`.
 pub struct TypedValueRef<T>(usize, PhantomData<T>);
 
 impl<T> Clone for TypedValueRef<T> {
@@ -83,10 +87,12 @@ impl<T> Clone for TypedValueRef<T> {
 impl<T> Copy for TypedValueRef<T> {}
 
 impl<T> TypedValueRef<T> {
+    /// Convert from a (freshly allocated) pointer.
     pub fn new(ptr: Unique<T>) -> TypedValueRef<T> {
         TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
 
+    /// Forget the static type information.
     pub fn upcast(self) -> ValueRef { ValueRef(self.0) }
 }
 
@@ -108,6 +114,7 @@ impl<T: DynamicDebug> DynamicDebug for TypedValueRef<T> {
 
 // ================================================================================================
 
+/// A `ValueRef` that has a non-zero number of potentially pointer-valued fields.
 #[derive(Clone, Copy)]
 pub struct PointyValueRef(ValueRef);
 
