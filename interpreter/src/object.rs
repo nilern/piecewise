@@ -1,9 +1,8 @@
 use core::nonzero::NonZero;
-use std::ptr::{Unique, Shared};
 use std::mem::{size_of, transmute};
 use std::fmt::{self, Debug, Formatter};
 
-use gce::util::{Initializable, CeilDiv};
+use gce::util::{start_init, Initializable, CeilDiv};
 use gce::Object;
 use gce::layout::{Granule, GSize};
 use gce::mark_n_sweep::Generation;
@@ -22,6 +21,10 @@ pub enum TypeIndex {
     Type,
 
     Const
+}
+
+trait IndexedType {
+    const TYPE_INDEX: TypeIndex;
 }
 
 pub trait TypeRegistry {
@@ -92,6 +95,10 @@ pub struct Type {
     ref_len: usize
 }
 
+impl IndexedType for Type {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Type;
+}
+
 impl DynamicDebug for Type {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
         f.write_str("Type {{ heap_value: ")?;
@@ -105,6 +112,10 @@ impl DynamicDebug for Type {
 pub struct Const {
     heap_value: HeapValue,
     value: ValueRef
+}
+
+impl IndexedType for Const {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
 }
 
 impl DynamicDebug for Const {
@@ -124,66 +135,57 @@ pub struct ValueManager {
 }
 
 impl ValueManager {
-    pub fn new<T: TypeRegistry>(type_reg: &mut T, max_heap: usize) -> ValueManager {
+    pub fn new<R: TypeRegistry>(type_reg: &mut R, max_heap: usize) -> ValueManager {
         let mut res = ValueManager {
             gc: Generation::new(max_heap)
         };
-        let type_type = unsafe {
-            res.gc.allocate(NonZero::new_unchecked(1),
-                            NonZero::new_unchecked(From::from(GSize::of::<Type>())))
-                  .unwrap()
-        };
+        let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
         type_reg.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
-        Self::init_type::<T>(type_type, type_reg, GSize::of::<Type>(), 1);
+        Self::init(type_type, type_reg, |heap_value| Type {
+            heap_value,
+            gsize: GSize::from(GSize::of::<Type>()),
+            ref_len: 1
+        });
         res
     }
 
-    fn init_type<T: TypeRegistry>(typ: Initializable<Type>, type_reg: &TypeRegistry, gsize: GSize,
-                                  ref_len: usize) -> TypedValueRef<Type>
+    fn init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
+        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
     {
-        let mut typ: Unique<Type> = unsafe { transmute(typ) };
-        let tvref = TypedValueRef::new(Shared::from(typ));
-        *unsafe { typ.as_mut() } = Type {
-            heap_value: HeapValue {
-                link: tvref.upcast(),
-                typ: type_reg.get(TypeIndex::Type)
-            },
-            gsize: gsize,
-            ref_len: ref_len
-        };
+        let mut uptr = start_init(ptr);
+        let tvref = TypedValueRef::new(uptr);
+        *unsafe { uptr.as_mut() } = f(HeapValue {
+            link: tvref.upcast(),
+            typ: type_reg.get(T::TYPE_INDEX)
+        });
         tvref
     }
 
-    pub fn create_type<T: TypeRegistry>(&mut self, type_reg: &T, size: usize, ref_len: usize)
-        -> Option<TypedValueRef<Type>>
-    {
-        unsafe {
-            self.gc.allocate(NonZero::new_unchecked(1),
-                             NonZero::new_unchecked(From::from(GSize::of::<Type>())))
-        }.map(|typ: Initializable<Type>|
-            Self::init_type::<T>(typ, type_reg, GSize::from(size.ceil_div(size_of::<Granule>())),
-                                 ref_len)
-        )
+    unsafe fn allocate_t<T>(&mut self) -> Option<Initializable<T>> {
+        self.gc.allocate(NonZero::new_unchecked(1),
+                         NonZero::new_unchecked(From::from(GSize::of::<T>())))
     }
 
-    pub fn create_const(&mut self, types: &TypeRegistry, value: ValueRef)
+    fn create<T, R, F>(&mut self, type_reg: &R, f: F) -> Option<TypedValueRef<T>>
+        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
+    {
+        unsafe { self.allocate_t() }.map(|typ| Self::init(typ, type_reg, f))
+    }
+
+    pub fn create_type<R: TypeRegistry>(&mut self, type_reg: &R, size: usize, ref_len: usize)
+        -> Option<TypedValueRef<Type>>
+    {
+        self.create(type_reg, |heap_value| Type {
+            heap_value,
+            gsize: GSize::from(size.ceil_div(size_of::<Granule>())),
+            ref_len
+        })
+    }
+
+    pub fn create_const<R: TypeRegistry>(&mut self, types: &R, value: ValueRef)
         -> Option<TypedValueRef<Const>>
     {
-        unsafe {
-            self.gc.allocate(NonZero::new_unchecked(1),
-                             NonZero::new_unchecked(From::from(GSize::of::<Const>())))
-        }.map(|cv: Initializable<Const>| {
-            let mut cv: Unique<Const> = unsafe { transmute(cv) };
-            let tvref = TypedValueRef::new(Shared::from(cv));
-            *unsafe { cv.as_mut() } = Const {
-                heap_value: HeapValue {
-                    link: tvref.upcast(),
-                    typ: types.get(TypeIndex::Const)
-                },
-                value: value
-            };
-            tvref
-        })
+        self.create(types, |heap_value| Const { heap_value, value })
     }
 }
 

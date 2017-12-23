@@ -7,6 +7,10 @@ pub struct Uninitialized<T>(T);
 
 pub type Initializable<T> = Unique<Uninitialized<T>>;
 
+pub fn start_init<T>(ptr: Initializable<T>) -> Unique<T> {
+    unsafe { Unique::new_unchecked(ptr.as_ptr() as _) }
+}
+
 pub trait CeilDiv {
     fn ceil_div(self, other: Self) -> Self;
 }

@@ -1,4 +1,4 @@
-use std::ptr::Shared;
+use std::ptr::{Unique, Shared};
 use std::slice;
 use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
@@ -83,7 +83,7 @@ impl<T> Clone for TypedValueRef<T> {
 impl<T> Copy for TypedValueRef<T> {}
 
 impl<T> TypedValueRef<T> {
-    pub fn new(ptr: Shared<T>) -> TypedValueRef<T> {
+    pub fn new(ptr: Unique<T>) -> TypedValueRef<T> {
         TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
 
