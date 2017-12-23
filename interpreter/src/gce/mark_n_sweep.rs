@@ -45,10 +45,10 @@ impl<ORef, PORef> Generation<ORef>
     }
 
     // TODO: leave breathing room (don't wait until the very last moment before returning `None`)
-    pub fn allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
-        -> Option<Initializable<usize>>
+    pub unsafe fn allocate<T>(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+        -> Option<Initializable<T>>
     {
-        if wsize.get() < LARGE_OBJ_THRESHOLD {
+        let res = if wsize.get() < LARGE_OBJ_THRESHOLD {
             self.freelist_allocate(walign, wsize)
                 .or_else(|| self.sequential_allocate(walign, wsize))
                 .or_else(|| if self.refill_bumper() {
@@ -58,7 +58,8 @@ impl<ORef, PORef> Generation<ORef>
                 })
         } else {
             self.allocate_large(walign, wsize)
-        }
+        };
+        transmute(res)
     }
 
     /// Mark a single object reference.

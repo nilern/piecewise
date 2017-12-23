@@ -26,9 +26,9 @@ impl ValueRef {
     }
 
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
-        if self.is_ptr() {
+        if let Some(sptr) = self.ptr() {
             match type_reg.index_of(self.typ()) {
-                TypeIndex::Type => ValueView::Type(unsafe { TypedValueRef::new(self) })
+                TypeIndex::Type => ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) }))
             }
         } else {
             match self.0 & TAG_MASK {
@@ -73,10 +73,18 @@ impl ObjectRef for ValueRef {
 
 pub struct TypedValueRef<T>(usize, PhantomData<T>);
 
+impl<T> Clone for TypedValueRef<T> {
+    fn clone(&self) -> Self { TypedValueRef(self.0, self.1) }
+}
+
+impl<T> Copy for TypedValueRef<T> {}
+
 impl<T> TypedValueRef<T> {
-    unsafe fn new(vref: ValueRef) -> Self {
-        TypedValueRef(vref.0, PhantomData::default())
+    pub fn new(ptr: Shared<T>) -> TypedValueRef<T> {
+        TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
+
+    pub fn upcast(self) -> ValueRef { ValueRef(self.0) }
 }
 
 impl<T> Deref for TypedValueRef<T> {
