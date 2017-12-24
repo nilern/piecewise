@@ -32,7 +32,9 @@ impl ValueRef {
                 TypeIndex::Const =>
                     ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) })),
                 TypeIndex::Symbol =>
-                    ValueView::Symbol(TypedValueRef::new(unsafe { transmute(sptr) }))
+                    ValueView::Symbol(TypedValueRef::new(unsafe { transmute(sptr) })),
+                TypeIndex::Call =>
+                    ValueView::Call(TypedValueRef::new(unsafe { transmute(sptr) }))
             }
         } else {
             match self.0 & TAG_MASK {

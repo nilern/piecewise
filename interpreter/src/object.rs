@@ -24,7 +24,8 @@ pub trait DynamicDebug {
 pub enum TypeIndex {
     Type,
     Const,
-    Symbol
+    Symbol,
+    Call
 }
 
 /// Obtain the `TypeIndex` of `Self`.
@@ -50,8 +51,8 @@ pub trait TypeRegistry {
 pub enum ValueView {
     Type(TypedValueRef<Type>),
     Const(TypedValueRef<Const>),
-
     Symbol(TypedValueRef<Symbol>),
+    Call(TypedValueRef<Call>),
 
     Int(isize),
     Float(f64),
@@ -68,6 +69,7 @@ impl DynamicDebug for ValueView {
             &Type(vref) => vref.fmt(f, type_reg),
             &Const(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
+            &Call(vref) => vref.fmt(f, type_reg),
 
             &Int(v) => v.fmt(f),
             &Float(v) => v.fmt(f),
@@ -251,6 +253,27 @@ impl DynamicDebug for Symbol {
     }
 }
 
+/// Call AST node
+pub struct Call {
+    base: DynHeapValue,
+    callee: ValueRef,
+}
+
+impl IndexedType for Call {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Call;
+}
+
+impl DynamicDebug for Call {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Call {{ base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", callee: ")?;
+        self.callee.fmt(f, type_reg)?;
+        // TODO: args
+        f.write_str(" }}")
+    }
+}
+
 // ================================================================================================
 
 /// Memory manager and value factory.
@@ -362,6 +385,37 @@ impl ValueManager {
                              }
                              sym
                          })
+    }
+
+    fn create_call<R: TypeRegistry>(&mut self, types: &R, callee: ValueRef, args: &[ValueRef])
+        -> Option<TypedValueRef<Call>>
+    {
+        fn init<R: TypeRegistry>(iptr: Initializable<Call>, types: &R, callee: ValueRef,
+                                 args: &[ValueRef]) -> TypedValueRef<Call>
+        {
+            let mut uptr = start_init(iptr);
+            let tvref = TypedValueRef::new(uptr);
+            *unsafe { uptr.as_mut() } = Call {
+                base: DynHeapValue {
+                    base: HeapValue {
+                        link: tvref.upcast(),
+                        typ: types.get(Call::TYPE_INDEX)
+                    },
+                    dyn_len: args.len()
+                },
+                callee: callee
+            };
+            let dest_args: &mut[ValueRef] = unsafe {
+                slice::from_raw_parts_mut(uptr.as_ptr().offset(1) as _, args.len())
+            };
+            dest_args.copy_from_slice(args);
+            tvref
+        }
+
+        unsafe { self.gc.allocate(NonZero::new_unchecked(1),
+                                  NonZero::new_unchecked(usize::from(GSize::of::<Call>())
+                                                         + args.len())) }
+            .map(|iptr| init(iptr, types, callee, args))
     }
 }
 
