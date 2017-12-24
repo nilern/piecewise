@@ -3,6 +3,7 @@ use std::mem::{size_of, transmute};
 use std::fmt::{self, Debug, Formatter};
 use std::slice;
 use std::collections::HashMap;
+use std::ptr::Unique;
 
 use gce::util::{start_init, Initializable, CeilDiv};
 use gce::Object;
@@ -285,30 +286,53 @@ pub struct ValueManager {
 
 impl ValueManager {
     /// Create a new `ValueManager` with a maximum heap size of `max_heap`.
-    pub fn new<R: TypeRegistry>(type_reg: &mut R, max_heap: usize) -> ValueManager {
+    pub fn new<R: TypeRegistry>(types: &mut R, max_heap: usize) -> ValueManager {
         let mut res = ValueManager {
             gc: Generation::new(max_heap),
             symbol_table: HashMap::new()
         };
         let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
-        type_reg.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
-        Self::init(type_type, type_reg,
-                   |heap_value| Type::new(heap_value, false, GSize::of::<Type>(),
-                                          false, 0));
+        types.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
+        Self::uniform_init(type_type, types, |heap_value|
+            Type::new(heap_value, false, GSize::of::<Type>(), false, 0));
         res
     }
 
-    /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
     fn init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
-        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
+        where T: IndexedType, R: TypeRegistry, F: Fn(Unique<T>, HeapValue)
     {
         let mut uptr = start_init(ptr);
         let tvref = TypedValueRef::new(uptr);
-        *unsafe { uptr.as_mut() } = f(HeapValue {
+        f(uptr, HeapValue {
             link: tvref.upcast(),
             typ: type_reg.get(T::TYPE_INDEX)
         });
         tvref
+    }
+
+    /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
+    fn uniform_init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
+        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
+    {
+        Self::init(ptr, type_reg, |mut uptr, heap_value| {
+            *unsafe { uptr.as_mut() } = f(heap_value);
+        })
+    }
+
+    fn init_with_slice<T, R, F, E>(iptr: Initializable<T>, type_reg: &R, f: F, slice: &[E])
+        -> TypedValueRef<T>
+        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy
+    {
+        Self::init(iptr, type_reg, |mut uptr, heap_value| {
+            *unsafe { uptr.as_mut() } = f(DynHeapValue {
+                base: heap_value,
+                dyn_len: slice.len()
+            });
+            let dest_slice: &mut[E] = unsafe {
+                slice::from_raw_parts_mut(uptr.as_ptr().offset(1) as *mut E, slice.len())
+            };
+            dest_slice.copy_from_slice(slice);
+        })
     }
 
     /// Allocate a `T` with a granule alignment of 1.
@@ -319,103 +343,63 @@ impl ValueManager {
 
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
     /// everything but the `HeapValue` part.
-    fn create<T, R, F>(&mut self, type_reg: &R, f: F) -> Option<TypedValueRef<T>>
+    fn uniform_create<T, R, F>(&mut self, type_reg: &R, f: F) -> Option<TypedValueRef<T>>
         where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
     {
-        unsafe { self.allocate_t() }.map(|typ| Self::init(typ, type_reg, f))
+        unsafe { self.allocate_t() }.map(|typ| Self::uniform_init(typ, type_reg, f))
     }
 
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
     /// potentially pointer-valued fields.
-    pub fn create_type<R: TypeRegistry>(&mut self, type_reg: &R,
+    pub fn create_type<R: TypeRegistry>(&mut self, types: &R,
                                         has_dyn_gsize: bool, gsize: GSize,
                                         has_dyn_ref_len: bool, ref_len: usize)
         -> Option<TypedValueRef<Type>>
     {
-        self.create(type_reg, |heap_value| Type::new(heap_value, has_dyn_gsize, gsize,
-                                                     has_dyn_ref_len, ref_len))
+        self.uniform_create(types, |heap_value|
+            Type::new(heap_value, has_dyn_gsize, gsize, has_dyn_ref_len, ref_len)
+        )
+    }
+
+    /// Create a new `Symbol` from `chars`.
+    pub fn create_symbol<R: TypeRegistry>(&mut self, types: &R, chars: &str)
+        -> Option<TypedValueRef<Symbol>>
+    {
+        self.symbol_table
+            .get(chars).map(|&sym| sym)
+            .or_else(|| {
+                let bytes = chars.as_bytes();
+                let gsize = usize::from(GSize::of::<Symbol>())
+                          + bytes.len().ceil_div(size_of::<Granule>());
+                let sym = unsafe {
+                    self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize))
+                           .map(|iptr| ValueManager::init_with_slice(iptr, types, |base| {
+                               Symbol { base }
+                           }, bytes))
+                };
+                if let Some(sym) = sym {
+                    self.symbol_table.insert(chars.to_string(), sym);
+                }
+                sym
+            })
+    }
+
+    /// Create a new `Call` node from `callee` and `args`.
+    pub fn create_call<R: TypeRegistry>(&mut self, types: &R, callee: ValueRef, args: &[ValueRef])
+        -> Option<TypedValueRef<Call>>
+    {
+        let gsize = usize::from(GSize::of::<Call>()) + args.len();
+        unsafe { self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize)) }
+            .map(|iptr| ValueManager::init_with_slice(iptr, types, |base| {
+                Call { base, callee }
+            }, args))
     }
 
     /// Create a new `Const` node of `value`.
     pub fn create_const<R: TypeRegistry>(&mut self, types: &R, value: ValueRef)
         -> Option<TypedValueRef<Const>>
     {
-        self.create(types, |heap_value| Const { heap_value, value })
-    }
-
-    pub fn create_symbol<R: TypeRegistry>(&mut self, types: &R, chars: &str)
-        -> Option<TypedValueRef<Symbol>>
-    {
-        fn init<R: TypeRegistry>(iptr: Initializable<Symbol>, types: &R, bytes: &[u8])
-            -> TypedValueRef<Symbol>
-        {
-            let mut uptr = start_init(iptr);
-            let tvref = TypedValueRef::new(uptr);
-            *unsafe { uptr.as_mut() } = Symbol {
-                base: DynHeapValue {
-                    base: HeapValue {
-                        link: tvref.upcast(),
-                        typ: types.get(Symbol::TYPE_INDEX)
-                    },
-                    dyn_len: bytes.len()
-                }
-            };
-            let dest_bytes: &mut[u8] = unsafe {
-                slice::from_raw_parts_mut(uptr.as_ptr().offset(1) as _, bytes.len())
-            };
-            dest_bytes.copy_from_slice(bytes);
-            tvref
-        }
-
-        fn create<R: TypeRegistry>(mgr: &mut ValueManager, types: &R, chars: &str)
-            -> Option<TypedValueRef<Symbol>>
-        {
-            let bytes = chars.as_bytes();
-            let gsize = usize::from(GSize::of::<Symbol>())
-                      + bytes.len().ceil_div(size_of::<Granule>());
-            unsafe { mgr.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize)) }
-                .map(|iptr| init(iptr, types, bytes))
-        }
-
-        self.symbol_table.get(chars).map(|&sym| sym)
-                         .or_else(|| {
-                             let sym = create(self, types, chars);
-                             if let Some(sym) = sym {
-                                 self.symbol_table.insert(chars.to_string(), sym);
-                             }
-                             sym
-                         })
-    }
-
-    fn create_call<R: TypeRegistry>(&mut self, types: &R, callee: ValueRef, args: &[ValueRef])
-        -> Option<TypedValueRef<Call>>
-    {
-        fn init<R: TypeRegistry>(iptr: Initializable<Call>, types: &R, callee: ValueRef,
-                                 args: &[ValueRef]) -> TypedValueRef<Call>
-        {
-            let mut uptr = start_init(iptr);
-            let tvref = TypedValueRef::new(uptr);
-            *unsafe { uptr.as_mut() } = Call {
-                base: DynHeapValue {
-                    base: HeapValue {
-                        link: tvref.upcast(),
-                        typ: types.get(Call::TYPE_INDEX)
-                    },
-                    dyn_len: args.len()
-                },
-                callee: callee
-            };
-            let dest_args: &mut[ValueRef] = unsafe {
-                slice::from_raw_parts_mut(uptr.as_ptr().offset(1) as _, args.len())
-            };
-            dest_args.copy_from_slice(args);
-            tvref
-        }
-
-        unsafe { self.gc.allocate(NonZero::new_unchecked(1),
-                                  NonZero::new_unchecked(usize::from(GSize::of::<Call>())
-                                                         + args.len())) }
-            .map(|iptr| init(iptr, types, callee, args))
+        self.uniform_create(types, |heap_value| Const { heap_value, value })
     }
 }
 
