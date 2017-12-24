@@ -23,7 +23,8 @@ pub trait ObjectRef: Copy {
 }
 
 pub trait PointyObjectRef {
-    type ORef;
+    type ORef: ObjectRef;
+    type RefIter: Iterator<Item=*mut Self::ORef>;
 
-    fn obj_refs<'a>(self) -> &'a mut[Self::ORef];
+    fn obj_refs(&self) -> Self::RefIter;
 }

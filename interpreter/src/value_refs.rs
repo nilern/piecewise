@@ -1,12 +1,12 @@
 use std::ptr::{Unique, Shared};
-use std::slice;
 use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
 use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
+use std::iter;
 
 use gce::{ObjectRef, PointyObjectRef};
-use object::{DynamicDebug, HeapValue, ValueView, Type, TypeIndex, TypeRegistry};
+use object::{DynamicDebug, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
 
 // ================================================================================================
 
@@ -23,18 +23,16 @@ impl ValueRef {
     /// Does `self` hold a pointer?
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
-    fn typ(self) -> TypedValueRef<Type> {
-        unimplemented!()
-    }
-
     /// Get the corresponding `ValueView`.
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
-            match type_reg.index_of(self.typ()) {
+            match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
                 TypeIndex::Type =>
                     ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) })),
                 TypeIndex::Const =>
-                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) }))
+                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) })),
+                TypeIndex::Symbol =>
+                    ValueView::Symbol(TypedValueRef::new(unsafe { transmute(sptr) }))
             }
         } else {
             match self.0 & TAG_MASK {
@@ -120,12 +118,11 @@ pub struct PointyValueRef(ValueRef);
 
 impl PointyObjectRef for PointyValueRef {
     type ORef = ValueRef;
+    type RefIter = iter::Chain<iter::Once<*mut ValueRef>, ObjRefs>;
 
-    fn obj_refs<'a>(self) -> &'a mut[Self::ORef] {
-        let ptr: *const HeapValue = ((self.0).0 & !TAG_MASK) as _;
-        unsafe {
-            let data_ptr = (ptr as *mut ValueRef).offset(1);
-            slice::from_raw_parts_mut(data_ptr, (*ptr).ref_len())
-        }
+    fn obj_refs(&self) -> Self::RefIter {
+        let base: &HeapValue = unsafe { transmute((self.0).0 & !TAG_MASK) };
+        iter::once(unsafe { transmute(base.typ()) })
+             .chain(base.ref_fields())
     }
 }
