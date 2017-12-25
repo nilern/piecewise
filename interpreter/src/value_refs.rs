@@ -32,12 +32,13 @@ impl ValueRef {
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
-                TypeIndex::Type => ValueView::Type(unsafe { self.downcast() }),
-                TypeIndex::Symbol => ValueView::Symbol(unsafe { self.downcast() }),
-                TypeIndex::Method => ValueView::Method(unsafe { self.downcast() }),
-                TypeIndex::Call => ValueView::Call(unsafe { self.downcast() }),
-                TypeIndex::Const => ValueView::Const(unsafe { self.downcast() }),
-                TypeIndex::Lex => ValueView::Lex(unsafe { self.downcast() }),
+                TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
+                TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
+                TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
+                TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
+                TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
+                TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
+                TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
             }
         } else {
             match self.0 & TAG_MASK {

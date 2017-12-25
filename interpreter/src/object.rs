@@ -26,6 +26,7 @@ pub enum TypeIndex {
     Type,
     Symbol,
 
+    Function,
     Method,
     Call,
     Lex,
@@ -56,6 +57,8 @@ pub enum ValueView {
     Type(TypedValueRef<Type>),
     Const(TypedValueRef<Const>),
     Symbol(TypedValueRef<Symbol>),
+
+    Function(TypedValueRef<Function>),
     Method(TypedValueRef<Method>),
     Call(TypedValueRef<Call>),
     Lex(TypedValueRef<Lex>),
@@ -75,6 +78,8 @@ impl DynamicDebug for ValueView {
             &Type(vref) => vref.fmt(f, type_reg),
             &Const(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
+
+            &Function(vref) => vref.fmt(f, type_reg),
             &Method(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
             &Lex(vref) => vref.fmt(f, type_reg),
@@ -235,6 +240,24 @@ impl DynamicDebug for Symbol {
         f.write_str("Symbol {{ base: ")?;
         self.base.fmt(f, type_reg)?;
         // TODO: chars
+        f.write_str(" }}")
+    }
+}
+
+/// Function AST node
+pub struct Function {
+    base: DynHeapValue
+}
+
+impl IndexedType for Function {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Function;
+}
+
+impl DynamicDebug for Function {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Function {{ base: ")?;
+        self.base.fmt(f, type_reg)?;
+        // TODO: methods
         f.write_str(" }}")
     }
 }
@@ -441,6 +464,14 @@ impl ValueManager {
                 }
                 sym
             })
+    }
+
+    pub fn create_function<R: TypeRegistry>(&mut self, types: &R,
+                                            methods: &[TypedValueRef<Method>])
+        -> Option<TypedValueRef<Function>>
+    {
+        let gsize = usize::from(GSize::of::<Function>()) + methods.len();
+        self.create_with_slice(types, gsize, |base| Function { base }, methods)
     }
 
     /// Create a new `Method` node.
