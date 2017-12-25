@@ -29,12 +29,14 @@ impl ValueRef {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
                 TypeIndex::Type =>
                     ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) })),
-                TypeIndex::Const =>
-                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) })),
                 TypeIndex::Symbol =>
                     ValueView::Symbol(TypedValueRef::new(unsafe { transmute(sptr) })),
                 TypeIndex::Call =>
-                    ValueView::Call(TypedValueRef::new(unsafe { transmute(sptr) }))
+                    ValueView::Call(TypedValueRef::new(unsafe { transmute(sptr) })),
+                TypeIndex::Const =>
+                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) })),
+                TypeIndex::Lex =>
+                    ValueView::Lex(TypedValueRef::new(unsafe { transmute(sptr) }))
             }
         } else {
             match self.0 & TAG_MASK {

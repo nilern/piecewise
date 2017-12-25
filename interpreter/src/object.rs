@@ -26,7 +26,8 @@ pub enum TypeIndex {
     Type,
     Const,
     Symbol,
-    Call
+    Call,
+    Lex
 }
 
 /// Obtain the `TypeIndex` of `Self`.
@@ -54,6 +55,7 @@ pub enum ValueView {
     Const(TypedValueRef<Const>),
     Symbol(TypedValueRef<Symbol>),
     Call(TypedValueRef<Call>),
+    Lex(TypedValueRef<Lex>),
 
     Int(isize),
     Float(f64),
@@ -71,6 +73,7 @@ impl DynamicDebug for ValueView {
             &Const(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
+            &Lex(vref) => vref.fmt(f, type_reg),
 
             &Int(v) => v.fmt(f),
             &Float(v) => v.fmt(f),
@@ -214,28 +217,6 @@ impl DynamicDebug for Type {
     }
 }
 
-/// An AST node for constants.
-#[repr(C)]
-pub struct Const {
-    heap_value: HeapValue,
-    /// The value of the constant
-    value: ValueRef
-}
-
-impl IndexedType for Const {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
-}
-
-impl DynamicDebug for Const {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Const {{ heap_value: ")?;
-        self.heap_value.fmt(f, type_reg)?;
-        f.write_str(", value: ")?;
-        self.value.fmt(f, type_reg)?;
-        f.write_str(" }}")
-    }
-}
-
 /// Symbol (hash-consed string)
 pub struct Symbol {
     base: DynHeapValue
@@ -275,6 +256,49 @@ impl DynamicDebug for Call {
     }
 }
 
+/// An AST node for constants.
+#[repr(C)]
+pub struct Const {
+    heap_value: HeapValue,
+    /// The value of the constant
+    value: ValueRef
+}
+
+impl IndexedType for Const {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
+}
+
+impl DynamicDebug for Const {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Const {{ heap_value: ")?;
+        self.heap_value.fmt(f, type_reg)?;
+        f.write_str(", value: ")?;
+        self.value.fmt(f, type_reg)?;
+        f.write_str(" }}")
+    }
+}
+
+/// An AST node for lexical variable names
+#[repr(C)]
+pub struct Lex {
+    base: HeapValue,
+    name: TypedValueRef<Symbol>
+}
+
+impl IndexedType for Lex {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Lex;
+}
+
+impl DynamicDebug for Lex {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Lex {{ base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", name: ")?;
+        self.name.fmt(f, type_reg)?;
+        f.write_str(" }}")
+    }
+}
+
 // ================================================================================================
 
 /// Memory manager and value factory.
@@ -287,6 +311,7 @@ pub struct ValueManager {
 impl ValueManager {
     /// Create a new `ValueManager` with a maximum heap size of `max_heap`.
     pub fn new<R: TypeRegistry>(types: &mut R, max_heap: usize) -> ValueManager {
+        // TODO: allocate all the types and store them in `types` (?)
         let mut res = ValueManager {
             gc: Generation::new(max_heap),
             symbol_table: HashMap::new()
@@ -400,6 +425,13 @@ impl ValueManager {
         -> Option<TypedValueRef<Const>>
     {
         self.uniform_create(types, |heap_value| Const { heap_value, value })
+    }
+
+    /// Create a new `Lex` node for the variable named `name`.
+    pub fn crate_lex<R: TypeRegistry>(&mut self, types: &R, name: TypedValueRef<Symbol>)
+        -> Option<TypedValueRef<Lex>>
+    {
+        self.uniform_create(types, |base| Lex { base, name })
     }
 }
 
