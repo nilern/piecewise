@@ -34,8 +34,10 @@ impl ValueRef {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
                 TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
                 TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
+
                 TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
                 TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
+                TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
                 TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
                 TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
                 TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),

@@ -28,6 +28,7 @@ pub enum TypeIndex {
 
     Function,
     Method,
+    Block,
     Call,
     Lex,
     Const
@@ -60,6 +61,7 @@ pub enum ValueView {
 
     Function(TypedValueRef<Function>),
     Method(TypedValueRef<Method>),
+    Block(TypedValueRef<Block>),
     Call(TypedValueRef<Call>),
     Lex(TypedValueRef<Lex>),
 
@@ -81,6 +83,7 @@ impl DynamicDebug for ValueView {
 
             &Function(vref) => vref.fmt(f, type_reg),
             &Method(vref) => vref.fmt(f, type_reg),
+            &Block(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
             &Lex(vref) => vref.fmt(f, type_reg),
 
@@ -288,6 +291,27 @@ impl DynamicDebug for Method {
     }
 }
 
+/// Block AST node
+pub struct Block {
+    base: DynHeapValue,
+    expr: ValueRef,
+}
+
+impl IndexedType for Block {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Block;
+}
+
+impl DynamicDebug for Block {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Block {{ base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", expr: ")?;
+        self.expr.fmt(f, type_reg)?;
+        // TODO: stmts
+        f.write_str(" }}")
+    }
+}
+
 /// Call AST node
 pub struct Call {
     base: DynHeapValue,
@@ -466,6 +490,7 @@ impl ValueManager {
             })
     }
 
+    /// Create a new `Function` node with `methods`.
     pub fn create_function<R: TypeRegistry>(&mut self, types: &R,
                                             methods: &[TypedValueRef<Method>])
         -> Option<TypedValueRef<Function>>
@@ -479,6 +504,14 @@ impl ValueManager {
                                           body: ValueRef) -> Option<TypedValueRef<Method>>
     {
         self.uniform_create(types, |base| Method { base, pattern, guard, body })
+    }
+
+    /// Create a new `Block` node from `stmts` and `expr`.
+    pub fn create_block<R: TypeRegistry>(&mut self, types: &R, stmts: &[ValueRef], expr: ValueRef)
+        -> Option<TypedValueRef<Block>>
+    {
+        let gsize = usize::from(GSize::of::<Block>()) + stmts.len();
+        self.create_with_slice(types, gsize, |base| Block { base, expr }, stmts)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
