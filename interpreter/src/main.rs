@@ -23,10 +23,15 @@ pub mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
 pub mod eval;
 
 use parser::program;
+use object::{ValueManager, DynamicDebug};
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
-    println!("{:?}", program(&src));
+    let mut mgr = ValueManager::new(4*1024*1024);
+    match program(&src, &mut mgr) {
+        Ok(prog) => println!("{:?}", prog.fmt_wrap(&mgr)),
+        Err(err) => println!("{:?}", err)
+    }
 }

@@ -1,50 +1,60 @@
 use std::str::FromStr;
-use gc::Gc;
 
-use value::{Value, ValueRef};
+use object::{Block, Method, ValueManager};
+use value_refs::{ValueRef, TypedValueRef};
 
-pub program -> Value = ws? block:body ws? { block }
+#![arguments(factory: &mut ValueManager)]
 
-body -> Value = stmts:stmt* ws? expr:expr { Value::Block { stmts, expr: Gc::new(expr) } }
+pub program -> TypedValueRef<Block> = ws? block:body ws? { block }
 
-stmt -> ValueRef = expr:expr ws? ";" { Gc::new(expr) }
-
-pattern -> Value = n:int { Value::Const(Gc::new(Value::Int(n))) }
-
-expr -> Value = infix
-
-infix -> Value = #infix<simple> {
-    #L el op:op6 er { Value::Call { callee: Gc::new(op), args: vec![Gc::new(el), Gc::new(er)] } }
-    #L el op:op7 er { Value::Call { callee: Gc::new(op), args: vec![Gc::new(el), Gc::new(er)] } }
+body -> TypedValueRef<Block> = stmts:stmt* ws? expr:expr {
+    factory.create_block(&stmts, expr).unwrap()
 }
 
-op<O> = ws? op:$(O) ws? { Value::Lex(Gc::new(Value::Symbol(op.to_string()))) }
-op6 -> Value = op<[+\-]>
-op7 -> Value = op<[*/%]>
+stmt -> ValueRef = expr:expr ws? ";" { expr }
 
-simple -> Value
-    = "{" ws? b:body ws? "}" { b }
-    / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" { Value::Function { methods } }
-    / "[" ws? b:body ws? "]" { Value::Function {
-          methods: vec![Gc::new(Value::Method {
-              pattern: Gc::new(Value::Const(Gc::new(Value::Bool(true)))), // FIXME
-              guard: Gc::new(Value::Const(Gc::new(Value::Bool(true)))),
-              body: Gc::new(b)
-          })]}
-      }
+pattern -> ValueRef = n:int { ValueRef::from(factory.create_const(n).unwrap()) }
+
+expr -> ValueRef = e:infix { ValueRef::from(e) }
+
+infix -> ValueRef = #infix<simple> {
+    #L el op:op6 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
+    #L el op:op7 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
+}
+
+op<O> = ws? op:$(O) ws? {
+    let sym = factory.create_symbol(op).unwrap();
+    ValueRef::from(factory.create_lex(sym).unwrap())
+}
+op6 -> ValueRef = op<[+\-]>
+op7 -> ValueRef = op<[*/%]>
+
+simple -> ValueRef
+    = "{" ws? b:body ws? "}" { ValueRef::from(b) }
+    / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
+        ValueRef::from(factory.create_function(&methods).unwrap())
+    }
+    / "[" ws? b:body ws? "]" {
+        let guard_value = factory.create_bool(true);
+        let guard = ValueRef::from(factory.create_const(guard_value).unwrap());
+        let method = factory.create_method(/* FIXME: */ guard, guard,ValueRef::from(b)).unwrap();
+        ValueRef::from(factory.create_function(&[method]).unwrap())
+    }
     / "(" ws? e:expr ws? ")" { e }
-    / n:int { Value::Const(Gc::new(Value::Int(n))) }
+    / n:int { ValueRef::from(factory.create_const(n).unwrap()) }
 
-method -> ValueRef = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
-    Gc::new(Value::Method {
-        pattern: Gc::new(pattern),
-        guard: Gc::new(guard.unwrap_or_else(|| Value::Const(Gc::new(Value::Bool(false))))),
-        body: Gc::new(body)
-    })
+method -> TypedValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+    let guard = guard.unwrap_or_else(|| {
+        let value = factory.create_bool(true);
+        ValueRef::from(factory.create_const(value).unwrap())
+    });
+    factory.create_method(pattern, guard, ValueRef::from(body)).unwrap()
 }
 
-guard -> Value = "|" ws? e:expr { e }
+guard -> ValueRef = "|" ws? e:expr { e }
 
-int -> isize = cs:$([0-9]+) { isize::from_str(cs).unwrap() }
+int -> ValueRef = cs:$([0-9]+) {
+  ValueRef::from(factory.create_int(isize::from_str(cs).unwrap()))
+}
 
 ws -> () = [ \t\r\n]+

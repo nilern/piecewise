@@ -11,7 +11,8 @@ use object::{DynamicDebug, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRef
 
 // ================================================================================================
 
-const TAG_MASK: usize = 0b111;
+const SHIFT: usize = 3;
+const TAG_MASK: usize = (1 << SHIFT) - 1;
 const PTR_BIT: usize = 0b001;
 
 // ================================================================================================
@@ -45,14 +46,30 @@ impl ValueRef {
             }
         } else {
             match self.0 & TAG_MASK {
-                0b000 => ValueView::Int((self.0 & !TAG_MASK) as isize),
+                0b000 => ValueView::Int((self.0 >> SHIFT) as isize),
                 0b010 => ValueView::Float((self.0 & !TAG_MASK) as f64),
-                0b100 => ValueView::Char(unsafe { transmute((self.0 & !TAG_MASK) as u32) }),
-                0b110 => ValueView::Bool((self.0 & !TAG_MASK) == 1),
+                0b100 => ValueView::Char(unsafe { transmute((self.0 >> SHIFT) as u32) }),
+                0b110 => ValueView::Bool(unsafe { transmute((self.0 >> SHIFT) as u8) }),
                 _ => unreachable!()
             }
         }
     }
+}
+
+impl From<isize> for ValueRef {
+    fn from(n: isize) -> ValueRef { ValueRef((n as usize) << SHIFT) }
+}
+
+impl From<f64> for ValueRef {
+    fn from(n: f64) -> ValueRef { ValueRef((n as usize & !TAG_MASK) | 0b010) }
+}
+
+impl From<char> for ValueRef {
+    fn from(c: char) -> ValueRef { ValueRef((c as usize) << SHIFT | 0b100) }
+}
+
+impl From<bool> for ValueRef {
+    fn from(b: bool) -> ValueRef { ValueRef((b as usize) << SHIFT | 0b110) }
 }
 
 impl<T> From<TypedValueRef<T>> for ValueRef {

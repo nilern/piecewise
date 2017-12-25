@@ -6,7 +6,7 @@ use ast::{Expr, Block};
 
 #[derive(Debug)]
 pub enum EvalError {
-    
+
 }
 
 enum State {
@@ -56,7 +56,7 @@ impl Env {
             parent,
             bindings: HashMap::new()
         }
-    } 
+    }
 }
 
 pub fn run(program: Block) -> Result<Gc<Value>, EvalError> {

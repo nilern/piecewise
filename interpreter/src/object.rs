@@ -14,8 +14,28 @@ use value_refs::{ValueRef, TypedValueRef};
 // ================================================================================================
 
 /// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
-pub trait DynamicDebug {
+pub trait DynamicDebug: Sized {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>;
+
+    fn fmt_wrap<'a, 'b, R: TypeRegistry>(&'a self, type_reg: &'b R)
+        -> DynDebugWrapper<'a, 'b, Self, R>
+    {
+        DynDebugWrapper {
+            value: self,
+            types: type_reg
+        }
+    }
+}
+
+pub struct DynDebugWrapper<'a, 'b, T: 'a + DynamicDebug, R: 'b + TypeRegistry> {
+    value: &'a T,
+    types: &'b R
+}
+
+impl<'a, 'b, T: DynamicDebug, R: TypeRegistry> Debug for DynDebugWrapper<'a, 'b, T, R> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.value.fmt(f, self.types)
+    }
 }
 
 // ================================================================================================
@@ -161,7 +181,7 @@ impl DynamicDebug for HeapValue {
 
 impl DynamicDebug for DynHeapValue {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Dyn {{ base: ")?;
+        f.write_str("DynHeapValue { base: ")?;
         self.base.fmt(f, type_reg)?;
         write!(f, ", dyn_len: {:?} }}", self.dyn_len)
     }
@@ -221,7 +241,7 @@ impl IndexedType for Type {
 
 impl DynamicDebug for Type {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Type {{ heap_value: ")?;
+        f.write_str("Type { heap_value: ")?;
         self.heap_value.fmt(f, type_reg)?;
         write!(f, ", gsize: {:?}", self.gsize_with_dyn)?;
         write!(f, ", ref_len: {:?} }}", self.ref_len_with_dyn)
@@ -239,10 +259,10 @@ impl IndexedType for Symbol {
 
 impl DynamicDebug for Symbol {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Symbol {{ base: ")?;
+        f.write_str("Symbol { base: ")?;
         self.base.fmt(f, type_reg)?;
         // TODO: chars
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -257,10 +277,10 @@ impl IndexedType for Function {
 
 impl DynamicDebug for Function {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Function {{ base: ")?;
+        f.write_str("Function { base: ")?;
         self.base.fmt(f, type_reg)?;
         // TODO: methods
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -278,7 +298,7 @@ impl IndexedType for Method {
 
 impl DynamicDebug for Method {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Method {{ base: ")?;
+        f.write_str("Method { base: ")?;
         self.base.fmt(f, type_reg)?;
         f.write_str(", pattern: ")?;
         self.pattern.fmt(f, type_reg)?;
@@ -286,7 +306,7 @@ impl DynamicDebug for Method {
         self.guard.fmt(f, type_reg)?;
         f.write_str(", body: ")?;
         self.body.fmt(f, type_reg)?;
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -302,12 +322,12 @@ impl IndexedType for Block {
 
 impl DynamicDebug for Block {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Block {{ base: ")?;
+        f.write_str("Block { base: ")?;
         self.base.fmt(f, type_reg)?;
         f.write_str(", expr: ")?;
         self.expr.fmt(f, type_reg)?;
         // TODO: stmts
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -323,12 +343,12 @@ impl IndexedType for Call {
 
 impl DynamicDebug for Call {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Call {{ base: ")?;
+        f.write_str("Call { base: ")?;
         self.base.fmt(f, type_reg)?;
         f.write_str(", callee: ")?;
         self.callee.fmt(f, type_reg)?;
         // TODO: args
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -346,11 +366,11 @@ impl IndexedType for Const {
 
 impl DynamicDebug for Const {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Const {{ heap_value: ")?;
+        f.write_str("Const { heap_value: ")?;
         self.heap_value.fmt(f, type_reg)?;
         f.write_str(", value: ")?;
         self.value.fmt(f, type_reg)?;
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -367,11 +387,11 @@ impl IndexedType for Lex {
 
 impl DynamicDebug for Lex {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Lex {{ base: ")?;
+        f.write_str("Lex { base: ")?;
         self.base.fmt(f, type_reg)?;
         f.write_str(", name: ")?;
         self.name.fmt(f, type_reg)?;
-        f.write_str(" }}")
+        f.write_str(" }")
     }
 }
 
@@ -486,6 +506,18 @@ impl ValueManager {
     {
         self.create_with_slice(GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
+
+    /// Create a new `Int` from `n`.
+    pub fn create_int(&self, n: isize) -> ValueRef { ValueRef::from(n) }
+
+    /// Create a new `Float` from `n`.
+    pub fn create_float(&self, n: f64) -> ValueRef { ValueRef::from(n) }
+
+    /// Create a new `Char` from `c`.
+    pub fn create_char(&self, c: char) -> ValueRef { ValueRef::from(c) }
+
+    /// Create a new `Bool` from `b`.
+    pub fn create_bool(&self, b: bool) -> ValueRef { ValueRef::from(b) }
 
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
     /// potentially pointer-valued fields.
