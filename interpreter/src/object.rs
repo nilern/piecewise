@@ -1,13 +1,13 @@
 use core::nonzero::NonZero;
-use std::mem::{size_of, transmute};
+use std::mem::transmute;
 use std::fmt::{self, Debug, Formatter};
 use std::slice;
 use std::collections::HashMap;
 use std::ptr::Unique;
 
-use gce::util::{start_init, Initializable, CeilDiv};
+use gce::util::{start_init, Initializable};
 use gce::Object;
-use gce::layout::{Granule, GSize};
+use gce::layout::GSize;
 use gce::mark_n_sweep::Generation;
 use value_refs::{ValueRef, TypedValueRef};
 
@@ -201,8 +201,8 @@ impl Type {
            ref_len: usize) -> Type {
         Type {
             heap_value,
-            gsize_with_dyn: usize::from(gsize) << 1 | if has_dyn_gsize { 1 } else { 0 },
-            ref_len_with_dyn: ref_len << 1 | if has_dyn_ref_len { 1 } else { 0 }
+            gsize_with_dyn: usize::from(gsize) << 1 | has_dyn_gsize as usize,
+            ref_len_with_dyn: ref_len << 1 | has_dyn_ref_len as usize
         }
     }
 
@@ -402,7 +402,7 @@ impl ValueManager {
     fn init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
         where T: IndexedType, R: TypeRegistry, F: Fn(Unique<T>, HeapValue)
     {
-        let mut uptr = start_init(ptr);
+        let uptr = start_init(ptr);
         let tvref = TypedValueRef::new(uptr);
         f(uptr, HeapValue {
             link: ValueRef::from(tvref),
