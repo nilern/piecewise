@@ -4,6 +4,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::slice;
 use std::collections::HashMap;
 use std::ptr::Unique;
+use std::str;
 
 use gce::util::{start_init, Initializable};
 use gce::Object;
@@ -76,7 +77,6 @@ pub trait TypeRegistry {
 /// Unwraps scalars and makes heap value typing static.
 pub enum ValueView {
     Type(TypedValueRef<Type>),
-    Const(TypedValueRef<Const>),
     Symbol(TypedValueRef<Symbol>),
 
     Function(TypedValueRef<Function>),
@@ -84,6 +84,7 @@ pub enum ValueView {
     Block(TypedValueRef<Block>),
     Call(TypedValueRef<Call>),
     Lex(TypedValueRef<Lex>),
+    Const(TypedValueRef<Const>),
 
     Int(isize),
     Float(f64),
@@ -98,7 +99,6 @@ impl DynamicDebug for ValueView {
 
         match self {
             &Type(vref) => vref.fmt(f, type_reg),
-            &Const(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
 
             &Function(vref) => vref.fmt(f, type_reg),
@@ -106,6 +106,7 @@ impl DynamicDebug for ValueView {
             &Block(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
             &Lex(vref) => vref.fmt(f, type_reg),
+            &Const(vref) => vref.fmt(f, type_reg),
 
             &Int(v) => v.fmt(f),
             &Float(v) => v.fmt(f),
@@ -253,6 +254,16 @@ pub struct Symbol {
     base: DynHeapValue
 }
 
+impl Symbol {
+    fn chars(&self) -> &str {
+        let ptr = self as *const Symbol;
+        unsafe { str::from_utf8_unchecked(slice::from_raw_parts(
+            ptr.offset(1) as *const u8,
+            (*(ptr as *const DynHeapValue)).dyn_len
+        )) }
+    }
+}
+
 impl IndexedType for Symbol {
     const TYPE_INDEX: TypeIndex = TypeIndex::Symbol;
 }
@@ -261,8 +272,7 @@ impl DynamicDebug for Symbol {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
         f.write_str("Symbol { base: ")?;
         self.base.fmt(f, type_reg)?;
-        // TODO: chars
-        f.write_str(" }")
+        write!(f, ", chars: {:?} }}", self.chars())
     }
 }
 
@@ -275,11 +285,23 @@ impl IndexedType for Function {
     const TYPE_INDEX: TypeIndex = TypeIndex::Function;
 }
 
+impl Function {
+    fn methods(&self) -> &[TypedValueRef<Method>] {
+        let ptr = self as *const Function;
+        unsafe { slice::from_raw_parts(
+            ptr.offset(1) as *const TypedValueRef<Method>,
+            (*(ptr as *const DynHeapValue)).dyn_len
+        ) }
+    }
+}
+
 impl DynamicDebug for Function {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
         f.write_str("Function { base: ")?;
         self.base.fmt(f, type_reg)?;
-        // TODO: methods
+        write!(f, ", methods: {:?}", self.methods().iter()
+                                         .map(|vref| vref.fmt_wrap(type_reg))
+                                         .collect::<Vec<_>>())?;
         f.write_str(" }")
     }
 }
@@ -316,6 +338,16 @@ pub struct Block {
     expr: ValueRef,
 }
 
+impl Block {
+    fn stmts(&self) -> &[ValueRef] {
+        let ptr = self as *const Block;
+        unsafe { slice::from_raw_parts(
+            ptr.offset(1) as *const ValueRef,
+            (*(ptr as *const DynHeapValue)).dyn_len
+        ) }
+    }
+}
+
 impl IndexedType for Block {
     const TYPE_INDEX: TypeIndex = TypeIndex::Block;
 }
@@ -326,7 +358,9 @@ impl DynamicDebug for Block {
         self.base.fmt(f, type_reg)?;
         f.write_str(", expr: ")?;
         self.expr.fmt(f, type_reg)?;
-        // TODO: stmts
+        write!(f, ", stmts: {:?}", self.stmts().iter()
+                                       .map(|vref| vref.fmt_wrap(type_reg))
+                                       .collect::<Vec<_>>())?;
         f.write_str(" }")
     }
 }
@@ -335,6 +369,16 @@ impl DynamicDebug for Block {
 pub struct Call {
     base: DynHeapValue,
     callee: ValueRef,
+}
+
+impl Call {
+    fn args(&self) -> &[ValueRef] {
+        let ptr = self as *const Call;
+        unsafe { slice::from_raw_parts(
+            ptr.offset(1) as *const ValueRef,
+            (*(ptr as *const DynHeapValue)).dyn_len
+        ) }
+    }
 }
 
 impl IndexedType for Call {
@@ -347,7 +391,9 @@ impl DynamicDebug for Call {
         self.base.fmt(f, type_reg)?;
         f.write_str(", callee: ")?;
         self.callee.fmt(f, type_reg)?;
-        // TODO: args
+        write!(f, ", args: {:?}", self.args().iter()
+                                      .map(|vref| vref.fmt_wrap(type_reg))
+                                      .collect::<Vec<_>>())?;
         f.write_str(" }")
     }
 }
