@@ -406,7 +406,7 @@ impl ValueManager {
         let mut uptr = start_init(ptr);
         let tvref = TypedValueRef::new(uptr);
         f(uptr, HeapValue {
-            link: tvref.upcast(),
+            link: ValueRef::from(tvref),
             typ: type_reg.get(T::TYPE_INDEX)
         });
         tvref
@@ -460,6 +460,13 @@ impl ValueManager {
             .map(|iptr| ValueManager::init_with_slice(iptr, types, f, slice))
     }
 
+    fn create_with_vref_slice<T, R, F, E>(&mut self, types: &R, f: F, slice: &[E])
+        -> Option<TypedValueRef<T>>
+        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
+    {
+        self.create_with_slice(types, usize::from(GSize::of::<T>()) + slice.len(), f, slice)
+    }
+
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
     /// potentially pointer-valued fields.
     pub fn create_type<R: TypeRegistry>(&mut self, types: &R,
@@ -495,8 +502,7 @@ impl ValueManager {
                                             methods: &[TypedValueRef<Method>])
         -> Option<TypedValueRef<Function>>
     {
-        let gsize = usize::from(GSize::of::<Function>()) + methods.len();
-        self.create_with_slice(types, gsize, |base| Function { base }, methods)
+        self.create_with_vref_slice(types, |base| Function { base }, methods)
     }
 
     /// Create a new `Method` node.
@@ -510,16 +516,14 @@ impl ValueManager {
     pub fn create_block<R: TypeRegistry>(&mut self, types: &R, stmts: &[ValueRef], expr: ValueRef)
         -> Option<TypedValueRef<Block>>
     {
-        let gsize = usize::from(GSize::of::<Block>()) + stmts.len();
-        self.create_with_slice(types, gsize, |base| Block { base, expr }, stmts)
+        self.create_with_vref_slice(types, |base| Block { base, expr }, stmts)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
     pub fn create_call<R: TypeRegistry>(&mut self, types: &R, callee: ValueRef, args: &[ValueRef])
         -> Option<TypedValueRef<Call>>
     {
-        let gsize = usize::from(GSize::of::<Call>()) + args.len();
-        self.create_with_slice(types, gsize, |base| Call { base, callee }, args)
+        self.create_with_vref_slice(types, |base| Call { base, callee }, args)
     }
 
     /// Create a new `Const` node of `value`.

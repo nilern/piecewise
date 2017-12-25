@@ -54,6 +54,10 @@ impl ValueRef {
     }
 }
 
+impl<T> From<TypedValueRef<T>> for ValueRef {
+    fn from(tvref: TypedValueRef<T>) -> ValueRef { ValueRef(tvref.0) }
+}
+
 impl ObjectRef for ValueRef {
     type Obj = HeapValue;
     type PORef = PointyValueRef;
@@ -97,9 +101,6 @@ impl<T> TypedValueRef<T> {
     pub fn new(ptr: Unique<T>) -> TypedValueRef<T> {
         TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
-
-    /// Forget the static type information.
-    pub fn upcast(self) -> ValueRef { ValueRef(self.0) }
 }
 
 impl<T> Deref for TypedValueRef<T> {
