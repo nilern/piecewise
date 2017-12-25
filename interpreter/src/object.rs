@@ -381,50 +381,72 @@ impl DynamicDebug for Lex {
 pub struct ValueManager {
     gc: Generation<ValueRef>,
     // OPTIMIZE: make the key just point inside the value
-    symbol_table: HashMap<String, TypedValueRef<Symbol>>
+    symbol_table: HashMap<String, TypedValueRef<Symbol>>,
+    types: HashMap<TypeIndex, TypedValueRef<Type>>,
+    type_idxs: HashMap<TypedValueRef<Type>, TypeIndex>
 }
 
 impl ValueManager {
     /// Create a new `ValueManager` with a maximum heap size of `max_heap`.
-    pub fn new<R: TypeRegistry>(types: &mut R, max_heap: usize) -> ValueManager {
-        // TODO: allocate all the types and store them in `types` (?)
+    pub fn new(max_heap: usize) -> ValueManager {
         let mut res = ValueManager {
             gc: Generation::new(max_heap),
-            symbol_table: HashMap::new()
+            symbol_table: HashMap::new(),
+            types: HashMap::new(),
+            type_idxs: HashMap::new()
         };
+
         let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
-        types.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
-        Self::uniform_init(type_type, types, |heap_value|
-            Type::new(heap_value, false, GSize::of::<Type>(), false, 0));
+        res.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
+        res.uniform_init(type_type, |heap_value|
+            Type::new(heap_value, false, GSize::of::<Type>(), false, 0)
+        );
+
+        let symbol_type = res.create_type(true, GSize::of::<Symbol>(), false, 0).unwrap();
+        res.insert(TypeIndex::Symbol, symbol_type);
+
+        let func_type = res.create_type(true, GSize::of::<Function>(), true, 0).unwrap();
+        res.insert(TypeIndex::Function, func_type);
+        let method_type = res.create_type(false, GSize::of::<Method>(), false, 3).unwrap();
+        res.insert(TypeIndex::Method, method_type);
+        let block_type = res.create_type(true, GSize::of::<Block>(), true, 1).unwrap();
+        res.insert(TypeIndex::Block, block_type);
+        let call_type = res.create_type(true, GSize::of::<Call>(), true, 1).unwrap();
+        res.insert(TypeIndex::Call, call_type);
+        let const_type = res.create_type(false, GSize::of::<Const>(), false, 1).unwrap();
+        res.insert(TypeIndex::Const, const_type);
+        let lex_type = res.create_type(false, GSize::of::<Lex>(), false, 1).unwrap();
+        res.insert(TypeIndex::Lex, lex_type);
+
         res
     }
 
-    fn init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
-        where T: IndexedType, R: TypeRegistry, F: Fn(Unique<T>, HeapValue)
+    fn init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
+        where T: IndexedType, F: Fn(Unique<T>, HeapValue)
     {
         let uptr = start_init(ptr);
         let tvref = TypedValueRef::new(uptr);
         f(uptr, HeapValue {
             link: ValueRef::from(tvref),
-            typ: type_reg.get(T::TYPE_INDEX)
+            typ: self.get(T::TYPE_INDEX)
         });
         tvref
     }
 
     /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
-    fn uniform_init<T, R, F>(ptr: Initializable<T>, type_reg: &R, f: F) -> TypedValueRef<T>
-        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
+    fn uniform_init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
+        where T: IndexedType, F: Fn(HeapValue) -> T
     {
-        Self::init(ptr, type_reg, |mut uptr, heap_value| {
+        self.init(ptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(heap_value);
         })
     }
 
-    fn init_with_slice<T, R, F, E>(iptr: Initializable<T>, type_reg: &R, f: F, slice: &[E])
+    fn init_with_slice<T, F, E>(&self, iptr: Initializable<T>, f: F, slice: &[E])
         -> TypedValueRef<T>
-        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy
+        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy
     {
-        Self::init(iptr, type_reg, |mut uptr, heap_value| {
+        self.init(iptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(DynHeapValue {
                 base: heap_value,
                 dyn_len: slice.len()
@@ -444,51 +466,45 @@ impl ValueManager {
 
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
     /// everything but the `HeapValue` part.
-    fn uniform_create<T, R, F>(&mut self, type_reg: &R, f: F)
-        -> Option<TypedValueRef<T>>
-        where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
+    fn uniform_create<T, F>(&mut self, f: F) -> Option<TypedValueRef<T>>
+        where T: IndexedType, F: Fn(HeapValue) -> T
     {
-        unsafe { self.allocate_t() }.map(|typ| Self::uniform_init(typ, type_reg, f))
+        unsafe { self.allocate_t() }.map(|typ| self.uniform_init(typ, f))
     }
 
-    fn create_with_slice<T, R, F, E>(&mut self, types: &R, gsize: GSize, f: F, slice: &[E])
+    fn create_with_slice<T, F, E>(&mut self, gsize: GSize, f: F, slice: &[E])
         -> Option<TypedValueRef<T>>
-        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy
+        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy
     {
         unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
                                   NonZero::new_unchecked(gsize)) }
-            .map(|iptr| ValueManager::init_with_slice(iptr, types, f, slice))
+            .map(|iptr| self.init_with_slice(iptr, f, slice))
     }
 
-    fn create_with_vref_slice<T, R, F, E>(&mut self, types: &R, f: F, slice: &[E])
-        -> Option<TypedValueRef<T>>
-        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
+    fn create_with_vref_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<TypedValueRef<T>>
+        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
     {
-        self.create_with_slice(types, GSize::of::<T>() + GSize::from(slice.len()), f, slice)
+        self.create_with_slice(GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
 
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
     /// potentially pointer-valued fields.
-    pub fn create_type<R: TypeRegistry>(&mut self, types: &R,
-                                        has_dyn_gsize: bool, gsize: GSize,
-                                        has_dyn_ref_len: bool, ref_len: usize)
-        -> Option<TypedValueRef<Type>>
+    pub fn create_type(&mut self, has_dyn_gsize: bool, gsize: GSize, has_dyn_ref_len: bool,
+                       ref_len: usize) -> Option<TypedValueRef<Type>>
     {
-        self.uniform_create(types, |heap_value|
+        self.uniform_create(|heap_value|
             Type::new(heap_value, has_dyn_gsize, gsize, has_dyn_ref_len, ref_len)
         )
     }
 
     /// Create a new `Symbol` from `chars`.
-    pub fn create_symbol<R: TypeRegistry>(&mut self, types: &R, chars: &str)
-        -> Option<TypedValueRef<Symbol>>
-    {
+    pub fn create_symbol(&mut self, chars: &str) -> Option<TypedValueRef<Symbol>> {
         self.symbol_table
             .get(chars).map(|&sym| sym)
             .or_else(|| {
                 let bytes = chars.as_bytes();
                 let gsize = GSize::of::<Symbol>() + GSize::from_bytesize(bytes.len());
-                let sym = self.create_with_slice(types, gsize, |base| Symbol { base }, bytes);
+                let sym = self.create_with_slice(gsize, |base| Symbol { base }, bytes);
                 if let Some(sym) = sym {
                     self.symbol_table.insert(chars.to_string(), sym);
                 }
@@ -497,46 +513,56 @@ impl ValueManager {
     }
 
     /// Create a new `Function` node with `methods`.
-    pub fn create_function<R: TypeRegistry>(&mut self, types: &R,
-                                            methods: &[TypedValueRef<Method>])
+    pub fn create_function(&mut self, methods: &[TypedValueRef<Method>])
         -> Option<TypedValueRef<Function>>
     {
-        self.create_with_vref_slice(types, |base| Function { base }, methods)
+        self.create_with_vref_slice(|base| Function { base }, methods)
     }
 
     /// Create a new `Method` node.
-    pub fn create_method<R: TypeRegistry>(&mut self, types: &R, pattern: ValueRef, guard: ValueRef,
-                                          body: ValueRef) -> Option<TypedValueRef<Method>>
+    pub fn create_method(&mut self, pattern: ValueRef, guard: ValueRef, body: ValueRef)
+        -> Option<TypedValueRef<Method>>
     {
-        self.uniform_create(types, |base| Method { base, pattern, guard, body })
+        self.uniform_create(|base| Method { base, pattern, guard, body })
     }
 
     /// Create a new `Block` node from `stmts` and `expr`.
-    pub fn create_block<R: TypeRegistry>(&mut self, types: &R, stmts: &[ValueRef], expr: ValueRef)
+    pub fn create_block(&mut self, stmts: &[ValueRef], expr: ValueRef)
         -> Option<TypedValueRef<Block>>
     {
-        self.create_with_vref_slice(types, |base| Block { base, expr }, stmts)
+        self.create_with_vref_slice(|base| Block { base, expr }, stmts)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
-    pub fn create_call<R: TypeRegistry>(&mut self, types: &R, callee: ValueRef, args: &[ValueRef])
+    pub fn create_call(&mut self, callee: ValueRef, args: &[ValueRef])
         -> Option<TypedValueRef<Call>>
     {
-        self.create_with_vref_slice(types, |base| Call { base, callee }, args)
+        self.create_with_vref_slice(|base| Call { base, callee }, args)
     }
 
     /// Create a new `Const` node of `value`.
-    pub fn create_const<R: TypeRegistry>(&mut self, types: &R, value: ValueRef)
-        -> Option<TypedValueRef<Const>>
-    {
-        self.uniform_create(types, |heap_value| Const { heap_value, value })
+    pub fn create_const(&mut self, value: ValueRef) -> Option<TypedValueRef<Const>> {
+        self.uniform_create(|heap_value| Const { heap_value, value })
     }
 
     /// Create a new `Lex` node for the variable named `name`.
-    pub fn crate_lex<R: TypeRegistry>(&mut self, types: &R, name: TypedValueRef<Symbol>)
-        -> Option<TypedValueRef<Lex>>
-    {
-        self.uniform_create(types, |base| Lex { base, name })
+    pub fn create_lex(&mut self, name: TypedValueRef<Symbol>) -> Option<TypedValueRef<Lex>> {
+        self.uniform_create(|base| Lex { base, name })
+    }
+}
+
+impl TypeRegistry for ValueManager {
+    fn insert(&mut self, index: TypeIndex, typ: TypedValueRef<Type>) {
+        self.types.insert(index, typ);
+        self.type_idxs.insert(typ, index);
+    }
+
+    fn get(&self, index: TypeIndex) -> TypedValueRef<Type> {
+        *self.types.get(&index).expect(&format!("No type found for {:?}", index))
+    }
+
+    fn index_of(&self, typ: TypedValueRef<Type>) -> TypeIndex {
+        *self.type_idxs.get(&typ).unwrap()
     }
 }
 
@@ -545,16 +571,41 @@ impl ValueManager {
 #[cfg(test)]
 mod tests {
     use gce::layout::GSize;
-    use super::{HeapValue, DynHeapValue, Type};
+    use super::{HeapValue, DynHeapValue, ValueManager,
+                Type, Symbol,
+                Function, Method, Block, Call, Lex, Const};
 
     #[test]
-    fn heap_value_size() {
+    fn sizes() {
         assert_eq!(GSize::of::<HeapValue>(), GSize::from(2));
         assert_eq!(GSize::of::<DynHeapValue>(), GSize::from(3));
+
+        assert_eq!(GSize::of::<Type>(), GSize::from(4));
+        assert_eq!(GSize::of::<Symbol>(), GSize::from(3));
+
+        assert_eq!(GSize::of::<Function>(), GSize::from(3));
+        assert_eq!(GSize::of::<Method>(), GSize::from(5));
+        assert_eq!(GSize::of::<Block>(), GSize::from(4));
+        assert_eq!(GSize::of::<Call>(), GSize::from(4));
+        assert_eq!(GSize::of::<Lex>(), GSize::from(3));
+        assert_eq!(GSize::of::<Const>(), GSize::from(3));
     }
 
     #[test]
-    fn type_size() {
-        assert_eq!(GSize::of::<Type>(), GSize::from(4));
+    fn create() {
+        let mut factory = ValueManager::new(1024);
+
+        let typ = factory.create_type(false, GSize::from(2), false, 2).unwrap();
+        let sym = factory.create_symbol(&"foo").unwrap();
+
+        let call = factory.create_call(From::from(sym), &[From::from(typ), From::from(sym)])
+                          .unwrap();
+        let lex = factory.create_lex(sym).unwrap();
+        let c = factory.create_const(From::from(typ)).unwrap();
+        let block = factory.create_block(&[From::from(call), From::from(lex)], From::from(c))
+                           .unwrap();
+        let method = factory.create_method(From::from(sym), From::from(sym), From::from(block))
+                            .unwrap();
+        factory.create_function(&[method]).unwrap();
     }
 }

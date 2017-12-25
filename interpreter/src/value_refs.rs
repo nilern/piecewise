@@ -4,6 +4,7 @@ use std::ops::{Deref, DerefMut};
 use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
 use std::iter;
+use std::hash::{Hash, Hasher};
 
 use gce::{ObjectRef, PointyObjectRef};
 use object::{DynamicDebug, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
@@ -16,7 +17,7 @@ const PTR_BIT: usize = 0b001;
 // ================================================================================================
 
 /// A value reference (tagged pointer).
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct ValueRef(usize);
 
 impl ValueRef {
@@ -95,6 +96,16 @@ impl<T> Clone for TypedValueRef<T> {
 }
 
 impl<T> Copy for TypedValueRef<T> {}
+
+impl<T> PartialEq for TypedValueRef<T> {
+    fn eq(&self, other: &TypedValueRef<T>) -> bool { self.0 == other.0 }
+}
+
+impl<T> Eq for TypedValueRef<T> {}
+
+impl<T> Hash for TypedValueRef<T> {
+    fn hash<H>(&self, state: &mut H) where H: Hasher { self.0.hash(state) }
+}
 
 impl<T> TypedValueRef<T> {
     /// Convert from a (freshly allocated) pointer.
