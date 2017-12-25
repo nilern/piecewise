@@ -368,10 +368,19 @@ impl ValueManager {
 
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
     /// everything but the `HeapValue` part.
-    fn uniform_create<T, R, F>(&mut self, type_reg: &R, f: F) -> Option<TypedValueRef<T>>
+    fn uniform_create<T, R, F>(&mut self, type_reg: &R, f: F)
+        -> Option<TypedValueRef<T>>
         where T: IndexedType, R: TypeRegistry, F: Fn(HeapValue) -> T
     {
         unsafe { self.allocate_t() }.map(|typ| Self::uniform_init(typ, type_reg, f))
+    }
+
+    fn create_with_slice<T, R, F, E>(&mut self, types: &R, gsize: usize, f: F, slice: &[E])
+        -> Option<TypedValueRef<T>>
+        where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy
+    {
+        unsafe { self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize)) }
+            .map(|iptr| ValueManager::init_with_slice(iptr, types, f, slice))
     }
 
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
@@ -396,12 +405,7 @@ impl ValueManager {
                 let bytes = chars.as_bytes();
                 let gsize = usize::from(GSize::of::<Symbol>())
                           + bytes.len().ceil_div(size_of::<Granule>());
-                let sym = unsafe {
-                    self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize))
-                           .map(|iptr| ValueManager::init_with_slice(iptr, types, |base| {
-                               Symbol { base }
-                           }, bytes))
-                };
+                let sym = self.create_with_slice(types, gsize, |base| Symbol { base }, bytes);
                 if let Some(sym) = sym {
                     self.symbol_table.insert(chars.to_string(), sym);
                 }
@@ -414,10 +418,7 @@ impl ValueManager {
         -> Option<TypedValueRef<Call>>
     {
         let gsize = usize::from(GSize::of::<Call>()) + args.len();
-        unsafe { self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize)) }
-            .map(|iptr| ValueManager::init_with_slice(iptr, types, |base| {
-                Call { base, callee }
-            }, args))
+        self.create_with_slice(types, gsize, |base| Call { base, callee }, args)
     }
 
     /// Create a new `Const` node of `value`.
