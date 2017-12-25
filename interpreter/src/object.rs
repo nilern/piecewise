@@ -24,10 +24,12 @@ pub trait DynamicDebug {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TypeIndex {
     Type,
-    Const,
     Symbol,
+
+    Method,
     Call,
-    Lex
+    Lex,
+    Const
 }
 
 /// Obtain the `TypeIndex` of `Self`.
@@ -54,6 +56,7 @@ pub enum ValueView {
     Type(TypedValueRef<Type>),
     Const(TypedValueRef<Const>),
     Symbol(TypedValueRef<Symbol>),
+    Method(TypedValueRef<Method>),
     Call(TypedValueRef<Call>),
     Lex(TypedValueRef<Lex>),
 
@@ -72,6 +75,7 @@ impl DynamicDebug for ValueView {
             &Type(vref) => vref.fmt(f, type_reg),
             &Const(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
+            &Method(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
             &Lex(vref) => vref.fmt(f, type_reg),
 
@@ -231,6 +235,32 @@ impl DynamicDebug for Symbol {
         f.write_str("Symbol {{ base: ")?;
         self.base.fmt(f, type_reg)?;
         // TODO: chars
+        f.write_str(" }}")
+    }
+}
+
+/// Method AST (function sub)node
+pub struct Method {
+    base: HeapValue,
+    pattern: ValueRef,
+    guard: ValueRef,
+    body: ValueRef
+}
+
+impl IndexedType for Method {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Method;
+}
+
+impl DynamicDebug for Method {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Method {{ base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", pattern: ")?;
+        self.pattern.fmt(f, type_reg)?;
+        f.write_str(", guard: ")?;
+        self.guard.fmt(f, type_reg)?;
+        f.write_str(", body: ")?;
+        self.body.fmt(f, type_reg)?;
         f.write_str(" }}")
     }
 }
@@ -411,6 +441,13 @@ impl ValueManager {
                 }
                 sym
             })
+    }
+
+    /// Create a new `Method` node.
+    pub fn create_method<R: TypeRegistry>(&mut self, types: &R, pattern: ValueRef, guard: ValueRef,
+                                          body: ValueRef) -> Option<TypedValueRef<Method>>
+    {
+        self.uniform_create(types, |base| Method { base, pattern, guard, body })
     }
 
     /// Create a new `Call` node from `callee` and `args`.

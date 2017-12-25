@@ -23,20 +23,21 @@ impl ValueRef {
     /// Does `self` hold a pointer?
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
+    /// Record the fact that `self` points to a `T`.
+    unsafe fn downcast<T>(self) -> TypedValueRef<T> {
+        TypedValueRef(self.0, PhantomData::default())
+    }
+
     /// Get the corresponding `ValueView`.
     fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
-                TypeIndex::Type =>
-                    ValueView::Type(TypedValueRef::new(unsafe { transmute(sptr) })),
-                TypeIndex::Symbol =>
-                    ValueView::Symbol(TypedValueRef::new(unsafe { transmute(sptr) })),
-                TypeIndex::Call =>
-                    ValueView::Call(TypedValueRef::new(unsafe { transmute(sptr) })),
-                TypeIndex::Const =>
-                    ValueView::Const(TypedValueRef::new(unsafe { transmute(sptr) })),
-                TypeIndex::Lex =>
-                    ValueView::Lex(TypedValueRef::new(unsafe { transmute(sptr) }))
+                TypeIndex::Type => ValueView::Type(unsafe { self.downcast() }),
+                TypeIndex::Symbol => ValueView::Symbol(unsafe { self.downcast() }),
+                TypeIndex::Method => ValueView::Method(unsafe { self.downcast() }),
+                TypeIndex::Call => ValueView::Call(unsafe { self.downcast() }),
+                TypeIndex::Const => ValueView::Const(unsafe { self.downcast() }),
+                TypeIndex::Lex => ValueView::Lex(unsafe { self.downcast() }),
             }
         } else {
             match self.0 & TAG_MASK {
