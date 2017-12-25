@@ -45,19 +45,19 @@ impl<ORef, PORef> Generation<ORef>
     }
 
     // TODO: leave breathing room (don't wait until the very last moment before returning `None`)
-    pub unsafe fn allocate<T>(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+    pub unsafe fn allocate<T>(&mut self, galign: NonZero<GSize>, gsize: NonZero<GSize>)
         -> Option<Initializable<T>>
     {
-        let res = if wsize.get() < LARGE_OBJ_THRESHOLD {
-            self.freelist_allocate(walign, wsize)
-                .or_else(|| self.sequential_allocate(walign, wsize))
+        let res = if usize::from(gsize.get()) < LARGE_OBJ_THRESHOLD {
+            self.freelist_allocate(galign, gsize)
+                .or_else(|| self.sequential_allocate(galign, gsize))
                 .or_else(|| if self.refill_bumper() {
-                    self.sequential_allocate(walign, wsize)
+                    self.sequential_allocate(galign, gsize)
                 } else {
                     None
                 })
         } else {
-            self.allocate_large(walign, wsize)
+            self.allocate_large(galign, gsize)
         };
         transmute(res)
     }
@@ -155,15 +155,16 @@ impl<ORef, PORef> Generation<ORef>
         }
     }
 
-    fn freelist_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+    fn freelist_allocate(&mut self, galign: NonZero<GSize>, gsize: NonZero<GSize>)
         -> Option<Initializable<usize>>
     {
         use self::AllocSat::*;
 
+        let gsize = usize::from(gsize.get());
         let mut cursor = self.freelist.front_mut();
         while let Some(node) = cursor.get() {
-            match node.weigh_against(wsize.get()) {
-                Some(Split) => return Some(unsafe { node.split_off(wsize.get()) }),
+            match node.weigh_against(gsize) {
+                Some(Split) => return Some(unsafe { node.split_off(gsize) }),
                 Some(Consume) => return cursor.remove().map(SizedFreeObj::take),
                 None => cursor.move_next()
             }
@@ -171,24 +172,25 @@ impl<ORef, PORef> Generation<ORef>
         None
     }
 
-    fn sequential_allocate(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+    fn sequential_allocate(&mut self, galign: NonZero<GSize>, gsize: NonZero<GSize>)
         -> Option<Initializable<usize>>
     {
         use self::AllocSat::*;
 
+        let gsize = usize::from(gsize.get());
         self.bumper.as_ref()
-            .and_then(|bumper| bumper.weigh_against(wsize.get()))
+            .and_then(|bumper| bumper.weigh_against(gsize))
             .and_then(|sat| match sat {
-                Split => self.bumper.as_mut().map(|b| unsafe { b.split_off(wsize.get()) }),
+                Split => self.bumper.as_mut().map(|b| unsafe { b.split_off(gsize) }),
                 Consume => self.bumper.take().map(Span::take)
             })
     }
 
-    fn allocate_large(&mut self, walign: NonZero<usize>, wsize: NonZero<usize>)
+    fn allocate_large(&mut self, galign: NonZero<GSize>, gsize: NonZero<GSize>)
         -> Option<Initializable<usize>>
     {
         unsafe {
-            let bsize = NonZero::new_unchecked((wsize.get()).ceil_div(Block::WSIZE));
+            let bsize = NonZero::new_unchecked(usize::from(gsize.get()).ceil_div(Block::WSIZE));
             self.block_allocator.alloc_large_obj_rope(bsize)
                 .map(|rope| {
                     self.large_objs.push_back(UnsafeRef::from_raw(rope.as_ptr()));

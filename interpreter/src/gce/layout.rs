@@ -74,9 +74,11 @@ impl Granule {
 pub struct GSize(usize);
 
 impl GSize {
-    pub fn of<T>() -> Self {
-        GSize(size_of::<T>().ceil_div(size_of::<Granule>()))
+    pub fn from_bytesize(bytesize: usize) -> GSize {
+        GSize(bytesize.ceil_div(size_of::<Granule>()))
     }
+
+    pub fn of<T>() -> Self { Self::from_bytesize(size_of::<T>()) }
 
     pub fn next_aligned(align: GSize, ptr: *const Granule) -> *const Granule {
         let stride = align.0 * size_of::<Granule>();

@@ -145,9 +145,8 @@ impl Object for HeapValue {
             return GSize::from(gsize + 1 + unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len);
         }
         if self.typ.has_dyn_gsize() {
-            return GSize::from(gsize + 1
-                               + unsafe { transmute::<_, &DynHeapValue>(self)
-                                              .dyn_len.ceil_div(size_of::<Granule>()) });
+            return GSize::from(gsize + 1)
+                 + GSize::from_bytesize(unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len);
         }
         GSize::from(gsize)
     }
@@ -439,8 +438,8 @@ impl ValueManager {
 
     /// Allocate a `T` with a granule alignment of 1.
     unsafe fn allocate_t<T>(&mut self) -> Option<Initializable<T>> {
-        self.gc.allocate(NonZero::new_unchecked(1),
-                         NonZero::new_unchecked(From::from(GSize::of::<T>())))
+        self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
+                         NonZero::new_unchecked(GSize::of::<T>()))
     }
 
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
@@ -452,11 +451,12 @@ impl ValueManager {
         unsafe { self.allocate_t() }.map(|typ| Self::uniform_init(typ, type_reg, f))
     }
 
-    fn create_with_slice<T, R, F, E>(&mut self, types: &R, gsize: usize, f: F, slice: &[E])
+    fn create_with_slice<T, R, F, E>(&mut self, types: &R, gsize: GSize, f: F, slice: &[E])
         -> Option<TypedValueRef<T>>
         where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy
     {
-        unsafe { self.gc.allocate(NonZero::new_unchecked(1), NonZero::new_unchecked(gsize)) }
+        unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
+                                  NonZero::new_unchecked(gsize)) }
             .map(|iptr| ValueManager::init_with_slice(iptr, types, f, slice))
     }
 
@@ -464,7 +464,7 @@ impl ValueManager {
         -> Option<TypedValueRef<T>>
         where T: IndexedType, R: TypeRegistry, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
     {
-        self.create_with_slice(types, usize::from(GSize::of::<T>()) + slice.len(), f, slice)
+        self.create_with_slice(types, GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
 
     /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
@@ -487,8 +487,7 @@ impl ValueManager {
             .get(chars).map(|&sym| sym)
             .or_else(|| {
                 let bytes = chars.as_bytes();
-                let gsize = usize::from(GSize::of::<Symbol>())
-                          + bytes.len().ceil_div(size_of::<Granule>());
+                let gsize = GSize::of::<Symbol>() + GSize::from_bytesize(bytes.len());
                 let sym = self.create_with_slice(types, gsize, |base| Symbol { base }, bytes);
                 if let Some(sym) = sym {
                     self.symbol_table.insert(chars.to_string(), sym);
