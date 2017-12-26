@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use object::{Block, Method, ValueManager};
+use value::{Block, Method, ValueManager};
 use value_refs::{ValueRef, TypedValueRef};
 
 #![arguments(factory: &mut ValueManager)]

@@ -7,7 +7,7 @@ use std::iter;
 use std::hash::{Hash, Hasher};
 
 use gce::{ObjectRef, PointyObjectRef};
-use object::{DynamicDebug, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
+use value::{DynamicDebug, IndexedType, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
 
 // ================================================================================================
 
@@ -31,7 +31,7 @@ impl ValueRef {
     }
 
     /// Get the corresponding `ValueView`.
-    fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
+    pub fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
         if let Some(sptr) = self.ptr() {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
                 TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
@@ -43,6 +43,8 @@ impl ValueRef {
                 TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
                 TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
                 TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
+
+                TypeIndex::Halt => ValueView::Halt(unsafe { self.downcast() })
             }
         } else {
             match self.0 & TAG_MASK {
@@ -52,6 +54,14 @@ impl ValueRef {
                 0b110 => ValueView::Bool(unsafe { transmute((self.0 >> SHIFT) as u8) }),
                 _ => unreachable!()
             }
+        }
+    }
+
+    pub fn is_instance<R: TypeRegistry, T: IndexedType>(self, types: &R) -> bool {
+        if let Some(sptr) = self.ptr() {
+            types.index_of(*unsafe { sptr.as_ref() }.typ()) == T::TYPE_INDEX
+        } else {
+            false
         }
     }
 }

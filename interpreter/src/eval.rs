@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-use gc::Gc;
-
-use value::{Value, ValueRef};
-use ast::{Expr, Block};
+use value_refs::{ValueRef, TypedValueRef};
+use value::{ValueManager, ValueView, Block, Halt};
 
 #[derive(Debug)]
 pub enum EvalError {
@@ -11,79 +8,97 @@ pub enum EvalError {
 
 enum State {
     Eval {
-        expr: Gc<Expr>,
-        lenv: Gc<Env>,
-        denv: Gc<Env>,
-        cont: Cont
+        expr: ValueRef,
+        lenv: ValueRef,
+        denv: ValueRef,
+        cont: ValueRef
     },
     Continue {
         value: ValueRef,
-        cont: Cont
-    },
-    Apply {
-        function: ValueRef,
-        args: Vec<ValueRef>,
-        denv: Gc<Env>,
-        cont: Cont
+        cont: ValueRef
     }
-}
-
-#[derive(Debug, Trace, Finalize)]
-struct Env {
-    parent: Option<Gc<Env>>,
-    bindings: HashMap<String, ValueRef>
-}
-
-#[derive(Debug, Trace, Finalize)]
-enum Cont {
-    Halt
+    // Apply {
+    //     function: ValueRef,
+    //     args: Vec<ValueRef>,
+    //     denv: Gc<Env>,
+    //     cont: Cont
+    // }
 }
 
 impl State {
-    fn start(program: Block) -> State {
+    fn start(factory: &mut ValueManager, program: TypedValueRef<Block>) -> State {
         State::Eval {
-            expr: Gc::new(Expr::Block(program)),
-            lenv: Gc::new(Env::new(None)),
-            denv: Gc::new(Env::new(None)),
-            cont: Cont::Halt
+            expr: ValueRef::from(program),
+            lenv: ValueRef::from(false),
+            denv: ValueRef::from(false),
+            cont: ValueRef::from(factory.create_halt().unwrap())
         }
     }
 }
 
-impl Env {
-    fn new(parent: Option<Gc<Env>>) -> Env {
-        Env {
-            parent,
-            bindings: HashMap::new()
+// #[derive(Debug, Trace, Finalize)]
+// struct Env {
+//     parent: Option<Gc<Env>>,
+//     bindings: HashMap<String, ValueRef>
+// }
+//
+// #[derive(Debug, Trace, Finalize)]
+// enum Cont {
+//     Halt
+// }
+
+// impl Env {
+//     fn new(parent: Option<Gc<Env>>) -> Env {
+//         Env {
+//             parent,
+//             bindings: HashMap::new()
+//         }
+//     }
+// }
+
+pub struct Interpreter {
+    pub values: ValueManager
+}
+
+impl Interpreter {
+    pub fn new(max_heap: usize) -> Interpreter {
+        Interpreter {
+            values: ValueManager::new(max_heap)
         }
     }
-}
 
-pub fn run(program: Block) -> Result<Gc<Value>, EvalError> {
-    let mut state = State::start(program);
-    loop {
-        state = match state {
-            State::Eval { expr, lenv, denv, cont } => eval(expr, lenv, denv, cont)?,
-            State::Continue { value, cont: Cont::Halt } => return Ok(value),
-            State::Continue { value, cont } => invoke(cont, value)?,
-            State::Apply { function, args, denv, cont } => apply(function, args, denv, cont)?
+    pub fn run(&mut self, program: TypedValueRef<Block>) -> Result<ValueRef, EvalError> {
+        let mut state = State::start(&mut self.values, program);
+
+        loop {
+            state = match state {
+                State::Eval { expr, lenv, denv, cont } => self.eval(expr, lenv, denv, cont)?,
+                State::Continue { value, cont }
+                    if cont.is_instance::<ValueManager, Halt>(&self.values) => return Ok(value),
+                State::Continue { value, cont } => self.invoke(cont, value)?,
+                //State::Apply { function, args, denv, cont } => apply(function, args, denv, cont)?
+            }
         }
     }
-}
 
-fn eval(expr: Gc<Expr>, lenv: Gc<Env>, denv: Gc<Env>, cont: Cont) -> Result<State, EvalError> {
-    match *expr {
-        Expr::Block(Block { ref stmts, ref expr }) if stmts.is_empty() =>
-            Ok(State::Eval { expr: expr.clone(), lenv, denv, cont }),
-        Expr::Const(ref value) => Ok(State::Continue { value: value.clone(), cont }),
-        _ => unimplemented!()
+    fn eval(&self, expr: ValueRef, lenv: ValueRef, denv: ValueRef, cont: ValueRef)
+        -> Result<State, EvalError>
+    {
+        match expr.view(&self.values) {
+            ValueView::Block(tvref) if tvref.stmts().is_empty() =>
+                Ok(State::Eval { expr: tvref.expr(), lenv, denv, cont }),
+            ValueView::Const(tvref) => Ok(State::Continue { value: tvref.value(), cont }),
+            _ => unimplemented!()
+        }
     }
-}
 
-fn invoke(cont: Cont, value: ValueRef) -> Result<State, EvalError> {
-    unimplemented!()
-}
+    fn invoke(&self, cont: ValueRef, value: ValueRef) -> Result<State, EvalError> {
+        unimplemented!()
+    }
 
-fn apply(function: ValueRef, args: Vec<ValueRef>, denv: Gc<Env>, cont: Cont) -> Result<State, EvalError> {
-    unimplemented!()
+    // fn apply(&mut self, function: ValueRef, args: Vec<ValueRef>, denv: Gc<Env>, cont: Cont)
+    //     -> Result<State, EvalError>
+    // {
+    //     unimplemented!()
+    // }
 }
