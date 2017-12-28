@@ -5,6 +5,7 @@ use std::slice;
 use std::collections::HashMap;
 use std::ptr::Unique;
 use std::str;
+use std::iter;
 
 use gce::util::{start_init, Initializable};
 use gce::Object;
@@ -54,7 +55,10 @@ pub enum TypeIndex {
     Lex,
     Const,
 
-    Halt
+    BlockCont,
+    Halt,
+
+    Env
 }
 
 /// Obtain the `TypeIndex` of `Self`.
@@ -88,7 +92,10 @@ pub enum ValueView {
     Lex(TypedValueRef<Lex>),
     Const(TypedValueRef<Const>),
 
+    BlockCont(TypedValueRef<BlockCont>),
     Halt(TypedValueRef<Halt>),
+
+    Env(TypedValueRef<Env>),
 
     Int(isize),
     Float(f64),
@@ -112,7 +119,10 @@ impl DynamicDebug for ValueView {
             &Lex(vref) => vref.fmt(f, type_reg),
             &Const(vref) => vref.fmt(f, type_reg),
 
+            &BlockCont(vref) => vref.fmt(f, type_reg),
             &Halt(vref) => vref.fmt(f, type_reg),
+
+            &Env(vref) => vref.fmt(f, type_reg),
 
             &Int(v) => v.fmt(f),
             &Float(v) => v.fmt(f),
@@ -354,6 +364,10 @@ impl Block {
             (*(ptr as *const DynHeapValue)).dyn_len
         ) }
     }
+
+    pub fn lex_binders(&self) -> iter::Empty<TypedValueRef<Symbol>> { iter::empty() } // FIXME
+
+    pub fn dyn_binders(&self) -> iter::Empty<TypedValueRef<Symbol>> { iter::empty() } // FIXME
 }
 
 impl IndexedType for Block {
@@ -453,6 +467,51 @@ impl DynamicDebug for Lex {
     }
 }
 
+/// Block continuation
+#[repr(C)]
+pub struct BlockCont {
+    base: HeapValue,
+    parent: ValueRef,
+    lenv: ValueRef,
+    denv: ValueRef,
+    block: TypedValueRef<Block>,
+    index: ValueRef
+}
+
+impl BlockCont {
+    pub fn parent(&self) -> ValueRef { self.parent }
+
+    pub fn lenv(&self) -> ValueRef { self.lenv }
+
+    pub fn denv(&self) -> ValueRef { self.denv }
+
+    pub fn block(&self) -> TypedValueRef<Block> { self.block }
+
+    pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self.index) >> 3 } } // FIXME
+}
+
+impl IndexedType for BlockCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::BlockCont;
+}
+
+impl DynamicDebug for BlockCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("BlockCont { base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", parent: ")?;
+        self.parent.fmt(f, type_reg)?;
+        f.write_str(", lenv: ")?;
+        self.lenv.fmt(f, type_reg)?;
+        f.write_str(", denv: ")?;
+        self.denv.fmt(f, type_reg)?;
+        f.write_str(", block: ")?;
+        self.block.fmt(f, type_reg)?;
+        f.write_str(", index: ")?;
+        self.index.fmt(f, type_reg)?;
+        f.write_str(" }")
+    }
+}
+
 /// Halt continuation
 #[repr(C)]
 pub struct Halt {
@@ -471,7 +530,31 @@ impl DynamicDebug for Halt {
     }
 }
 
+/// Environment
+#[repr(C)]
+pub struct Env {
+    base: DynHeapValue,
+    parent: ValueRef
+}
+
+impl IndexedType for Env {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Env;
+}
+
+impl DynamicDebug for Env {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Env { base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", parent: ")?;
+        self.parent.fmt(f, type_reg)?;
+        f.write_str(" }")
+    }
+}
+
 // ================================================================================================
+
+#[derive(Debug)]
+pub struct OutOfMemory;
 
 /// Memory manager and value factory.
 pub struct ValueManager {
@@ -513,10 +596,32 @@ impl ValueManager {
         res.insert(TypeIndex::Const, const_type);
         let lex_type = res.create_type(false, GSize::of::<Lex>(), false, 1).unwrap();
         res.insert(TypeIndex::Lex, lex_type);
+
+        let block_cont_type = res.create_type(false, GSize::of::<BlockCont>(), false, 5).unwrap();
+        res.insert(TypeIndex::BlockCont, block_cont_type);
         let halt_type = res.create_type(false, GSize::of::<Halt>(), false, 0).unwrap();
         res.insert(TypeIndex::Halt, halt_type);
 
+        let env_type = res.create_type(true, GSize::of::<Env>(), true, 1).unwrap();
+        res.insert(TypeIndex::Env, env_type);
+
         res
+    }
+
+    pub fn with_gc_retry<C, R>(&mut self, mut create: C, roots: &mut [&mut ValueRef])
+        -> Result<R, OutOfMemory>
+        where C: FnMut(&mut Self) -> Option<R>
+    {
+        create(self).or_else(|| {
+            unsafe {
+                for root in roots {
+                    **root = self.gc.mark_ref(**root);
+                }
+                self.gc.collect();
+            }
+            create(self)
+        })
+        .ok_or(OutOfMemory)
     }
 
     fn init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
@@ -660,9 +765,29 @@ impl ValueManager {
         self.uniform_create(|base| Lex { base, name })
     }
 
+    /// Create a new block continuation
+    pub fn create_block_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+                             block: TypedValueRef<Block>, index: usize)
+        -> Option<TypedValueRef<BlockCont>>
+    {
+        self.uniform_create(|base| BlockCont {
+            base, parent, lenv, denv, block,
+            index: (index as isize).into()
+        })
+    }
+
     /// Create a new halt continuation.
     pub fn create_halt(&mut self) -> Option<TypedValueRef<Halt>> {
         self.uniform_create(|base| Halt { base })
+    }
+
+    /// Create a new block `Env` that inherits from (= represents inner scope of) `Env`.
+    pub fn create_block_env<I>(&mut self, parent: ValueRef, names: I)
+        -> Option<TypedValueRef<Env>>
+        where I: Iterator<Item=TypedValueRef<Symbol>>
+    {
+        let empty_dummy: [ValueRef; 0] = [];
+        self.create_with_vref_slice(|base| Env { base, parent }, &empty_dummy)
     }
 }
 
@@ -686,10 +811,7 @@ impl TypeRegistry for ValueManager {
 #[cfg(test)]
 mod tests {
     use gce::layout::GSize;
-    use super::{HeapValue, DynHeapValue, ValueManager,
-                Type, Symbol,
-                Function, Method, Block, Call, Lex, Const,
-                Halt};
+    use super::*;
 
     #[test]
     fn sizes() {
@@ -706,7 +828,10 @@ mod tests {
         assert_eq!(GSize::of::<Lex>(), GSize::from(3));
         assert_eq!(GSize::of::<Const>(), GSize::from(3));
 
+        assert_eq!(GSize::of::<BlockCont>(), GSize::from(7));
         assert_eq!(GSize::of::<Halt>(), GSize::from(2));
+
+        assert_eq!(GSize::of::<Env>(), GSize::from(4));
     }
 
     #[test]
@@ -727,5 +852,7 @@ mod tests {
         factory.create_function(&[method]).unwrap();
 
         factory.create_halt().unwrap();
+
+        // TODO: factory.create_block_env(...);
     }
 }

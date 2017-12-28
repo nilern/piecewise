@@ -44,7 +44,10 @@ impl ValueRef {
                 TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
                 TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
 
-                TypeIndex::Halt => ValueView::Halt(unsafe { self.downcast() })
+                TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
+                TypeIndex::Halt => ValueView::Halt(unsafe { self.downcast() }),
+
+                TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
             }
         } else {
             match self.0 & TAG_MASK {
@@ -139,6 +142,14 @@ impl<T> TypedValueRef<T> {
     pub fn new(ptr: Unique<T>) -> TypedValueRef<T> {
         TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
+}
+
+impl<T> AsRef<ValueRef> for TypedValueRef<T> {
+    fn as_ref(&self) -> &ValueRef { unsafe { transmute(self) } }
+}
+
+impl<T> AsMut<ValueRef> for TypedValueRef<T> {
+    fn as_mut(&mut self) -> &mut ValueRef { unsafe { transmute(self) } }
 }
 
 impl<T> Deref for TypedValueRef<T> {
