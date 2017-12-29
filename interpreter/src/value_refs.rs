@@ -37,28 +37,25 @@ impl ValueRef {
         if self == Self::NULL {
             ValueView::Null
         } else if let Some(sptr) = self.ptr() {
-            let typ = *unsafe { sptr.as_ref() }.typ();
-            if ValueRef::from(typ) == Self::NULL {
-                ValueView::Promise(unsafe { self.downcast() })
-            } else {
-                match type_reg.index_of(typ) {
-                    TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
-                    TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
+            match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
+                TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
+                TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
 
-                    TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
-                    TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
-                    TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
-                    TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
-                    TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
-                    TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
-                    TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
+                TypeIndex::Promise => ValueView::Promise(unsafe { self.downcast() }),
 
-                    TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
-                    TypeIndex::DefCont   => ValueView::DefCont(unsafe { self.downcast() }),
-                    TypeIndex::Halt      => ValueView::Halt(unsafe { self.downcast() }),
+                TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
+                TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
+                TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
+                TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
+                TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
+                TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
+                TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
 
-                    TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
-                }
+                TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
+                TypeIndex::DefCont   => ValueView::DefCont(unsafe { self.downcast() }),
+                TypeIndex::Halt      => ValueView::Halt(unsafe { self.downcast() }),
+
+                TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
             }
         } else {
             match self.0 & TAG_MASK {

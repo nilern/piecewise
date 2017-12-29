@@ -64,6 +64,8 @@ pub enum TypeIndex {
     Type,
     Symbol,
 
+    Promise,
+
     Function,
     Method,
     Block,
@@ -325,6 +327,10 @@ impl DynamicDebug for Symbol {
 /// Indirection
 pub struct Promise {
     base: HeapValue
+}
+
+impl IndexedType for Promise {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
 }
 
 impl Promise {
@@ -749,6 +755,9 @@ impl ValueManager {
         let symbol_type = res.create_type(true, GSize::of::<Symbol>(), false, 0).unwrap();
         res.insert(TypeIndex::Symbol, symbol_type);
 
+        let promise_type = res.create_type(false, GSize::of::<Promise>(), false, 0).unwrap();
+        res.insert(TypeIndex::Promise, promise_type);
+
         let func_type = res.create_type(true, GSize::of::<Function>(), true, 0).unwrap();
         res.insert(TypeIndex::Function, func_type);
         let method_type = res.create_type(false, GSize::of::<Method>(), false, 3).unwrap();
@@ -905,7 +914,7 @@ impl ValueManager {
                 *unsafe { uptr.as_mut() } = Promise {
                     base: HeapValue {
                         link: ValueRef::NULL,
-                        typ: unsafe { ValueRef::NULL.downcast() } // HACK
+                        typ: self.get(TypeIndex::Promise)
                     }
                 };
                 TypedValueRef::new(uptr)
