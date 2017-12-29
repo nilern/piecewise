@@ -18,37 +18,47 @@ const PTR_BIT: usize = 0b001;
 // ================================================================================================
 
 /// A value reference (tagged pointer).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ValueRef(usize);
 
 impl ValueRef {
+    pub const NULL: ValueRef = ValueRef(0b001);
+
     /// Does `self` hold a pointer?
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
     /// Record the fact that `self` points to a `T`.
-    unsafe fn downcast<T>(self) -> TypedValueRef<T> {
+    pub unsafe fn downcast<T>(self) -> TypedValueRef<T> {
         TypedValueRef(self.0, PhantomData::default())
     }
 
     /// Get the corresponding `ValueView`.
     pub fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
-        if let Some(sptr) = self.ptr() {
-            match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
-                TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
-                TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
+        if self == Self::NULL {
+            ValueView::Null
+        } else if let Some(sptr) = self.ptr() {
+            let typ = *unsafe { sptr.as_ref() }.typ();
+            if ValueRef::from(typ) == Self::NULL {
+                ValueView::Promise(unsafe { self.downcast() })
+            } else {
+                match type_reg.index_of(typ) {
+                    TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
+                    TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
 
-                TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
-                TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
-                TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
-                TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
-                TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
-                TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
-                TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
+                    TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
+                    TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
+                    TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
+                    TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
+                    TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
+                    TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
+                    TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
 
-                TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
-                TypeIndex::Halt => ValueView::Halt(unsafe { self.downcast() }),
+                    TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
+                    TypeIndex::DefCont   => ValueView::DefCont(unsafe { self.downcast() }),
+                    TypeIndex::Halt      => ValueView::Halt(unsafe { self.downcast() }),
 
-                TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
+                    TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
+                }
             }
         } else {
             match self.0 & TAG_MASK {

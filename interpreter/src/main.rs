@@ -31,7 +31,7 @@ fn main() {
             println!("{:?}", prog.fmt_wrap(&interpreter.values));
             match interpreter.run(prog) {
                 Ok(value) => println!("{:?}", value.fmt_wrap(&interpreter.values)),
-                Err(err) => println!("{:?}", err)
+                Err(err) => println!("{:?}", err.fmt_wrap(&interpreter.values))
             }
         },
         Err(err) => println!("{:?}", err)

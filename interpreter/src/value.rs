@@ -42,6 +42,21 @@ impl<'a, 'b, T: DynamicDebug, R: TypeRegistry> Debug for DynDebugWrapper<'a, 'b,
 
 // ================================================================================================
 
+pub struct Unbound(TypedValueRef<Symbol>);
+
+impl DynamicDebug for Unbound {
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+        f.debug_tuple("Unbound")
+         .field(&self.0.fmt_wrap(types))
+         .finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct Reinit;
+
+// ================================================================================================
+
 /// A reified type tag.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TypeIndex {
@@ -57,6 +72,7 @@ pub enum TypeIndex {
     Const,
 
     BlockCont,
+    DefCont,
     Halt,
 
     Env
@@ -86,6 +102,8 @@ pub enum ValueView {
     Type(TypedValueRef<Type>),
     Symbol(TypedValueRef<Symbol>),
 
+    Promise(TypedValueRef<Promise>),
+
     Function(TypedValueRef<Function>),
     Method(TypedValueRef<Method>),
     Block(TypedValueRef<Block>),
@@ -95,9 +113,12 @@ pub enum ValueView {
     Const(TypedValueRef<Const>),
 
     BlockCont(TypedValueRef<BlockCont>),
+    DefCont(TypedValueRef<DefCont>),
     Halt(TypedValueRef<Halt>),
 
     Env(TypedValueRef<Env>),
+
+    Null,
 
     Int(isize),
     Float(f64),
@@ -114,6 +135,8 @@ impl DynamicDebug for ValueView {
             &Type(vref) => vref.fmt(f, type_reg),
             &Symbol(vref) => vref.fmt(f, type_reg),
 
+            &Promise(vref) => vref.fmt(f, type_reg),
+
             &Function(vref) => vref.fmt(f, type_reg),
             &Method(vref) => vref.fmt(f, type_reg),
             &Block(vref) => vref.fmt(f, type_reg),
@@ -123,9 +146,12 @@ impl DynamicDebug for ValueView {
             &Const(vref) => vref.fmt(f, type_reg),
 
             &BlockCont(vref) => vref.fmt(f, type_reg),
+            &DefCont(vref) => vref.fmt(f, type_reg),
             &Halt(vref) => vref.fmt(f, type_reg),
 
             &Env(vref) => vref.fmt(f, type_reg),
+
+            &Null => f.write_str("NULL"),
 
             &Int(v) => v.fmt(f),
             &Float(v) => v.fmt(f),
@@ -295,6 +321,30 @@ impl DynamicDebug for Symbol {
     }
 }
 
+/// Indirection
+pub struct Promise {
+    base: HeapValue
+}
+
+impl Promise {
+    pub fn init<R: TypeRegistry>(&mut self, value: ValueRef, types: &R) -> Result<(), Reinit> {
+        if let ValueView::Null = self.base.link.view(types) {
+            self.base.link = value;
+            Ok(())
+        } else {
+            Err(Reinit)
+        }
+    }
+}
+
+impl DynamicDebug for Promise {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Promise { base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(" }")
+    }
+}
+
 /// Function AST node
 pub struct Function {
     base: DynHeapValue
@@ -357,6 +407,10 @@ pub struct Block {
     expr: ValueRef,
 }
 
+fn stmt_binders(stmt: &ValueRef) -> iter::Empty<ValueRef> { iter::empty() } // FIXME
+
+fn downcast_binder(vref: ValueRef) -> TypedValueRef<Symbol> { unsafe { vref.downcast() } }
+
 impl Block {
     pub fn expr(&self) -> ValueRef { self.expr }
 
@@ -367,10 +421,6 @@ impl Block {
             (*(ptr as *const DynHeapValue)).dyn_len
         ) }
     }
-
-    pub fn lex_binders(&self) -> iter::Empty<TypedValueRef<Symbol>> { iter::empty() } // FIXME
-
-    pub fn dyn_binders(&self) -> iter::Empty<TypedValueRef<Symbol>> { iter::empty() } // FIXME
 }
 
 impl IndexedType for Block {
@@ -438,7 +488,7 @@ impl Def {
 }
 
 impl IndexedType for Def {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
+    const TYPE_INDEX: TypeIndex = TypeIndex::Def;
 }
 
 impl DynamicDebug for Def {
@@ -484,6 +534,10 @@ impl DynamicDebug for Const {
 pub struct Lex {
     base: HeapValue,
     name: TypedValueRef<Symbol>
+}
+
+impl Lex {
+    pub fn name(&self) -> TypedValueRef<Symbol> { self.name }
 }
 
 impl IndexedType for Lex {
@@ -545,6 +599,46 @@ impl DynamicDebug for BlockCont {
     }
 }
 
+/// Assigning continuation
+#[repr(C)]
+pub struct DefCont {
+    base: HeapValue,
+    parent: ValueRef,
+    lenv: ValueRef,
+    denv: ValueRef,
+    var: ValueRef
+}
+
+impl DefCont {
+    pub fn parent(&self) -> ValueRef { self.parent }
+
+    pub fn lenv(&self) -> ValueRef { self.lenv }
+
+    pub fn denv(&self) -> ValueRef { self.denv }
+
+    pub fn var(&self) -> ValueRef { self.var }
+}
+
+impl IndexedType for DefCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
+}
+
+impl DynamicDebug for DefCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("DefCont { base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", parent: ")?;
+        self.parent.fmt(f, type_reg)?;
+        f.write_str(", lenv: ")?;
+        self.lenv.fmt(f, type_reg)?;
+        f.write_str(", denv: ")?;
+        self.denv.fmt(f, type_reg)?;
+        f.write_str(", var: ")?;
+        self.var.fmt(f, type_reg)?;
+        f.write_str(" }")
+    }
+}
+
 /// Halt continuation
 #[repr(C)]
 pub struct Halt {
@@ -568,6 +662,29 @@ impl DynamicDebug for Halt {
 pub struct Env {
     base: DynHeapValue,
     parent: ValueRef
+}
+
+impl Env {
+    pub fn get<R: TypeRegistry>(&self, name: TypedValueRef<Symbol>, types: &R)
+        -> Result<ValueRef, Unbound>
+    {
+        let mut iter = unsafe {
+            slice::from_raw_parts((self as *const Env).offset(1) as *const TypedValueRef<Symbol>,
+                                  self.base.dyn_len)
+        }.iter();
+
+        while let Some(&item) = iter.next() {
+            if item == name {
+                return Ok((*iter.next().unwrap()).into());
+            }
+        }
+
+        return if let ValueView::Env(parent) = self.parent.view(types) {
+            parent.get(name, types)
+        } else {
+            Err(Unbound(name))
+        }
+    }
 }
 
 impl IndexedType for Env {
@@ -634,6 +751,8 @@ impl ValueManager {
 
         let block_cont_type = res.create_type(false, GSize::of::<BlockCont>(), false, 5).unwrap();
         res.insert(TypeIndex::BlockCont, block_cont_type);
+        let def_cont_type = res.create_type(false, GSize::of::<DefCont>(), false, 4).unwrap();
+        res.insert(TypeIndex::DefCont, def_cont_type);
         let halt_type = res.create_type(false, GSize::of::<Halt>(), false, 0).unwrap();
         res.insert(TypeIndex::Halt, halt_type);
 
@@ -763,6 +882,21 @@ impl ValueManager {
             })
     }
 
+    /// Create an uninitialized `Promise`.
+    pub fn create_promise(&mut self) -> Option<TypedValueRef<Promise>> {
+        unsafe { self.allocate_t() }
+            .map(|iptr| {
+                let mut uptr = start_init(iptr);
+                *unsafe { uptr.as_mut() } = Promise {
+                    base: HeapValue {
+                        link: ValueRef::NULL,
+                        typ: unsafe { ValueRef::NULL.downcast() } // HACK
+                    }
+                };
+                TypedValueRef::new(uptr)
+            })
+    }
+
     /// Create a new `Function` node with `methods`.
     pub fn create_function(&mut self, methods: &[TypedValueRef<Method>])
         -> Option<TypedValueRef<Function>>
@@ -817,15 +951,43 @@ impl ValueManager {
         })
     }
 
+    /// Create a new assignment continuation
+    pub fn create_def_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+                           var: ValueRef)
+        -> Option<TypedValueRef<DefCont>>
+    {
+        self.uniform_create(|base| DefCont { base, parent, lenv, denv, var })
+    }
+
     /// Create a new halt continuation.
     pub fn create_halt(&mut self) -> Option<TypedValueRef<Halt>> {
         self.uniform_create(|base| Halt { base })
     }
 
-    /// Create a new block `Env` that inherits from (= represents inner scope of) `Env`.
-    pub fn create_block_env<I>(&mut self, parent: ValueRef, names: I)
+    /// Create a new lexical block `Env` that inherits from (= represents inner scope of) `Env`.
+    pub fn create_block_lenv(&mut self, parent: ValueRef, stmts: &[ValueRef])
         -> Option<TypedValueRef<Env>>
-        where I: Iterator<Item=TypedValueRef<Symbol>>
+    {
+        let mut bindings: Vec<ValueRef> = Vec::with_capacity(2*stmts.len());
+        for stmt in stmts {
+            if let ValueView::Def(def) = stmt.view(&*self) {
+                if let ValueView::Lex(lvar) = def.pattern.view(&*self) {
+                    bindings.push(lvar.name().into());
+                    if let Some(promise) = self.create_promise() {
+                        bindings.push(promise.into());
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        self.create_with_vref_slice(|base| Env { base, parent }, &bindings)
+    }
+
+    /// Create a new dynamic block `Env` that inherits from (= represents inner scope of) `Env`.
+    pub fn create_block_denv(&mut self, parent: ValueRef, stmts: &[ValueRef])
+        -> Option<TypedValueRef<Env>>
     {
         let empty_dummy: [ValueRef; 0] = [];
         self.create_with_vref_slice(|base| Env { base, parent }, &empty_dummy)
@@ -862,14 +1024,18 @@ mod tests {
         assert_eq!(GSize::of::<Type>(), GSize::from(4));
         assert_eq!(GSize::of::<Symbol>(), GSize::from(3));
 
+        assert_eq!(GSize::of::<Promise>(), GSize::of::<HeapValue>());
+
         assert_eq!(GSize::of::<Function>(), GSize::from(3));
         assert_eq!(GSize::of::<Method>(), GSize::from(5));
         assert_eq!(GSize::of::<Block>(), GSize::from(4));
         assert_eq!(GSize::of::<Call>(), GSize::from(4));
+        assert_eq!(GSize::of::<Def>(), GSize::from(4));
         assert_eq!(GSize::of::<Lex>(), GSize::from(3));
         assert_eq!(GSize::of::<Const>(), GSize::from(3));
 
         assert_eq!(GSize::of::<BlockCont>(), GSize::from(7));
+        assert_eq!(GSize::of::<DefCont>(), GSize::from(6));
         assert_eq!(GSize::of::<Halt>(), GSize::from(2));
 
         assert_eq!(GSize::of::<Env>(), GSize::from(4));
@@ -882,11 +1048,14 @@ mod tests {
         let typ = factory.create_type(false, GSize::from(2), false, 2).unwrap();
         let sym = factory.create_symbol(&"foo").unwrap();
 
+        let promise = factory.create_promise().unwrap();
+
         let call = factory.create_call(From::from(sym), &[From::from(typ), From::from(sym)])
                           .unwrap();
-        let lex = factory.create_lex(sym).unwrap();
-        let c = factory.create_const(From::from(typ)).unwrap();
-        let block = factory.create_block(&[From::from(call), From::from(lex)], From::from(c))
+        let lex = factory.create_lex(sym).unwrap().into();
+        let c = factory.create_const(From::from(typ)).unwrap().into();
+        let def = factory.create_def(lex, c).unwrap();
+        let block = factory.create_block(&[def.into(), call.into(), lex], c)
                            .unwrap();
         let method = factory.create_method(From::from(sym), From::from(sym), From::from(block))
                             .unwrap();
@@ -895,5 +1064,6 @@ mod tests {
         factory.create_halt().unwrap();
 
         // TODO: factory.create_block_env(...);
+        //       factory.create_def_cont(...).unwrap();
     }
 }
