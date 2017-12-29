@@ -11,9 +11,13 @@ body -> TypedValueRef<Block> = stmts:stmt* ws? expr:expr {
     factory.create_block(&stmts, expr).unwrap()
 }
 
-stmt -> ValueRef = expr:expr ws? ";" { expr }
+stmt -> ValueRef
+    = pat:pattern ws? "=" ws? expr:expr ws? ";" ws? {
+          factory.create_def(pat, expr).unwrap().into()
+      }
+    / expr:expr ws? ";" ws? { expr }
 
-pattern -> ValueRef = n:int { ValueRef::from(factory.create_const(n).unwrap()) }
+pattern -> ValueRef = expr
 
 expr -> ValueRef = e:infix { ValueRef::from(e) }
 
@@ -41,6 +45,7 @@ simple -> ValueRef
         ValueRef::from(factory.create_function(&[method]).unwrap())
     }
     / "(" ws? e:expr ws? ")" { e }
+    / var:var { var }
     / n:int { ValueRef::from(factory.create_const(n).unwrap()) }
 
 method -> TypedValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
@@ -52,6 +57,12 @@ method -> TypedValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? 
 }
 
 guard -> ValueRef = "|" ws? e:expr { e }
+
+var -> ValueRef
+    = cs:$([A-Za-z][A-Za-z0-9]*) {
+          let sym = factory.create_symbol(cs).unwrap();
+          factory.create_lex(sym).unwrap().into()
+      }
 
 int -> ValueRef = cs:$([0-9]+) {
   ValueRef::from(factory.create_int(isize::from_str(cs).unwrap()))

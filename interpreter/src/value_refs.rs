@@ -41,6 +41,7 @@ impl ValueRef {
                 TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
                 TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
                 TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
+                TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
                 TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
                 TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
 

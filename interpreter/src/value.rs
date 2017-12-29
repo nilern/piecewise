@@ -52,6 +52,7 @@ pub enum TypeIndex {
     Method,
     Block,
     Call,
+    Def,
     Lex,
     Const,
 
@@ -89,6 +90,7 @@ pub enum ValueView {
     Method(TypedValueRef<Method>),
     Block(TypedValueRef<Block>),
     Call(TypedValueRef<Call>),
+    Def(TypedValueRef<Def>),
     Lex(TypedValueRef<Lex>),
     Const(TypedValueRef<Const>),
 
@@ -116,6 +118,7 @@ impl DynamicDebug for ValueView {
             &Method(vref) => vref.fmt(f, type_reg),
             &Block(vref) => vref.fmt(f, type_reg),
             &Call(vref) => vref.fmt(f, type_reg),
+            &Def(vref) => vref.fmt(f, type_reg),
             &Lex(vref) => vref.fmt(f, type_reg),
             &Const(vref) => vref.fmt(f, type_reg),
 
@@ -420,6 +423,36 @@ impl DynamicDebug for Call {
     }
 }
 
+/// An AST node for definitions.
+#[repr(C)]
+pub struct Def {
+    base: HeapValue,
+    pattern: ValueRef,
+    expr: ValueRef
+}
+
+impl Def {
+    pub fn pattern(&self) -> ValueRef { self.pattern }
+
+    pub fn expr(&self) -> ValueRef { self.expr }
+}
+
+impl IndexedType for Def {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
+}
+
+impl DynamicDebug for Def {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
+        f.write_str("Def { base: ")?;
+        self.base.fmt(f, type_reg)?;
+        f.write_str(", pattern: ")?;
+        self.pattern.fmt(f, type_reg)?;
+        f.write_str(", expr: ")?;
+        self.expr.fmt(f, type_reg)?;
+        f.write_str(" }")
+    }
+}
+
 /// An AST node for constants.
 #[repr(C)]
 pub struct Const {
@@ -592,6 +625,8 @@ impl ValueManager {
         res.insert(TypeIndex::Block, block_type);
         let call_type = res.create_type(true, GSize::of::<Call>(), true, 1).unwrap();
         res.insert(TypeIndex::Call, call_type);
+        let def_type = res.create_type(false, GSize::of::<Def>(), false, 2).unwrap();
+        res.insert(TypeIndex::Def, def_type);
         let const_type = res.create_type(false, GSize::of::<Const>(), false, 1).unwrap();
         res.insert(TypeIndex::Const, const_type);
         let lex_type = res.create_type(false, GSize::of::<Lex>(), false, 1).unwrap();
@@ -617,6 +652,7 @@ impl ValueManager {
                 for root in roots {
                     **root = self.gc.mark_ref(**root);
                 }
+                // TODO: mark roots in type and symbol tables within `self`.
                 self.gc.collect();
             }
             create(self)
@@ -746,6 +782,11 @@ impl ValueManager {
         -> Option<TypedValueRef<Block>>
     {
         self.create_with_vref_slice(|base| Block { base, expr }, stmts)
+    }
+
+    /// Create a new `Call` node from `callee` and `args`.
+    pub fn create_def(&mut self, pattern: ValueRef, expr: ValueRef) -> Option<TypedValueRef<Def>> {
+        self.uniform_create(|base| Def { base, pattern, expr })
     }
 
     /// Create a new `Call` node from `callee` and `args`.
