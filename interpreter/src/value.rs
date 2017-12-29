@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::ptr::Unique;
 use std::str;
 use std::iter;
+use std::ops::Deref;
 
 use gce::util::{start_init, Initializable};
 use gce::Object;
@@ -665,25 +666,39 @@ pub struct Env {
 }
 
 impl Env {
+    fn parent<R: TypeRegistry>(&self, types: &R) -> Option<TypedValueRef<Env>> {
+        if let ValueView::Env(parent) = self.parent.view(types) {
+            Some(parent)
+        } else {
+            None
+        }
+    }
+
     pub fn get<R: TypeRegistry>(&self, name: TypedValueRef<Symbol>, types: &R)
         -> Result<ValueRef, Unbound>
     {
-        let mut iter = unsafe {
-            slice::from_raw_parts((self as *const Env).offset(1) as *const TypedValueRef<Symbol>,
-                                  self.base.dyn_len)
-        }.iter();
+        let mut frame: *const Env = self as _;
 
-        while let Some(&item) = iter.next() {
-            if item == name {
-                return Ok((*iter.next().unwrap()).into());
+        loop {
+            let mut iter = unsafe {
+                slice::from_raw_parts(frame.offset(1) as *const TypedValueRef<Symbol>,
+                                      (*frame).base.dyn_len)
+            }.iter();
+
+            while let Some(&item) = iter.next() {
+                if item == name {
+                    return Ok((*iter.next().unwrap()).into());
+                }
+            }
+
+            if let Some(parent) = unsafe { (*frame).parent(types) } {
+                frame = parent.deref() as _;
+            } else {
+                break;
             }
         }
 
-        return if let ValueView::Env(parent) = self.parent.view(types) {
-            parent.get(name, types)
-        } else {
-            Err(Unbound(name))
-        }
+        return Err(Unbound(name))
     }
 }
 
