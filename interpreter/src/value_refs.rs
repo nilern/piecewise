@@ -27,6 +27,14 @@ impl ValueRef {
     /// Does `self` hold a pointer?
     fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
 
+    pub fn force(self) -> Option<ValueRef> {
+        if let Some(sptr) = self.ptr() {
+            unsafe { sptr.as_ref() }.force()
+        } else {
+            Some(self)
+        }
+    }
+
     /// Record the fact that `self` points to a `T`.
     pub unsafe fn downcast<T>(self) -> TypedValueRef<T> {
         TypedValueRef(self.0, PhantomData::default())
@@ -38,8 +46,9 @@ impl ValueRef {
             ValueView::Null
         } else if let Some(sptr) = self.ptr() {
             match type_reg.index_of(*unsafe { sptr.as_ref() }.typ()) {
-                TypeIndex::Type     => ValueView::Type(unsafe { self.downcast() }),
-                TypeIndex::Symbol   => ValueView::Symbol(unsafe { self.downcast() }),
+                TypeIndex::Type   => ValueView::Type(unsafe { self.downcast() }),
+                TypeIndex::Tuple  => ValueView::Tuple(unsafe { self.downcast() }),
+                TypeIndex::Symbol => ValueView::Symbol(unsafe { self.downcast() }),
 
                 TypeIndex::Promise => ValueView::Promise(unsafe { self.downcast() }),
 
@@ -51,11 +60,14 @@ impl ValueRef {
                 TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
                 TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
 
-                TypeIndex::BlockCont => ValueView::BlockCont(unsafe { self.downcast() }),
-                TypeIndex::DefCont   => ValueView::DefCont(unsafe { self.downcast() }),
-                TypeIndex::Halt      => ValueView::Halt(unsafe { self.downcast() }),
+                TypeIndex::BlockCont  => ValueView::BlockCont(unsafe { self.downcast() }),
+                TypeIndex::DefCont    => ValueView::DefCont(unsafe { self.downcast() }),
+                TypeIndex::CalleeCont => ValueView::CalleeCont(unsafe { self.downcast() }),
+                TypeIndex::ArgCont    => ValueView::ArgCont(unsafe { self.downcast() }),
+                TypeIndex::Halt       => ValueView::Halt(unsafe { self.downcast() }),
 
-                TypeIndex::Env => ValueView::Env(unsafe { self.downcast() })
+                TypeIndex::Env     => ValueView::Env(unsafe { self.downcast() }),
+                TypeIndex::Closure => ValueView::Closure(unsafe { self.downcast() })
             }
         } else {
             match self.0 & TAG_MASK {

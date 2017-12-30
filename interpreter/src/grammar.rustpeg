@@ -21,7 +21,7 @@ pattern -> ValueRef = expr
 
 expr -> ValueRef = e:infix { ValueRef::from(e) }
 
-infix -> ValueRef = #infix<simple> {
+infix -> ValueRef = #infix<call> {
     #L el op:op6 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
     #L el op:op7 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
 }
@@ -32,6 +32,12 @@ op<O> = ws? op:$(O) ws? {
 }
 op6 -> ValueRef = op<[+\-]>
 op7 -> ValueRef = op<[*/%]>
+
+call -> ValueRef
+    = callee:simple ws? args:(simple ++ (ws?)) {
+          factory.create_call(callee, &args).unwrap().into()
+      }
+    / e:simple { e }
 
 simple -> ValueRef
     = "{" ws? b:body ws? "}" { ValueRef::from(b) }
