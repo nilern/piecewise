@@ -28,12 +28,12 @@ fn main() {
     let mut interpreter = Interpreter::new(4*1024*1024);
     match program(&src, &mut interpreter.values) {
         Ok(prog) => {
-            println!("{:?}", prog.fmt_wrap(&interpreter.values));
+            println!("{:#?}", prog.fmt_wrap(&interpreter.values));
             match interpreter.run(prog) {
-                Ok(value) => println!("{:?}", value.fmt_wrap(&interpreter.values)),
-                Err(err) => println!("{:?}", err.fmt_wrap(&interpreter.values))
+                Ok(value) => println!("{:#?}", value.fmt_wrap(&interpreter.values)),
+                Err(err) => println!("{:#?}", err.fmt_wrap(&interpreter.values))
             }
         },
-        Err(err) => println!("{:?}", err)
+        Err(err) => println!("{:#?}", err)
     }
 }

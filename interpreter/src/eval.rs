@@ -211,8 +211,8 @@ impl Interpreter {
         match var.view(&self.values) {
             ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(&self.values) {
                 lenv.get(lvar.name(), &self.values).map_err(EvalError::from)
-                    .and_then(|value|
-                        if let ValueView::Promise(mut promise) = value.view(&self.values) {
+                    .and_then(|promise|
+                        if let ValueView::Promise(mut promise) = promise.view(&self.values) {
                             promise.init(value, &self.values).map_err(EvalError::from)
                         } else {
                             Err(EvalError::Reassignment)

@@ -37,14 +37,14 @@ trait DynHeapValueSub: HeapValueSub {
 
 /// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
 pub trait DynamicDebug: Sized {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>;
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error>;
 
-    fn fmt_wrap<'a, 'b, R: TypeRegistry>(&'a self, type_reg: &'b R)
+    fn fmt_wrap<'a, 'b, R: TypeRegistry>(&'a self, types: &'b R)
         -> DynDebugWrapper<'a, 'b, Self, R>
     {
         DynDebugWrapper {
             value: self,
-            types: type_reg
+            types: types
         }
     }
 }
@@ -57,6 +57,14 @@ pub struct DynDebugWrapper<'a, 'b, T: 'a + DynamicDebug, R: 'b + TypeRegistry> {
 impl<'a, 'b, T: DynamicDebug, R: TypeRegistry> Debug for DynDebugWrapper<'a, 'b, T, R> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         self.value.fmt(f, self.types)
+    }
+}
+
+impl<'a, T> DynamicDebug for &'a [T] where T: DynamicDebug {
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+        f.debug_list()
+         .entries(self.iter().map(|entry| entry.fmt_wrap(types)))
+         .finish()
     }
 }
 
@@ -144,29 +152,29 @@ pub enum ValueView {
 }
 
 impl DynamicDebug for ValueView {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error>
     {
         use self::ValueView::*;
 
         match self {
-            &Type(vref) => vref.fmt(f, type_reg),
-            &Symbol(vref) => vref.fmt(f, type_reg),
+            &Type(vref) => vref.fmt(f, types),
+            &Symbol(vref) => vref.fmt(f, types),
 
-            &Promise(vref) => vref.fmt(f, type_reg),
+            &Promise(vref) => vref.fmt(f, types),
 
-            &Function(vref) => vref.fmt(f, type_reg),
-            &Method(vref) => vref.fmt(f, type_reg),
-            &Block(vref) => vref.fmt(f, type_reg),
-            &Call(vref) => vref.fmt(f, type_reg),
-            &Def(vref) => vref.fmt(f, type_reg),
-            &Lex(vref) => vref.fmt(f, type_reg),
-            &Const(vref) => vref.fmt(f, type_reg),
+            &Function(vref) => vref.fmt(f, types),
+            &Method(vref) => vref.fmt(f, types),
+            &Block(vref) => vref.fmt(f, types),
+            &Call(vref) => vref.fmt(f, types),
+            &Def(vref) => vref.fmt(f, types),
+            &Lex(vref) => vref.fmt(f, types),
+            &Const(vref) => vref.fmt(f, types),
 
-            &BlockCont(vref) => vref.fmt(f, type_reg),
-            &DefCont(vref) => vref.fmt(f, type_reg),
-            &Halt(vref) => vref.fmt(f, type_reg),
+            &BlockCont(vref) => vref.fmt(f, types),
+            &DefCont(vref) => vref.fmt(f, types),
+            &Halt(vref) => vref.fmt(f, types),
 
-            &Env(vref) => vref.fmt(f, type_reg),
+            &Env(vref) => vref.fmt(f, types),
 
             &Null => f.write_str("NULL"),
 
@@ -236,17 +244,32 @@ impl Object for HeapValue {
 }
 
 impl DynamicDebug for HeapValue {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, _: &T) -> Result<(), fmt::Error> {
-        // TODO: fields (may point back to self!)
-        f.debug_struct("HeapValue").finish()
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        let self_ref = ValueRef::from(self as *const HeapValue);
+        let mut dbg = f.debug_struct("HeapValue");
+
+        if self.link == self_ref {
+            dbg.field("link", &"#[cycle]");
+        } else {
+            dbg.field("link", &self.link.fmt_wrap(types));
+        }
+
+        if ValueRef::from(self.typ) == self_ref {
+            dbg.field("typ", &"#[cycle]");
+        } else {
+            dbg.field("typ", &self.typ.fmt_wrap(types));
+        }
+
+        dbg.finish()
     }
 }
 
 impl DynamicDebug for DynHeapValue {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("DynHeapValue { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        write!(f, ", dyn_len: {:?} }}", self.dyn_len)
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("DynHeapValue")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("dyn_len", &self.dyn_len)
+         .finish()
     }
 }
 
@@ -305,11 +328,12 @@ impl HeapValueSub for Type {
 }
 
 impl DynamicDebug for Type {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Type { heap_value: ")?;
-        self.heap_value.fmt(f, type_reg)?;
-        write!(f, ", gsize: {:?}", self.gsize_with_dyn)?;
-        write!(f, ", ref_len: {:?} }}", self.ref_len_with_dyn)
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Type")
+         .field("heap_value", &self.heap_value.fmt_wrap(types))
+         .field("gsize", &self.gsize_with_dyn)
+         .field("ref_len", &self.ref_len_with_dyn)
+         .finish()
     }
 }
 
@@ -335,10 +359,11 @@ impl DynHeapValueSub for Symbol {
 }
 
 impl DynamicDebug for Symbol {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Symbol { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        write!(f, ", chars: {:?} }}", self.chars())
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Symbol")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("chars", &self.chars())
+         .finish()
     }
 }
 
@@ -365,10 +390,10 @@ impl Promise {
 }
 
 impl DynamicDebug for Promise {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Promise { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+        f.debug_struct("Promise")
+         .field("base", &self.base.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -392,13 +417,11 @@ impl DynHeapValueSub for Function {
 }
 
 impl DynamicDebug for Function {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Function { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        write!(f, ", methods: {:?}", self.methods().iter()
-                                         .map(|vref| vref.fmt_wrap(type_reg))
-                                         .collect::<Vec<_>>())?;
-        f.write_str(" }")
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+        f.debug_struct("Function")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("methods", &self.methods().fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -417,16 +440,13 @@ impl HeapValueSub for Method {
 }
 
 impl DynamicDebug for Method {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Method { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", pattern: ")?;
-        self.pattern.fmt(f, type_reg)?;
-        f.write_str(", guard: ")?;
-        self.guard.fmt(f, type_reg)?;
-        f.write_str(", body: ")?;
-        self.body.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Method")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("pattern", &self.pattern.fmt_wrap(types))
+         .field("guard", &self.guard.fmt_wrap(types))
+         .field("body", &self.body.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -457,15 +477,12 @@ impl DynHeapValueSub for Block {
 }
 
 impl DynamicDebug for Block {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Block { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", expr: ")?;
-        self.expr.fmt(f, type_reg)?;
-        write!(f, ", stmts: {:?}", self.stmts().iter()
-                                       .map(|vref| vref.fmt_wrap(type_reg))
-                                       .collect::<Vec<_>>())?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Block")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("expr", &self.expr.fmt_wrap(types))
+         .field("stmts", &self.stmts().fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -490,15 +507,12 @@ impl DynHeapValueSub for Call {
 }
 
 impl DynamicDebug for Call {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Call { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", callee: ")?;
-        self.callee.fmt(f, type_reg)?;
-        write!(f, ", args: {:?}", self.args().iter()
-                                      .map(|vref| vref.fmt_wrap(type_reg))
-                                      .collect::<Vec<_>>())?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Call")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("callee", &self.callee.fmt_wrap(types))
+         .field("args", &self.args().fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -523,14 +537,12 @@ impl HeapValueSub for Def {
 }
 
 impl DynamicDebug for Def {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Def { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", pattern: ")?;
-        self.pattern.fmt(f, type_reg)?;
-        f.write_str(", expr: ")?;
-        self.expr.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Def")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("pattern", &self.pattern.fmt_wrap(types))
+         .field("expr", &self.expr.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -553,12 +565,11 @@ impl HeapValueSub for Const {
 }
 
 impl DynamicDebug for Const {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Const { heap_value: ")?;
-        self.heap_value.fmt(f, type_reg)?;
-        f.write_str(", value: ")?;
-        self.value.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Const")
+         .field("heap_value", &self.heap_value.fmt_wrap(types))
+         .field("value", &self.value.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -580,12 +591,11 @@ impl HeapValueSub for Lex {
 }
 
 impl DynamicDebug for Lex {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Lex { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", name: ")?;
-        self.name.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Lex")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("name", &self.name.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -619,20 +629,15 @@ impl HeapValueSub for BlockCont {
 }
 
 impl DynamicDebug for BlockCont {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("BlockCont { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", parent: ")?;
-        self.parent.fmt(f, type_reg)?;
-        f.write_str(", lenv: ")?;
-        self.lenv.fmt(f, type_reg)?;
-        f.write_str(", denv: ")?;
-        self.denv.fmt(f, type_reg)?;
-        f.write_str(", block: ")?;
-        self.block.fmt(f, type_reg)?;
-        f.write_str(", index: ")?;
-        self.index.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("BlockCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("block", &self.block.fmt_wrap(types))
+         .field("index", &self.index.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -663,18 +668,14 @@ impl HeapValueSub for DefCont {
 }
 
 impl DynamicDebug for DefCont {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("DefCont { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", parent: ")?;
-        self.parent.fmt(f, type_reg)?;
-        f.write_str(", lenv: ")?;
-        self.lenv.fmt(f, type_reg)?;
-        f.write_str(", denv: ")?;
-        self.denv.fmt(f, type_reg)?;
-        f.write_str(", var: ")?;
-        self.var.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("DefCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("var", &self.var.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -691,10 +692,10 @@ impl HeapValueSub for Halt {
 }
 
 impl DynamicDebug for Halt {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Halt { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Halt")
+         .field("base", &self.base.fmt_wrap(types))
+         .finish()
     }
 }
 
@@ -750,12 +751,12 @@ impl DynHeapValueSub for Env {
 }
 
 impl DynamicDebug for Env {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
-        f.write_str("Env { base: ")?;
-        self.base.fmt(f, type_reg)?;
-        f.write_str(", parent: ")?;
-        self.parent.fmt(f, type_reg)?;
-        f.write_str(" }")
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Env")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("bindings", &self.tail().fmt_wrap(types))
+         .finish()
     }
 }
 

@@ -77,6 +77,10 @@ impl ValueRef {
     }
 }
 
+impl From<*const HeapValue> for ValueRef {
+    fn from(ptr: *const HeapValue) -> ValueRef { ValueRef(ptr as usize | PTR_BIT) }
+}
+
 impl From<isize> for ValueRef {
     fn from(n: isize) -> ValueRef { ValueRef((n as usize) << SHIFT) }
 }
