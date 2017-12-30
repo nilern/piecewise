@@ -7,7 +7,7 @@ use std::iter;
 use std::hash::{Hash, Hasher};
 
 use gce::{ObjectRef, PointyObjectRef};
-use value::{DynamicDebug, IndexedType, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
+use value::{DynamicDebug, HeapValueSub, HeapValue, ValueView, TypeIndex, TypeRegistry, ObjRefs};
 
 // ================================================================================================
 
@@ -68,7 +68,7 @@ impl ValueRef {
         }
     }
 
-    pub fn is_instance<R: TypeRegistry, T: IndexedType>(self, types: &R) -> bool {
+    pub fn is_instance<R: TypeRegistry, T: HeapValueSub>(self, types: &R) -> bool {
         if let Some(sptr) = self.ptr() {
             types.index_of(*unsafe { sptr.as_ref() }.typ()) == T::TYPE_INDEX
         } else {

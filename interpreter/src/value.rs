@@ -16,6 +16,25 @@ use value_refs::{ValueRef, TypedValueRef};
 
 // ================================================================================================
 
+pub trait HeapValueSub: Sized {
+    const TYPE_INDEX: TypeIndex;
+
+    const UNIFORM_REF_LEN: usize;
+}
+
+trait DynHeapValueSub: HeapValueSub {
+    type TailItem;
+
+    fn tail(&self) -> &[Self::TailItem] {
+        unsafe {
+            slice::from_raw_parts((self as *const Self).offset(1) as *const Self::TailItem,
+                                  transmute::<_, &DynHeapValue>(self).dyn_len)
+        }
+    }
+}
+
+// ================================================================================================
+
 /// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
 pub trait DynamicDebug: Sized {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error>;
@@ -79,11 +98,6 @@ pub enum TypeIndex {
     Halt,
 
     Env
-}
-
-/// Obtain the `TypeIndex` of `Self`.
-pub trait IndexedType {
-    const TYPE_INDEX: TypeIndex;
 }
 
 /// Converts between type values and `TypeIndex`:es.
@@ -284,8 +298,10 @@ impl Type {
     fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
 }
 
-impl IndexedType for Type {
+impl HeapValueSub for Type {
     const TYPE_INDEX: TypeIndex = TypeIndex::Type;
+
+    const UNIFORM_REF_LEN: usize = 0;
 }
 
 impl DynamicDebug for Type {
@@ -304,16 +320,18 @@ pub struct Symbol {
 
 impl Symbol {
     fn chars(&self) -> &str {
-        let ptr = self as *const Symbol;
-        unsafe { str::from_utf8_unchecked(slice::from_raw_parts(
-            ptr.offset(1) as *const u8,
-            (*(ptr as *const DynHeapValue)).dyn_len
-        )) }
+        unsafe { str::from_utf8_unchecked(self.tail()) }
     }
 }
 
-impl IndexedType for Symbol {
+impl HeapValueSub for Symbol {
     const TYPE_INDEX: TypeIndex = TypeIndex::Symbol;
+
+    const UNIFORM_REF_LEN: usize = 0;
+}
+
+impl DynHeapValueSub for Symbol {
+    type TailItem = u8;
 }
 
 impl DynamicDebug for Symbol {
@@ -329,8 +347,10 @@ pub struct Promise {
     base: HeapValue
 }
 
-impl IndexedType for Promise {
+impl HeapValueSub for Promise {
     const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
+
+    const UNIFORM_REF_LEN: usize = 0;
 }
 
 impl Promise {
@@ -357,18 +377,18 @@ pub struct Function {
     base: DynHeapValue
 }
 
-impl IndexedType for Function {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Function;
+impl Function {
+    fn methods(&self) -> &[TypedValueRef<Method>] { self.tail() }
 }
 
-impl Function {
-    fn methods(&self) -> &[TypedValueRef<Method>] {
-        let ptr = self as *const Function;
-        unsafe { slice::from_raw_parts(
-            ptr.offset(1) as *const TypedValueRef<Method>,
-            (*(ptr as *const DynHeapValue)).dyn_len
-        ) }
-    }
+impl HeapValueSub for Function {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Function;
+
+    const UNIFORM_REF_LEN: usize = 0;
+}
+
+impl DynHeapValueSub for Function {
+    type TailItem = TypedValueRef<Method>;
 }
 
 impl DynamicDebug for Function {
@@ -390,8 +410,10 @@ pub struct Method {
     body: ValueRef
 }
 
-impl IndexedType for Method {
+impl HeapValueSub for Method {
     const TYPE_INDEX: TypeIndex = TypeIndex::Method;
+
+    const UNIFORM_REF_LEN: usize = 3;
 }
 
 impl DynamicDebug for Method {
@@ -421,17 +443,17 @@ fn downcast_binder(vref: ValueRef) -> TypedValueRef<Symbol> { unsafe { vref.down
 impl Block {
     pub fn expr(&self) -> ValueRef { self.expr }
 
-    pub fn stmts(&self) -> &[ValueRef] {
-        let ptr = self as *const Block;
-        unsafe { slice::from_raw_parts(
-            ptr.offset(1) as *const ValueRef,
-            (*(ptr as *const DynHeapValue)).dyn_len
-        ) }
-    }
+    pub fn stmts(&self) -> &[ValueRef] { self.tail() }
 }
 
-impl IndexedType for Block {
+impl HeapValueSub for Block {
     const TYPE_INDEX: TypeIndex = TypeIndex::Block;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynHeapValueSub for Block {
+    type TailItem = ValueRef;
 }
 
 impl DynamicDebug for Block {
@@ -454,17 +476,17 @@ pub struct Call {
 }
 
 impl Call {
-    fn args(&self) -> &[ValueRef] {
-        let ptr = self as *const Call;
-        unsafe { slice::from_raw_parts(
-            ptr.offset(1) as *const ValueRef,
-            (*(ptr as *const DynHeapValue)).dyn_len
-        ) }
-    }
+    fn args(&self) -> &[ValueRef] { self.tail() }
 }
 
-impl IndexedType for Call {
+impl HeapValueSub for Call {
     const TYPE_INDEX: TypeIndex = TypeIndex::Call;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynHeapValueSub for Call {
+    type TailItem = ValueRef;
 }
 
 impl DynamicDebug for Call {
@@ -494,8 +516,10 @@ impl Def {
     pub fn expr(&self) -> ValueRef { self.expr }
 }
 
-impl IndexedType for Def {
+impl HeapValueSub for Def {
     const TYPE_INDEX: TypeIndex = TypeIndex::Def;
+
+    const UNIFORM_REF_LEN: usize = 2;
 }
 
 impl DynamicDebug for Def {
@@ -522,8 +546,10 @@ impl Const {
     pub fn value(&self) -> ValueRef { self.value }
 }
 
-impl IndexedType for Const {
+impl HeapValueSub for Const {
     const TYPE_INDEX: TypeIndex = TypeIndex::Const;
+
+    const UNIFORM_REF_LEN: usize = 1;
 }
 
 impl DynamicDebug for Const {
@@ -547,8 +573,10 @@ impl Lex {
     pub fn name(&self) -> TypedValueRef<Symbol> { self.name }
 }
 
-impl IndexedType for Lex {
+impl HeapValueSub for Lex {
     const TYPE_INDEX: TypeIndex = TypeIndex::Lex;
+
+    const UNIFORM_REF_LEN: usize = 1;
 }
 
 impl DynamicDebug for Lex {
@@ -584,8 +612,10 @@ impl BlockCont {
     pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self.index) >> 3 } } // FIXME
 }
 
-impl IndexedType for BlockCont {
+impl HeapValueSub for BlockCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::BlockCont;
+
+    const UNIFORM_REF_LEN: usize = 5;
 }
 
 impl DynamicDebug for BlockCont {
@@ -626,8 +656,10 @@ impl DefCont {
     pub fn var(&self) -> ValueRef { self.var }
 }
 
-impl IndexedType for DefCont {
+impl HeapValueSub for DefCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
+
+    const UNIFORM_REF_LEN: usize = 4;
 }
 
 impl DynamicDebug for DefCont {
@@ -652,8 +684,10 @@ pub struct Halt {
     base: HeapValue
 }
 
-impl IndexedType for Halt {
+impl HeapValueSub for Halt {
     const TYPE_INDEX: TypeIndex = TypeIndex::Halt;
+
+    const UNIFORM_REF_LEN: usize = 0;
 }
 
 impl DynamicDebug for Halt {
@@ -686,13 +720,10 @@ impl Env {
         let mut frame: *const Env = self as _;
 
         loop {
-            let mut iter = unsafe {
-                slice::from_raw_parts(frame.offset(1) as *const TypedValueRef<Symbol>,
-                                      (*frame).base.dyn_len)
-            }.iter();
+            let mut iter = self.tail().iter();
 
             while let Some(&item) = iter.next() {
-                if item == name {
+                if unsafe { item.downcast() } == name {
                     return Ok((*iter.next().unwrap()).into());
                 }
             }
@@ -708,8 +739,14 @@ impl Env {
     }
 }
 
-impl IndexedType for Env {
+impl HeapValueSub for Env {
     const TYPE_INDEX: TypeIndex = TypeIndex::Env;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynHeapValueSub for Env {
+    type TailItem = ValueRef;
 }
 
 impl DynamicDebug for Env {
@@ -752,35 +789,52 @@ impl ValueManager {
             Type::new(heap_value, false, GSize::of::<Type>(), false, 0)
         );
 
-        let symbol_type = res.create_type(true, GSize::of::<Symbol>(), false, 0).unwrap();
+        let symbol_type =
+            res.create_type(true, GSize::of::<Symbol>(), false, Symbol::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Symbol, symbol_type);
 
-        let promise_type = res.create_type(false, GSize::of::<Promise>(), false, 0).unwrap();
+        let promise_type =
+            res.create_type(false, GSize::of::<Promise>(), false, Promise::UNIFORM_REF_LEN)
+               .unwrap();
         res.insert(TypeIndex::Promise, promise_type);
 
-        let func_type = res.create_type(true, GSize::of::<Function>(), true, 0).unwrap();
+        let func_type =
+            res.create_type(true, GSize::of::<Function>(), true, Function::UNIFORM_REF_LEN)
+               .unwrap();
         res.insert(TypeIndex::Function, func_type);
-        let method_type = res.create_type(false, GSize::of::<Method>(), false, 3).unwrap();
+        let method_type =
+            res.create_type(false, GSize::of::<Method>(), false, Method::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Method, method_type);
-        let block_type = res.create_type(true, GSize::of::<Block>(), true, 1).unwrap();
+        let block_type =
+            res.create_type(true, GSize::of::<Block>(), true, Block::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Block, block_type);
-        let call_type = res.create_type(true, GSize::of::<Call>(), true, 1).unwrap();
+        let call_type =
+            res.create_type(true, GSize::of::<Call>(), true, Call::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Call, call_type);
-        let def_type = res.create_type(false, GSize::of::<Def>(), false, 2).unwrap();
+        let def_type =
+            res.create_type(false, GSize::of::<Def>(), false, Def::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Def, def_type);
-        let const_type = res.create_type(false, GSize::of::<Const>(), false, 1).unwrap();
+        let const_type =
+            res.create_type(false, GSize::of::<Const>(), false, Const::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Const, const_type);
-        let lex_type = res.create_type(false, GSize::of::<Lex>(), false, 1).unwrap();
+        let lex_type =
+            res.create_type(false, GSize::of::<Lex>(), false, Lex::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Lex, lex_type);
 
-        let block_cont_type = res.create_type(false, GSize::of::<BlockCont>(), false, 5).unwrap();
+        let block_cont_type =
+            res.create_type(false, GSize::of::<BlockCont>(), false, BlockCont::UNIFORM_REF_LEN)
+               .unwrap();
         res.insert(TypeIndex::BlockCont, block_cont_type);
-        let def_cont_type = res.create_type(false, GSize::of::<DefCont>(), false, 4).unwrap();
+        let def_cont_type =
+            res.create_type(false, GSize::of::<DefCont>(), false, DefCont::UNIFORM_REF_LEN)
+               .unwrap();
         res.insert(TypeIndex::DefCont, def_cont_type);
-        let halt_type = res.create_type(false, GSize::of::<Halt>(), false, 0).unwrap();
+        let halt_type =
+            res.create_type(false, GSize::of::<Halt>(), false, Halt::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Halt, halt_type);
 
-        let env_type = res.create_type(true, GSize::of::<Env>(), true, 1).unwrap();
+        let env_type =
+            res.create_type(true, GSize::of::<Env>(), true, Env::UNIFORM_REF_LEN).unwrap();
         res.insert(TypeIndex::Env, env_type);
 
         res
@@ -795,7 +849,7 @@ impl ValueManager {
                 for root in roots {
                     **root = self.gc.mark_ref(**root);
                 }
-                // TODO: mark roots in type and symbol tables within `self`.
+                // FIXME: mark roots in type and symbol tables within `self`.
                 self.gc.collect();
             }
             create(self)
@@ -804,7 +858,7 @@ impl ValueManager {
     }
 
     fn init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
-        where T: IndexedType, F: Fn(Unique<T>, HeapValue)
+        where T: HeapValueSub, F: Fn(Unique<T>, HeapValue)
     {
         let uptr = start_init(ptr);
         let tvref = TypedValueRef::new(uptr);
@@ -817,7 +871,7 @@ impl ValueManager {
 
     /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
     fn uniform_init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
-        where T: IndexedType, F: Fn(HeapValue) -> T
+        where T: HeapValueSub, F: Fn(HeapValue) -> T
     {
         self.init(ptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(heap_value);
@@ -826,7 +880,7 @@ impl ValueManager {
 
     fn init_with_slice<T, F, E>(&self, iptr: Initializable<T>, f: F, slice: &[E])
         -> TypedValueRef<T>
-        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy
+        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
     {
         self.init(iptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(DynHeapValue {
@@ -849,14 +903,14 @@ impl ValueManager {
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
     /// everything but the `HeapValue` part.
     fn uniform_create<T, F>(&mut self, f: F) -> Option<TypedValueRef<T>>
-        where T: IndexedType, F: Fn(HeapValue) -> T
+        where T: HeapValueSub, F: Fn(HeapValue) -> T
     {
         unsafe { self.allocate_t() }.map(|typ| self.uniform_init(typ, f))
     }
 
     fn create_with_slice<T, F, E>(&mut self, gsize: GSize, f: F, slice: &[E])
         -> Option<TypedValueRef<T>>
-        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy
+        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
     {
         unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
                                   NonZero::new_unchecked(gsize)) }
@@ -864,7 +918,7 @@ impl ValueManager {
     }
 
     fn create_with_vref_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<TypedValueRef<T>>
-        where T: IndexedType, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
+        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
     {
         self.create_with_slice(GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
