@@ -3,10 +3,13 @@ use std::ptr::Unique;
 use std::cell::RefCell;
 use std::fmt;
 
+/// An uninitialized `T`.
 pub struct Uninitialized<T>(T);
 
+/// A `Unique` to uninitialized space for a `T`.
 pub type Initializable<T> = Unique<Uninitialized<T>>;
 
+/// Convert an `Initializable` to a `Unique` so that initialization can be performed.
 pub fn start_init<T>(ptr: Initializable<T>) -> Unique<T> {
     unsafe { Unique::new_unchecked(ptr.as_ptr() as _) }
 }

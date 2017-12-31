@@ -3,13 +3,12 @@ use std::mem::transmute;
 use std::ops::{Deref, DerefMut};
 use std::fmt::{self, Debug, Formatter};
 use std::marker::PhantomData;
-use std::iter;
 use std::hash::{Hash, Hasher};
 use std::slice;
 
-use gce::{Object, ObjectRef, PointyObjectRef};
+use gce::{Object, ObjectRef};
 use value::{ValueView, TypeIndex, TypeRegistry, Type, Symbol};
-use gce::layout::GSize;
+use gce::GSize;
 
 // ================================================================================================
 
@@ -134,15 +133,12 @@ impl HeapValue {
             (unsafe { transmute::<_, *const HeapValue>(self).offset(1) }) as _
         }
     }
-
-    pub fn ref_fields(&self) -> ObjRefs {
-        let ptr = self.refs_ptr();
-        let end = unsafe { ptr.offset(self.ref_len() as isize) };
-        ObjRefs { ptr, end }
-    }
 }
 
 impl Object for HeapValue {
+    type ORef = ValueRef;
+    type RefIter = ObjRefs;
+
     fn gsize(&self) -> GSize {
         let gsize = self.typ.uniform_gsize();
         if self.typ.has_dyn_ref_len() {
@@ -153,6 +149,12 @@ impl Object for HeapValue {
                  + GSize::from_bytesize(unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len);
         }
         GSize::from(gsize)
+    }
+
+    fn obj_refs(&self) -> ObjRefs {
+        let ptr = self.refs_ptr();
+        let end = unsafe { ptr.offset(self.ref_len() as isize) };
+        ObjRefs { ptr, end }
     }
 }
 
@@ -192,13 +194,13 @@ pub struct ObjRefs {
 }
 
 impl Iterator for ObjRefs {
-    type Item = *mut ValueRef;
+    type Item = Shared<ValueRef>;
 
-    fn next(&mut self) -> Option<*mut ValueRef> {
+    fn next(&mut self) -> Option<Shared<ValueRef>> {
         if self.ptr < self.end {
-            let res = Some(self.ptr);
+            let old_ptr = self.ptr;
             self.ptr = unsafe { self.ptr.offset(1) };
-            res
+            Some(unsafe { Shared::new_unchecked(old_ptr) })
         } else {
             None
         }
@@ -210,6 +212,7 @@ impl Iterator for ObjRefs {
 const SHIFT: usize = 3;
 const TAG_MASK: usize = (1 << SHIFT) - 1;
 const PTR_BIT: usize = 0b001;
+const POINTY_BITS: usize = 0b011;
 
 // ================================================================================================
 
@@ -220,8 +223,7 @@ pub struct ValueRef(usize);
 impl ValueRef {
     pub const NULL: ValueRef = ValueRef(0b001);
 
-    /// Does `self` hold a pointer?
-    fn is_ptr(self) -> bool { self.0 & PTR_BIT == 1 }
+    pub fn is_ptr(self) -> bool { self.0 & PTR_BIT == PTR_BIT }
 
     pub fn force(self) -> Option<ValueRef> {
         if let Some(sptr) = self.ptr() {
@@ -311,7 +313,6 @@ impl<T> From<TypedValueRef<T>> for ValueRef {
 
 impl ObjectRef for ValueRef {
     type Obj = HeapValue;
-    type PORef = PointyValueRef;
 
     fn ptr(self) -> Option<Shared<HeapValue>> {
         if self.is_ptr() {
@@ -321,13 +322,7 @@ impl ObjectRef for ValueRef {
         }
     }
 
-    fn pointy_ref(self) -> Option<PointyValueRef> {
-        if (self.0 & TAG_MASK) == 0b011 {
-            Some(PointyValueRef(self))
-        } else {
-            None
-        }
-    }
+    fn is_pointy(self) -> bool { self.0 & POINTY_BITS == POINTY_BITS }
 }
 
 impl DynamicDebug for ValueRef {
@@ -385,22 +380,5 @@ impl<T> DerefMut for TypedValueRef<T> {
 impl<T: DynamicDebug> DynamicDebug for TypedValueRef<T> {
     fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, type_reg: &R) -> Result<(), fmt::Error> {
         self.deref().fmt(f, type_reg)
-    }
-}
-
-// ================================================================================================
-
-/// A `ValueRef` that has a non-zero number of potentially pointer-valued fields.
-#[derive(Clone, Copy)]
-pub struct PointyValueRef(ValueRef);
-
-impl PointyObjectRef for PointyValueRef {
-    type ORef = ValueRef;
-    type RefIter = iter::Chain<iter::Once<*mut ValueRef>, ObjRefs>;
-
-    fn obj_refs(&self) -> Self::RefIter {
-        let base: &HeapValue = unsafe { transmute((self.0).0 & !TAG_MASK) };
-        iter::once(unsafe { transmute(base.typ) })
-             .chain(base.ref_fields())
     }
 }

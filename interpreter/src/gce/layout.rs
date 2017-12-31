@@ -70,16 +70,20 @@ impl Granule {
     pub const SIZE: usize = 1 << Self::SHIFT;
 }
 
+/// Size in granules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GSize(usize);
 
 impl GSize {
+    /// Convert from a size in bytes.
     pub fn from_bytesize(bytesize: usize) -> GSize {
         GSize(bytesize.ceil_div(size_of::<Granule>()))
     }
 
+    /// Granule size of `T`.
     pub fn of<T>() -> Self { Self::from_bytesize(size_of::<T>()) }
 
+    /// Round `ptr` up to `align` granules.
     pub fn next_aligned(align: GSize, ptr: *const Granule) -> *const Granule {
         let stride = align.0 * size_of::<Granule>();
         let rem = ptr as usize % stride;

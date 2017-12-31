@@ -5,12 +5,9 @@ use std::slice;
 use std::collections::HashMap;
 use std::ptr::Unique;
 use std::str;
-use std::iter;
 use std::ops::Deref;
 
-use gce::util::{start_init, Initializable};
-use gce::layout::GSize;
-use gce::mark_n_sweep::Generation;
+use gce::{GSize, Initializable, start_init, Generation};
 use object_model::{Unbound, Reinit,
                    HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue,
@@ -1135,8 +1132,11 @@ impl TypeRegistry for ValueManager {
 
 #[cfg(test)]
 mod tests {
-    use gce::layout::GSize;
     use super::*;
+
+    use std::iter;
+
+    use gce::GSize;
 
     #[test]
     fn sizes() {

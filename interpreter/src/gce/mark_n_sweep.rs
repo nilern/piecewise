@@ -1,10 +1,10 @@
 use core::nonzero::NonZero;
 use std::mem::transmute;
-use std::ptr::{self, Unique};
+use std::ptr::{self, Unique, Shared};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use gce::{Object, ObjectRef, PointyObjectRef};
+use gce::{Object, ObjectRef};
 use gce::util::{Uninitialized, Initializable, CeilDiv, Foam, Span, AllocSat};
 use gce::layout::{Block, GSize};
 use gce::block::BlockAllocator;
@@ -15,6 +15,7 @@ const LARGE_OBJ_THRESHOLD: usize = Block::WSIZE * 8 / 10;
 // FIXME: observe alignment
 // TODO: use singly linked .freelist?
 
+/// A garbage collector generation using a Mark and Sweep algorithm.
 pub struct Generation<ORef: ObjectRef> {
     freelist: LinkedList<SizedFreeAdapter>,
     bumper: Option<Span<Uninitialized<usize>>>,
@@ -24,12 +25,11 @@ pub struct Generation<ORef: ObjectRef> {
     large_objs: LinkedList<LargeObjRopeAdapter>,
 
     current_mark: u8,
-    mark_stack: Vec<ORef::PORef>
+    mark_stack: Vec<Shared<ORef::Obj>>
 }
 
-impl<ORef, PORef> Generation<ORef>
-    where ORef: ObjectRef<PORef=PORef>, PORef: PointyObjectRef<ORef=ORef>
-{
+impl<ORef, Obj> Generation<ORef> where ORef: ObjectRef<Obj=Obj>, Obj: Object<ORef=ORef> {
+    /// Create a new Generation with a maximum heap size of `max_heap` bytes.
     pub fn new(max_heap: usize) -> Self {
         Generation {
             freelist: LinkedList::new(SizedFreeAdapter::new()),
@@ -45,6 +45,10 @@ impl<ORef, PORef> Generation<ORef>
     }
 
     // TODO: leave breathing room (don't wait until the very last moment before returning `None`)
+    /// Allocate `gsize` granules of space aligned at a `galign` granules for a `T`.
+    ///
+    /// # Safety
+    /// The alignment and size need to be correct for `T`.
     pub unsafe fn allocate<T>(&mut self, galign: NonZero<GSize>, gsize: NonZero<GSize>)
         -> Option<Initializable<T>>
     {
@@ -62,7 +66,7 @@ impl<ORef, PORef> Generation<ORef>
         transmute(res)
     }
 
-    /// Mark a single object reference.
+    /// Mark a single object reference, returning the new value for it.
     pub fn mark_ref(&mut self, oref: ORef) -> ORef {
         if let Some(ptr) = oref.ptr() {
             let mut descr = Descriptor::of(ptr.as_ptr());
@@ -71,8 +75,8 @@ impl<ORef, PORef> Generation<ORef>
             if descr.mark_of(ptr) != self.current_mark {
                 unsafe { descr.set_mark_of(ptr, self.current_mark, ptr.as_ref().gsize()) };
 
-                if let Some(pref) = oref.pointy_ref() {
-                    self.mark_stack.push(pref);
+                if oref.is_pointy() {
+                    self.mark_stack.push(ptr);
                 }
             }
         }
@@ -105,8 +109,9 @@ impl<ORef, PORef> Generation<ORef>
 
     unsafe fn mark_all(&mut self) {
         while let Some(poref) = self.mark_stack.pop() {
-            for fref in poref.obj_refs() {
-                *fref = self.mark_ref(*fref);
+            for mut fref in poref.as_ref().obj_refs() {
+                let field = fref.as_mut();
+                *field = self.mark_ref(*field);
             }
         }
     }
