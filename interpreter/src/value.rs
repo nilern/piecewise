@@ -8,10 +8,24 @@ use std::str;
 use std::ops::Deref;
 
 use gce::{GSize, Initializable, start_init, Generation};
-use object_model::{Unbound, Reinit,
-                   HeapValueSub, DynHeapValueSub, DynamicDebug,
-                   HeapValue, DynHeapValue,
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
+                   HeapValue, DynHeapValue, Type,
                    ValueRef, TypedValueRef};
+
+// ================================================================================================
+
+pub struct Unbound(pub TypedValueRef<Symbol>);
+
+impl DynamicDebug for Unbound {
+   fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+       f.debug_tuple("Unbound")
+        .field(&self.0.fmt_wrap(types))
+        .finish()
+   }
+}
+
+#[derive(Debug)]
+pub struct Reinit;
 
 // ================================================================================================
 
@@ -129,49 +143,6 @@ impl DynamicDebug for ValueView {
 }
 
 // ================================================================================================
-
-/// A dynamic type.
-#[repr(C)]
-pub struct Type {
-    heap_value: HeapValue,
-    gsize_with_dyn: usize,
-    ref_len_with_dyn: usize
-}
-
-impl Type {
-    fn new(heap_value: HeapValue, has_dyn_gsize: bool, gsize: GSize, has_dyn_ref_len: bool,
-           ref_len: usize) -> Type {
-        Type {
-            heap_value,
-            gsize_with_dyn: usize::from(gsize) << 1 | has_dyn_gsize as usize,
-            ref_len_with_dyn: ref_len << 1 | has_dyn_ref_len as usize
-        }
-    }
-
-    pub fn uniform_gsize(&self) -> usize { self.gsize_with_dyn >> 1 }
-
-    pub fn has_dyn_gsize(&self) -> bool { self.gsize_with_dyn & 0b1 == 1 }
-
-    pub fn uniform_ref_len(&self) -> usize { self.ref_len_with_dyn >> 1 }
-
-    pub fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
-}
-
-impl HeapValueSub for Type {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Type;
-
-    const UNIFORM_REF_LEN: usize = 0;
-}
-
-impl DynamicDebug for Type {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
-        f.debug_struct("Type")
-         .field("heap_value", &self.heap_value.fmt_wrap(types))
-         .field("gsize", &self.gsize_with_dyn)
-         .field("ref_len", &self.ref_len_with_dyn)
-         .finish()
-    }
-}
 
 /// Tuple
 pub struct Tuple {
