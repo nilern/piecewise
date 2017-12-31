@@ -713,71 +713,45 @@ impl ValueManager {
 
         let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
         res.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
-        res.uniform_init(type_type, |heap_value|
-            Type::new(heap_value, false, GSize::of::<Type>(), false, 0)
-        );
+        res.uniform_init(type_type, |heap_value| Type::uniform::<Type>(heap_value));
 
-        let tuple_type =
-            res.create_type(true, GSize::of::<Tuple>(), true, Tuple::UNIFORM_REF_LEN).unwrap();
+        let tuple_type = res.create_dyn_refs_type::<Tuple>().unwrap();
         res.insert(TypeIndex::Tuple, tuple_type);
-        let symbol_type =
-            res.create_type(true, GSize::of::<Symbol>(), false, Symbol::UNIFORM_REF_LEN).unwrap();
+        let symbol_type = res.create_dyn_bytes_type::<Symbol>().unwrap();
         res.insert(TypeIndex::Symbol, symbol_type);
 
-        let promise_type =
-            res.create_type(false, GSize::of::<Promise>(), false, Promise::UNIFORM_REF_LEN)
-               .unwrap();
+        let promise_type = res.create_uniform_type::<Promise>().unwrap();
         res.insert(TypeIndex::Promise, promise_type);
 
-        let func_type =
-            res.create_type(true, GSize::of::<Function>(), true, Function::UNIFORM_REF_LEN)
-               .unwrap();
+        let func_type = res.create_dyn_refs_type::<Function>().unwrap();
         res.insert(TypeIndex::Function, func_type);
-        let method_type =
-            res.create_type(false, GSize::of::<Method>(), false, Method::UNIFORM_REF_LEN).unwrap();
+        let method_type = res.create_uniform_type::<Method>().unwrap();
         res.insert(TypeIndex::Method, method_type);
-        let block_type =
-            res.create_type(true, GSize::of::<Block>(), true, Block::UNIFORM_REF_LEN).unwrap();
+        let block_type = res.create_dyn_refs_type::<Block>().unwrap();
         res.insert(TypeIndex::Block, block_type);
-        let call_type =
-            res.create_type(true, GSize::of::<Call>(), true, Call::UNIFORM_REF_LEN).unwrap();
+        let call_type = res.create_dyn_refs_type::<Call>().unwrap();
         res.insert(TypeIndex::Call, call_type);
-        let def_type =
-            res.create_type(false, GSize::of::<Def>(), false, Def::UNIFORM_REF_LEN).unwrap();
+        let def_type = res.create_uniform_type::<Def>().unwrap();
         res.insert(TypeIndex::Def, def_type);
-        let const_type =
-            res.create_type(false, GSize::of::<Const>(), false, Const::UNIFORM_REF_LEN).unwrap();
+        let const_type = res.create_uniform_type::<Const>().unwrap();
         res.insert(TypeIndex::Const, const_type);
-        let lex_type =
-            res.create_type(false, GSize::of::<Lex>(), false, Lex::UNIFORM_REF_LEN).unwrap();
+        let lex_type = res.create_uniform_type::<Lex>().unwrap();
         res.insert(TypeIndex::Lex, lex_type);
 
-        let block_cont_type =
-            res.create_type(false, GSize::of::<BlockCont>(), false, BlockCont::UNIFORM_REF_LEN)
-               .unwrap();
+        let block_cont_type = res.create_uniform_type::<BlockCont>().unwrap();
         res.insert(TypeIndex::BlockCont, block_cont_type);
-        let def_cont_type =
-            res.create_type(false, GSize::of::<DefCont>(), false, DefCont::UNIFORM_REF_LEN)
-               .unwrap();
+        let def_cont_type = res.create_uniform_type::<DefCont>().unwrap();
         res.insert(TypeIndex::DefCont, def_cont_type);
-        let callee_cont_type =
-            res.create_type(false, GSize::of::<CalleeCont>(), false, CalleeCont::UNIFORM_REF_LEN)
-               .unwrap();
+        let callee_cont_type = res.create_uniform_type::<CalleeCont>().unwrap();
         res.insert(TypeIndex::CalleeCont, callee_cont_type);
-        let arg_cont_type =
-            res.create_type(true, GSize::of::<ArgCont>(), true, ArgCont::UNIFORM_REF_LEN)
-               .unwrap();
+        let arg_cont_type = res.create_dyn_refs_type::<ArgCont>().unwrap();
         res.insert(TypeIndex::ArgCont, arg_cont_type);
-        let halt_type =
-            res.create_type(false, GSize::of::<Halt>(), false, Halt::UNIFORM_REF_LEN).unwrap();
+        let halt_type = res.create_uniform_type::<Halt>().unwrap();
         res.insert(TypeIndex::Halt, halt_type);
 
-        let env_type =
-            res.create_type(true, GSize::of::<Env>(), true, Env::UNIFORM_REF_LEN).unwrap();
+        let env_type = res.create_dyn_refs_type::<Env>().unwrap();
         res.insert(TypeIndex::Env, env_type);
-        let closure_type =
-            res.create_type(false, GSize::of::<Closure>(), false, Closure::UNIFORM_REF_LEN)
-               .unwrap();
+        let closure_type = res.create_uniform_type::<Closure>().unwrap();
         res.insert(TypeIndex::Closure, closure_type);
 
         res
@@ -907,14 +881,20 @@ impl ValueManager {
     /// Create a new `Bool` from `b`.
     pub fn create_bool(&self, b: bool) -> ValueRef { ValueRef::from(b) }
 
-    /// Create a new dynamic type whose instances have a (byte) size of `size` and `ref_len`
-    /// potentially pointer-valued fields.
-    pub fn create_type(&mut self, has_dyn_gsize: bool, gsize: GSize, has_dyn_ref_len: bool,
-                       ref_len: usize) -> Option<TypedValueRef<Type>>
+    /// Create a new dynamic type for `T` with uniformly sized instances.
+    pub fn create_uniform_type<T: HeapValueSub>(&mut self) -> Option<TypedValueRef<Type>> {
+        self.uniform_create(|base| Type::uniform::<T>(base))
+    }
+    /// Create a new dynamic type for `T` with with `ValueRef`-tailed instances.
+    pub fn create_dyn_refs_type<T>(&mut self) -> Option<TypedValueRef<Type>>
+        where T: DynHeapValueSub, T::TailItem: Into<ValueRef>
     {
-        self.uniform_create(|heap_value|
-            Type::new(heap_value, has_dyn_gsize, gsize, has_dyn_ref_len, ref_len)
-        )
+        self.uniform_create(|base| Type::dyn_refs::<T>(base))
+    }
+
+    /// Create a new dynamic type for `T` with with byte-tailed instances.
+    pub fn create_dyn_bytes_type<T: DynHeapValueSub>(&mut self) -> Option<TypedValueRef<Type>> {
+        self.uniform_create(|base| Type::dyn_bytes::<T>(base))
     }
 
     /// Create a new Tuple.
@@ -1141,16 +1121,16 @@ mod tests {
     fn create() {
         let mut factory = ValueManager::new(1024);
 
-        let typ = factory.create_type(false, GSize::from(2), false, 2).unwrap();
-        let tup = factory.create_tuple(1, iter::once(typ.into())).unwrap();
+        let n = factory.create_int(5);
+        let tup = factory.create_tuple(1, iter::once(n)).unwrap();
         let sym = factory.create_symbol(&"foo").unwrap();
 
         let promise = factory.create_promise().unwrap();
 
-        let call = factory.create_call(From::from(sym), &[From::from(typ), From::from(sym)])
+        let call = factory.create_call(From::from(sym), &[From::from(n), From::from(sym)])
                           .unwrap();
         let lex = factory.create_lex(sym).unwrap().into();
-        let c = factory.create_const(From::from(typ)).unwrap().into();
+        let c = factory.create_const(From::from(n)).unwrap().into();
         let def = factory.create_def(lex, c).unwrap();
         let block = factory.create_block(&[def.into(), call.into(), lex], c)
                            .unwrap();

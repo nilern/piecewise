@@ -214,15 +214,31 @@ pub struct Type {
 }
 
 impl Type {
-    // TODO: Make this type-directed.
-    /// Create a new type.
-    pub fn new(heap_value: HeapValue, has_dyn_gsize: bool, gsize: GSize, has_dyn_ref_len: bool,
-           ref_len: usize) -> Type {
+    fn new<T: HeapValueSub>(heap_value: HeapValue, has_dyn_gsize: bool, has_dyn_ref_len: bool)
+        -> Type
+    {
         Type {
             heap_value,
-            gsize_with_dyn: usize::from(gsize) << 1 | has_dyn_gsize as usize,
-            ref_len_with_dyn: ref_len << 1 | has_dyn_ref_len as usize
+            gsize_with_dyn: usize::from(GSize::of::<T>()) << 1 | has_dyn_gsize as usize,
+            ref_len_with_dyn: T::UNIFORM_REF_LEN << 1 | has_dyn_ref_len as usize
         }
+    }
+
+    /// Create a new dynamic type for `T` with uniformly sized instances.
+    pub fn uniform<T: HeapValueSub>(heap_value: HeapValue) -> Type {
+        Type::new::<T>(heap_value, false, false)
+    }
+
+    /// Create a new dynamic type for `T` with `ValueRef`-tailed instances.
+    pub fn dyn_refs<T>(heap_value: HeapValue) -> Type
+        where T: DynHeapValueSub, T::TailItem: Into<ValueRef>
+    {
+        Type::new::<T>(heap_value, true, true)
+    }
+
+    /// Create a new dynamic type for `T` with byte-tailed instances.
+    pub fn dyn_bytes<T: DynHeapValueSub>(heap_value: HeapValue) -> Type {
+        Type::new::<T>(heap_value, true, false)
     }
 
     /// The constant portion (or minimum) granule size of instances.
