@@ -9,79 +9,12 @@ use std::iter;
 use std::ops::Deref;
 
 use gce::util::{start_init, Initializable};
-use gce::{Object, ObjectRef};
 use gce::layout::GSize;
 use gce::mark_n_sweep::Generation;
-use value_refs::{ValueRef, TypedValueRef};
-
-// ================================================================================================
-
-pub trait HeapValueSub: Sized {
-    const TYPE_INDEX: TypeIndex;
-
-    const UNIFORM_REF_LEN: usize;
-}
-
-trait DynHeapValueSub: HeapValueSub {
-    type TailItem;
-
-    fn tail(&self) -> &[Self::TailItem] {
-        unsafe {
-            slice::from_raw_parts((self as *const Self).offset(1) as *const Self::TailItem,
-                                  transmute::<_, &DynHeapValue>(self).dyn_len)
-        }
-    }
-}
-
-// ================================================================================================
-
-/// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
-pub trait DynamicDebug: Sized {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error>;
-
-    fn fmt_wrap<'a, 'b, R: TypeRegistry>(&'a self, types: &'b R)
-        -> DynDebugWrapper<'a, 'b, Self, R>
-    {
-        DynDebugWrapper {
-            value: self,
-            types: types
-        }
-    }
-}
-
-pub struct DynDebugWrapper<'a, 'b, T: 'a + DynamicDebug, R: 'b + TypeRegistry> {
-    value: &'a T,
-    types: &'b R
-}
-
-impl<'a, 'b, T: DynamicDebug, R: TypeRegistry> Debug for DynDebugWrapper<'a, 'b, T, R> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        self.value.fmt(f, self.types)
-    }
-}
-
-impl<'a, T> DynamicDebug for &'a [T] where T: DynamicDebug {
-    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
-        f.debug_list()
-         .entries(self.iter().map(|entry| entry.fmt_wrap(types)))
-         .finish()
-    }
-}
-
-// ================================================================================================
-
-pub struct Unbound(TypedValueRef<Symbol>);
-
-impl DynamicDebug for Unbound {
-    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
-        f.debug_tuple("Unbound")
-         .field(&self.0.fmt_wrap(types))
-         .finish()
-    }
-}
-
-#[derive(Debug)]
-pub struct Reinit;
+use object_model::{Unbound, Reinit,
+                   HeapValueSub, DynHeapValueSub, DynamicDebug,
+                   HeapValue, DynHeapValue,
+                   ValueRef, TypedValueRef};
 
 // ================================================================================================
 
@@ -200,133 +133,6 @@ impl DynamicDebug for ValueView {
 
 // ================================================================================================
 
-/// The 'supertype' of all heap values (non-scalars).
-#[repr(C)]
-pub struct HeapValue {
-    /// Multipurpose redirection field
-    link: ValueRef,
-    /// Dynamic type
-    typ: TypedValueRef<Type>
-}
-
-#[repr(C)]
-pub struct DynHeapValue {
-    base: HeapValue,
-    dyn_len: usize
-}
-
-impl HeapValue {
-    pub fn typ(&self) -> &TypedValueRef<Type> { &self.typ }
-
-    pub fn force(&self) -> Option<ValueRef> {
-        let mut ptr = self as *const HeapValue;
-        let mut vref = ValueRef::from(ptr);
-
-        loop {
-            let link = unsafe { (*ptr).link };
-            if link == vref {
-                return Some(vref);
-            } else if link == ValueRef::NULL {
-                return None;
-            } else {
-                vref = link;
-                if let Some(sptr) = vref.ptr() {
-                    ptr = sptr.as_ptr();
-                } else {
-                    return Some(vref);
-                }
-            }
-        }
-    }
-
-    fn ref_len(&self) -> usize {
-        if self.typ.has_dyn_ref_len() {
-            self.typ.uniform_ref_len() + unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len
-        } else {
-            self.typ.uniform_ref_len()
-        }
-    }
-
-    fn refs_ptr(&self) -> *mut ValueRef {
-        if self.typ.has_dyn_ref_len() {
-            (unsafe { transmute::<_, *const DynHeapValue>(self).offset(1) }) as _
-        } else {
-            (unsafe { transmute::<_, *const HeapValue>(self).offset(1) }) as _
-        }
-    }
-
-    pub fn ref_fields(&self) -> ObjRefs {
-        let ptr = self.refs_ptr();
-        let end = unsafe { ptr.offset(self.ref_len() as isize) };
-        ObjRefs { ptr, end }
-    }
-}
-
-impl Object for HeapValue {
-    fn gsize(&self) -> GSize {
-        let gsize = self.typ.uniform_gsize();
-        if self.typ.has_dyn_ref_len() {
-            return GSize::from(gsize + 1 + unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len);
-        }
-        if self.typ.has_dyn_gsize() {
-            return GSize::from(gsize + 1)
-                 + GSize::from_bytesize(unsafe { transmute::<_, &DynHeapValue>(self) }.dyn_len);
-        }
-        GSize::from(gsize)
-    }
-}
-
-impl DynamicDebug for HeapValue {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
-        let self_ref = ValueRef::from(self as *const HeapValue);
-        let mut dbg = f.debug_struct("HeapValue");
-
-        if self.link == self_ref {
-            dbg.field("link", &"#[cycle]");
-        } else {
-            dbg.field("link", &self.link.fmt_wrap(types));
-        }
-
-        if ValueRef::from(self.typ) == self_ref {
-            dbg.field("typ", &"#[cycle]");
-        } else {
-            dbg.field("typ", &self.typ.fmt_wrap(types));
-        }
-
-        dbg.finish()
-    }
-}
-
-impl DynamicDebug for DynHeapValue {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
-        f.debug_struct("DynHeapValue")
-         .field("base", &self.base.fmt_wrap(types))
-         .field("dyn_len", &self.dyn_len)
-         .finish()
-    }
-}
-
-pub struct ObjRefs {
-    ptr: *mut ValueRef,
-    end: *mut ValueRef
-}
-
-impl Iterator for ObjRefs {
-    type Item = *mut ValueRef;
-
-    fn next(&mut self) -> Option<*mut ValueRef> {
-        if self.ptr < self.end {
-            let res = Some(self.ptr);
-            self.ptr = unsafe { self.ptr.offset(1) };
-            res
-        } else {
-            None
-        }
-    }
-}
-
-// ================================================================================================
-
 /// A dynamic type.
 #[repr(C)]
 pub struct Type {
@@ -345,13 +151,13 @@ impl Type {
         }
     }
 
-    fn uniform_gsize(&self) -> usize { self.gsize_with_dyn >> 1 }
+    pub fn uniform_gsize(&self) -> usize { self.gsize_with_dyn >> 1 }
 
-    fn has_dyn_gsize(&self) -> bool { self.gsize_with_dyn & 0b1 == 1 }
+    pub fn has_dyn_gsize(&self) -> bool { self.gsize_with_dyn & 0b1 == 1 }
 
-    fn uniform_ref_len(&self) -> usize { self.ref_len_with_dyn >> 1 }
+    pub fn uniform_ref_len(&self) -> usize { self.ref_len_with_dyn >> 1 }
 
-    fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
+    pub fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
 }
 
 impl HeapValueSub for Type {
@@ -516,10 +322,6 @@ pub struct Block {
     base: DynHeapValue,
     expr: ValueRef,
 }
-
-fn stmt_binders(stmt: &ValueRef) -> iter::Empty<ValueRef> { iter::empty() } // FIXME
-
-fn downcast_binder(vref: ValueRef) -> TypedValueRef<Symbol> { unsafe { vref.downcast() } }
 
 impl Block {
     pub fn expr(&self) -> ValueRef { self.expr }

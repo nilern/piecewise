@@ -1,8 +1,8 @@
 use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
-use value_refs::{ValueRef, TypedValueRef};
-use value::{DynamicDebug, TypeRegistry, ValueManager, OutOfMemory, Unbound, Reinit, ValueView,
+use object_model::{DynamicDebug, Unbound, Reinit, ValueRef, TypedValueRef};
+use value::{TypeRegistry, ValueManager, OutOfMemory, ValueView,
             Tuple, Block, Halt};
 
 pub enum EvalError {

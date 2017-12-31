@@ -10,15 +10,15 @@ use std::io::{self, Read};
 // HACK: these are pub just for rustdoc
 pub mod util;
 pub mod gce;
+pub mod object_model;
 pub mod value;
-pub mod value_refs;
 //pub mod ast;
 pub mod lexer;
 pub mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
 pub mod eval;
 
 use parser::program;
-use value::DynamicDebug;
+use object_model::DynamicDebug;
 use eval::Interpreter;
 
 fn main() {
