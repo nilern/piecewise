@@ -38,7 +38,7 @@ pub trait DynHeapValueSub: HeapValueSub {
 
 /// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
 pub trait DynamicDebug: Sized {
-    /// Do the formatting.
+    /// Formats the value using the given formatter.
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error>;
 
     /// Wrap `self` and `types` into a `DynDebugWrapper`.
@@ -84,9 +84,8 @@ pub struct HeapValue {
 }
 
 impl HeapValue {
-    /// Get the actual (non-`Promise`) reference to `self`. If the link chain ends at an
-    /// uninitialized `HeapValue` return `None`.
-    pub fn force(&self) -> Option<ValueRef> {
+    /// See `ValueRef::force`.
+    fn force(&self) -> Option<ValueRef> {
         let mut ptr = self as *const HeapValue;
         let mut vref = ValueRef::from(ptr);
 
