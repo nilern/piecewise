@@ -11,15 +11,21 @@ use value::{ValueView, TypeIndex, TypeRegistry};
 
 // ================================================================================================
 
+/// A subtype of `HeapValue`.
 pub trait HeapValueSub: Sized {
+    /// Type index of `Self`.
     const TYPE_INDEX: TypeIndex;
 
+    /// The constant portion (or minimum number) of `ValueRef` fields on instances of `self`.
     const UNIFORM_REF_LEN: usize;
 }
 
+/// A subtype of `DynHeapValue`.
 pub trait DynHeapValueSub: HeapValueSub {
+    /// The type of tail items.
     type TailItem;
 
+    /// Get the tail slice.
     fn tail(&self) -> &[Self::TailItem] {
         unsafe {
             slice::from_raw_parts((self as *const Self).offset(1) as *const Self::TailItem,
@@ -32,8 +38,10 @@ pub trait DynHeapValueSub: HeapValueSub {
 
 /// Like `std::fmt::Debug`, but needs a `TypeRegistry` because of the dynamic typing.
 pub trait DynamicDebug: Sized {
+    /// Do the formatting.
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error>;
 
+    /// Wrap `self` and `types` into a `DynDebugWrapper`.
     fn fmt_wrap<'a, 'b, R: TypeRegistry>(&'a self, types: &'b R)
         -> DynDebugWrapper<'a, 'b, Self, R>
     {
@@ -44,6 +52,7 @@ pub trait DynamicDebug: Sized {
     }
 }
 
+/// Wraps a `DynamicDebug` and a `TypeRegistry` into a struct that implements `fmt::Debug`.
 pub struct DynDebugWrapper<'a, 'b, T: 'a + DynamicDebug, R: 'b + TypeRegistry> {
     value: &'a T,
     types: &'b R
@@ -74,13 +83,9 @@ pub struct HeapValue {
     pub typ: TypedValueRef<Type>
 }
 
-#[repr(C)]
-pub struct DynHeapValue {
-    pub base: HeapValue,
-    pub dyn_len: usize
-}
-
 impl HeapValue {
+    /// Get the actual (non-`Promise`) reference to `self`. If the link chain ends at an
+    /// uninitialized `HeapValue` return `None`.
     pub fn force(&self) -> Option<ValueRef> {
         let mut ptr = self as *const HeapValue;
         let mut vref = ValueRef::from(ptr);
@@ -163,6 +168,15 @@ impl DynamicDebug for HeapValue {
     }
 }
 
+/// A `HeapValue` whose instances are non-uniformly sized.
+#[repr(C)]
+pub struct DynHeapValue {
+    /// The `HeapValue` part.
+    pub base: HeapValue,
+    /// The length of the dynamic tail on this instance.
+    pub dyn_len: usize
+}
+
 impl DynamicDebug for DynHeapValue {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
         f.debug_struct("DynHeapValue")
@@ -172,6 +186,7 @@ impl DynamicDebug for DynHeapValue {
     }
 }
 
+/// An iterator over `Shared`:s to `ValueRef` fields of a `HeapValue`.
 pub struct ObjRefs {
     ptr: *mut ValueRef,
     end: *mut ValueRef
@@ -200,6 +215,8 @@ pub struct Type {
 }
 
 impl Type {
+    // TODO: Make this type-directed.
+    /// Create a new type.
     pub fn new(heap_value: HeapValue, has_dyn_gsize: bool, gsize: GSize, has_dyn_ref_len: bool,
            ref_len: usize) -> Type {
         Type {
@@ -209,12 +226,16 @@ impl Type {
         }
     }
 
+    /// The constant portion (or minimum) granule size of instances.
     pub fn uniform_gsize(&self) -> usize { self.gsize_with_dyn >> 1 }
 
+    /// Does the size of instances vary?
     pub fn has_dyn_gsize(&self) -> bool { self.gsize_with_dyn & 0b1 == 1 }
 
+    /// The constant portion (or minimum) number of `ValueRef` fields of instances.
     pub fn uniform_ref_len(&self) -> usize { self.ref_len_with_dyn >> 1 }
 
+    /// Does the number of `ValueRef` fields of instances vary?
     pub fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
 }
 
@@ -248,10 +269,14 @@ const POINTY_BITS: usize = 0b011;
 pub struct ValueRef(usize);
 
 impl ValueRef {
+    /// The null reference.
     pub const NULL: ValueRef = ValueRef(0b001);
 
+    /// Does `self` contain a pointer?
     pub fn is_ptr(self) -> bool { self.0 & PTR_BIT == PTR_BIT }
 
+    /// Get the actual (non-`Promise`) reference to `self`. If the link chain ends at an
+    /// uninitialized `HeapValue` return `None`.
     pub fn force(self) -> Option<ValueRef> {
         if let Some(sptr) = self.ptr() {
             unsafe { sptr.as_ref() }.force()
@@ -305,6 +330,7 @@ impl ValueRef {
         }
     }
 
+    /// Is `self` an instance of `T`?
     pub fn is_instance<R: TypeRegistry, T: HeapValueSub>(self, types: &R) -> bool {
         if let Some(sptr) = self.ptr() {
             types.index_of(unsafe { sptr.as_ref() }.typ) == T::TYPE_INDEX
