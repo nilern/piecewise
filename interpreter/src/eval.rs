@@ -1,22 +1,19 @@
 use std::iter;
-use std::fmt::{self, Formatter, Debug};
+use std::fmt::{self, Formatter};
 
+use interpreter::{Interpreter, Allocator};
 use object_model::{DynamicDebug, ValueRef, ScalarValueRef, HeapValueRef};
-use value::{Reinit, TypeRegistry, Allocator, OutOfMemory, ValueView, Tuple};
+use value::{Reinit, TypeRegistry, ValueView, Tuple};
 use ast::Block;
 use continuations::Halt;
 use env::Unbound;
 
 pub enum EvalError {
-    OOM(OutOfMemory),
+    OutOfMemory,
     Type,
     Unbound(Unbound),
     Uninitialized(ValueRef),
     Reassignment
-}
-
-impl From<OutOfMemory> for EvalError {
-    fn from(oom: OutOfMemory) -> EvalError { EvalError::OOM(oom) }
 }
 
 impl From<Unbound> for EvalError {
@@ -30,7 +27,7 @@ impl From<Reinit> for EvalError {
 impl DynamicDebug for EvalError {
     fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
         match self {
-            &EvalError::OOM(ref oom) => oom.fmt(f),
+            &EvalError::OutOfMemory => f.debug_tuple("OutOfMemory").finish(),
             &EvalError::Type => f.debug_tuple("Type").finish(),
             &EvalError::Unbound(ref unb) => unb.fmt(f, types),
             &EvalError::Uninitialized(v) => f.debug_tuple("Uninitialized")
@@ -67,36 +64,30 @@ enum State {
 }
 
 impl State {
-    fn start(factory: &mut Allocator, program: HeapValueRef<Block>) -> State {
-        State::Eval {
-            expr: ValueRef::from(program),
-            lenv: ScalarValueRef::from(false).into(),
-            denv: ScalarValueRef::from(false).into(),
-            cont: ValueRef::from(factory.create_halt().unwrap())
-        }
+    fn start(factory: &mut Allocator, program: HeapValueRef<Block>) -> Option<State> {
+        factory.create_halt()
+               .map(|cont| State::Eval {
+                   expr: ValueRef::from(program),
+                   lenv: ScalarValueRef::from(false).into(),
+                   denv: ScalarValueRef::from(false).into(),
+                   cont: cont.into()
+               })
     }
-}
-
-pub struct Interpreter {
-    pub values: Allocator
 }
 
 impl Interpreter {
-    pub fn new(max_heap: usize) -> Interpreter {
-        Interpreter {
-            values: Allocator::new(max_heap)
-        }
-    }
-
-    pub fn run(&mut self, program: HeapValueRef<Block>) -> Result<ValueRef, EvalError> {
-        let mut state = State::start(&mut self.values, program);
+    /// Run `program`.
+    pub fn run(&mut self, mut program: HeapValueRef<Block>) -> Result<ValueRef, EvalError> {
+        let mut state = self.with_gc_retry(move |allocator| State::start(allocator, program),
+                                    &mut [program.as_mut()])
+                            .ok_or(EvalError::OutOfMemory)?;
 
         loop {
             state = match state {
                 State::Eval { expr, lenv, denv, cont } => self.eval(expr, lenv, denv, cont)?,
                 State::Exec { stmt, lenv, denv, cont } => self.exec(stmt, lenv, denv, cont)?,
                 State::Continue { value, cont }
-                    if cont.is_instance::<Allocator, Halt>(&self.values) => return Ok(value),
+                    if cont.is_instance::<Interpreter, Halt>(self) => return Ok(value),
                 State::Continue { value, cont } => self.invoke(cont, value)?,
                 State::Apply { callee, args, denv, cont } => self.apply(callee, args, denv, cont)?
             }
@@ -106,12 +97,13 @@ impl Interpreter {
     fn eval(&mut self, expr: ValueRef, mut lenv: ValueRef, mut denv: ValueRef, mut cont: ValueRef)
         -> Result<State, EvalError>
     {
-        match expr.view(&self.values) {
+        match expr.view(self) {
             ValueView::Function(mut f) =>
                 self.with_gc_retry(move |factory| {
                     factory.create_closure(f, lenv)
                 }, &mut [f.as_mut(), &mut lenv, &mut cont])
-                .map(|closure| State::Continue { value: closure.into(), cont }),
+                .map(|closure| State::Continue { value: closure.into(), cont })
+                .ok_or(EvalError::OutOfMemory),
             ValueView::Block(tvref) if tvref.stmts().is_empty() =>
                 Ok(State::Eval { expr: tvref.expr, lenv, denv, cont }),
             ValueView::Block(mut block) => self.with_gc_retry(move |factory| {
@@ -128,14 +120,16 @@ impl Interpreter {
                         })
                     })
                 })
-            }, &mut [block.as_mut(), &mut lenv, &mut denv, &mut cont]),
+            }, &mut [block.as_mut(), &mut lenv, &mut denv, &mut cont])
+            .ok_or(EvalError::OutOfMemory),
             ValueView::Call(mut call) =>
                 self.with_gc_retry(move |factory| {
                     factory.create_callee_cont(cont, lenv, denv, call)
                 }, &mut [call.as_mut(), &mut lenv, &mut denv, &mut cont])
-                .map(|cont| State::Eval { expr: call.callee, lenv, denv, cont: cont.into() }),
-            ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(&self.values) {
-                lenv.get(lvar.name, &self.values)
+                .map(|cont| State::Eval { expr: call.callee, lenv, denv, cont: cont.into() })
+                .ok_or(EvalError::OutOfMemory),
+            ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(self) {
+                lenv.get(lvar.name, self)
                     .map(|value| State::Continue { value: value, cont })
                     .map_err(EvalError::from)
             } else {
@@ -149,14 +143,15 @@ impl Interpreter {
     fn exec(&mut self, stmt: ValueRef, mut lenv: ValueRef, mut denv: ValueRef, mut cont: ValueRef)
         -> Result<State, EvalError>
     {
-        match stmt.view(&self.values) {
+        match stmt.view(self) {
             ValueView::Def(def) => {
-                if let ValueView::Lex(mut lvar) = def.pattern.view(&self.values) {
+                if let ValueView::Lex(mut lvar) = def.pattern.view(self) {
                     let mut expr = def.expr;
                     self.with_gc_retry(move |factory| {
                         factory.create_def_cont(cont, lenv, denv, lvar.into())
                                .map(|cont| State::Eval { expr, lenv, denv, cont: cont.into() })
                     }, &mut [lvar.as_mut(), &mut expr, &mut lenv, &mut denv, &mut cont])
+                    .ok_or(EvalError::OutOfMemory)
                 } else {
                     unimplemented!()
                 }
@@ -166,7 +161,7 @@ impl Interpreter {
     }
 
     fn invoke(&mut self, cont: ValueRef, mut value: ValueRef) -> Result<State, EvalError> {
-        match cont.view(&self.values) {
+        match cont.view(self) {
             ValueView::BlockCont(mut cont) => {
                 let index = cont.index() + 1;
                 if index == cont.block.stmts().len() {
@@ -188,6 +183,7 @@ impl Interpreter {
                             lenv, denv, cont: cont.into()
                         })
                     }, &mut [cont.as_mut()])
+                    .ok_or(EvalError::OutOfMemory)
                 }
             },
             ValueView::DefCont(cont) => {
@@ -204,7 +200,8 @@ impl Interpreter {
                                expr: call.args()[0],
                                lenv, denv, cont: cont.into()
                            })
-                }, &mut [cont.as_mut(), &mut value]),
+                }, &mut [cont.as_mut(), &mut value])
+                .ok_or(EvalError::OutOfMemory),
             ValueView::ArgCont(mut cont) => {
                 let index = cont.index() + 1;
                 if index < cont.call.args().len() {
@@ -219,6 +216,7 @@ impl Interpreter {
                                    lenv, denv, cont: cont.into()
                                })
                     }, &mut [cont.as_mut(), &mut value])
+                    .ok_or(EvalError::OutOfMemory)
                 } else {
                     self.with_gc_retry(move |factory| {
                         let args = cont.args();
@@ -231,6 +229,7 @@ impl Interpreter {
                                    cont: cont.parent
                                })
                     }, &mut [cont.as_mut(), &mut value])
+                    .ok_or(EvalError::OutOfMemory)
                 }
             },
             _ => unimplemented!()
@@ -241,9 +240,9 @@ impl Interpreter {
              mut cont: ValueRef) -> Result<State, EvalError>
     {
         let callee = callee.force().ok_or(EvalError::Uninitialized(callee))?;
-        if let ValueView::Closure(mut f) = callee.view(&self.values) {
+        if let ValueView::Closure(mut f) = callee.view(self) {
             let mut method = f.function.methods()[0];
-            if let ValueView::Lex(mut param) = method.pattern.view(&self.values) {
+            if let ValueView::Lex(mut param) = method.pattern.view(self) {
                 self.with_gc_retry(move |factory| {
                     factory.create_method_lenv(f.lenv, param.name, args.values()[0])
                            .map(|lenv| State::Eval {
@@ -251,6 +250,7 @@ impl Interpreter {
                            })
                 }, &mut [f.as_mut(), method.as_mut(), param.as_mut(), args.as_mut(), &mut denv,
                          &mut cont])
+                .ok_or(EvalError::OutOfMemory)
             } else {
                 Err(EvalError::Type)
             }
@@ -262,12 +262,12 @@ impl Interpreter {
     fn assign(&self, lenv: ValueRef, denv: ValueRef, var: ValueRef, value: ValueRef)
         -> Result<(), EvalError>
     {
-        match var.view(&self.values) {
-            ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(&self.values) {
-                lenv.get(lvar.name, &self.values).map_err(EvalError::from)
+        match var.view(self) {
+            ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(self) {
+                lenv.get(lvar.name, self).map_err(EvalError::from)
                     .and_then(|promise|
-                        if let ValueView::Promise(mut promise) = promise.view(&self.values) {
-                            promise.init(value, &self.values).map_err(EvalError::from)
+                        if let ValueView::Promise(mut promise) = promise.view(self) {
+                            promise.init(value, self).map_err(EvalError::from)
                         } else {
                             Err(EvalError::Reassignment)
                         }
@@ -277,12 +277,5 @@ impl Interpreter {
             },
             _ => unimplemented!()
         }
-    }
-
-    fn with_gc_retry<C, R>(&mut self, create: C, roots: &mut [&mut ValueRef])
-        -> Result<R, EvalError>
-        where C: FnMut(&mut Allocator) -> Option<R>
-    {
-        self.values.with_gc_retry(create, roots).map_err(EvalError::from)
     }
 }
