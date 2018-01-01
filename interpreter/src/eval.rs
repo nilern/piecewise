@@ -2,11 +2,10 @@ use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
 use object_model::{DynamicDebug, ValueRef, TypedValueRef};
-use value::{Unbound, Reinit,
-            TypeRegistry, ValueManager, OutOfMemory, ValueView,
-            Tuple};
+use value::{Reinit, TypeRegistry, ValueManager, OutOfMemory, ValueView, Tuple};
 use ast::Block;
 use continuations::Halt;
+use env::Unbound;
 
 pub enum EvalError {
     OOM(OutOfMemory),
