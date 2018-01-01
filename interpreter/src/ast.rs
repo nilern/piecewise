@@ -1,6 +1,7 @@
 use std::fmt::{self, Formatter};
 
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
+                   HeapValue, DynHeapValue, Type,
                    ValueRef, HeapValueRef};
 use value::{TypeRegistry, TypeIndex, Symbol};
 
@@ -15,8 +16,9 @@ impl Function {
 
 impl HeapValueSub for Function {
     const TYPE_INDEX: TypeIndex = TypeIndex::Function;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Function {
@@ -42,8 +44,9 @@ pub struct Method {
 
 impl HeapValueSub for Method {
     const TYPE_INDEX: TypeIndex = TypeIndex::Method;
-
     const UNIFORM_REF_LEN: usize = 3;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Method {
@@ -69,8 +72,9 @@ impl Block {
 
 impl HeapValueSub for Block {
     const TYPE_INDEX: TypeIndex = TypeIndex::Block;
-
     const UNIFORM_REF_LEN: usize = 1;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Block {
@@ -99,8 +103,9 @@ impl Call {
 
 impl HeapValueSub for Call {
     const TYPE_INDEX: TypeIndex = TypeIndex::Call;
-
     const UNIFORM_REF_LEN: usize = 1;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Call {
@@ -127,8 +132,9 @@ pub struct Def {
 
 impl HeapValueSub for Def {
     const TYPE_INDEX: TypeIndex = TypeIndex::Def;
-
     const UNIFORM_REF_LEN: usize = 2;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Def {
@@ -151,8 +157,9 @@ pub struct Const {
 
 impl HeapValueSub for Const {
     const TYPE_INDEX: TypeIndex = TypeIndex::Const;
-
     const UNIFORM_REF_LEN: usize = 1;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Const {
@@ -173,8 +180,9 @@ pub struct Lex {
 
 impl HeapValueSub for Lex {
     const TYPE_INDEX: TypeIndex = TypeIndex::Lex;
-
     const UNIFORM_REF_LEN: usize = 1;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Lex {

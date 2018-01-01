@@ -1,7 +1,7 @@
 use std::fmt::{self, Formatter};
 
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, Unbox,
-                   HeapValue, DynHeapValue,
+                   HeapValue, DynHeapValue, Type,
                    ValueRef, ScalarValueRef, HeapValueRef};
 use value::{TypeIndex, TypeRegistry};
 use ast::{Block, Call};
@@ -23,8 +23,9 @@ impl BlockCont {
 
 impl HeapValueSub for BlockCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::BlockCont;
-
     const UNIFORM_REF_LEN: usize = 5;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for BlockCont {
@@ -52,8 +53,9 @@ pub struct DefCont {
 
 impl HeapValueSub for DefCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
-
     const UNIFORM_REF_LEN: usize = 4;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for DefCont {
@@ -80,8 +82,9 @@ pub struct CalleeCont {
 
 impl HeapValueSub for CalleeCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::CalleeCont;
-
     const UNIFORM_REF_LEN: usize = 4;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for CalleeCont {
@@ -116,8 +119,9 @@ impl ArgCont {
 
 impl HeapValueSub for ArgCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::ArgCont;
-
     const UNIFORM_REF_LEN: usize = 6;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for ArgCont {
@@ -147,8 +151,9 @@ pub struct Halt {
 
 impl HeapValueSub for Halt {
     const TYPE_INDEX: TypeIndex = TypeIndex::Halt;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Halt {

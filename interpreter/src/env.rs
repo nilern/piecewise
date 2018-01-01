@@ -1,7 +1,8 @@
 use std::fmt::{self, Formatter};
 use std::ops::Deref;
 
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
+                   HeapValue, DynHeapValue, Type,
                    ValueRef, HeapValueRef};
 use value::{TypeIndex, TypeRegistry, ValueView, Symbol};
 use ast::Function;
@@ -66,8 +67,9 @@ impl Env {
 
 impl HeapValueSub for Env {
     const TYPE_INDEX: TypeIndex = TypeIndex::Env;
-
     const UNIFORM_REF_LEN: usize = 1;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Env {
@@ -93,8 +95,9 @@ pub struct Closure {
 
 impl HeapValueSub for Closure {
     const TYPE_INDEX: TypeIndex = TypeIndex::Closure;
-
     const UNIFORM_REF_LEN: usize = 2;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl DynamicDebug for Closure {

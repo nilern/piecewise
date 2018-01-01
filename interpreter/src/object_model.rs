@@ -22,9 +22,10 @@ pub trait Unbox {
 pub trait HeapValueSub: Sized {
     /// Type index of `Self`.
     const TYPE_INDEX: TypeIndex;
-
     /// The constant portion (or minimum number) of `ValueRef` fields on instances of `self`.
     const UNIFORM_REF_LEN: usize;
+
+    fn new_typ(typ_base: HeapValue) -> Type;
 }
 
 /// A subtype of `DynHeapValue`.
@@ -263,8 +264,9 @@ impl Type {
 
 impl HeapValueSub for Type {
     const TYPE_INDEX: TypeIndex = TypeIndex::Type;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Type>(typ_base) }
 }
 
 impl DynamicDebug for Type {

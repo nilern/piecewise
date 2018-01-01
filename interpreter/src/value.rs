@@ -136,6 +136,8 @@ impl DynamicDebug for ValueView {
 
 // ================================================================================================
 
+// TODO: `mod domain` for these
+
 /// Tuple
 pub struct Tuple {
     base: DynHeapValue
@@ -147,8 +149,9 @@ impl Tuple {
 
 impl HeapValueSub for Tuple {
     const TYPE_INDEX: TypeIndex = TypeIndex::Tuple;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Tuple {
@@ -170,6 +173,19 @@ pub struct Symbol {
 }
 
 impl Symbol {
+    fn new(allocator: &mut Allocator, chars: &str) -> Option<HeapValueRef<Symbol>> {
+        allocator.get_symbol(chars)
+                 .or_else(|| {
+                     let bytes = chars.as_bytes();
+                     let gsize = GSize::of::<Symbol>() + GSize::from_bytesize(bytes.len());
+                     let sym = allocator.create_with_slice(gsize, |base| Symbol { base }, bytes);
+                     if let Some(sym) = sym {
+                         allocator.insert_symbol(chars.to_string(), sym);
+                     }
+                     sym
+                 })
+    }
+
     fn chars(&self) -> &str {
         unsafe { str::from_utf8_unchecked(self.tail()) }
     }
@@ -177,8 +193,9 @@ impl Symbol {
 
 impl HeapValueSub for Symbol {
     const TYPE_INDEX: TypeIndex = TypeIndex::Symbol;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_bytes::<Self>(typ_base) }
 }
 
 impl DynHeapValueSub for Symbol {
@@ -201,8 +218,9 @@ pub struct Promise {
 
 impl HeapValueSub for Promise {
     const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
-
     const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
 }
 
 impl Promise {
@@ -230,7 +248,7 @@ impl DynamicDebug for Promise {
 pub struct OutOfMemory;
 
 /// Memory manager and value factory.
-pub struct ValueManager {
+pub struct Allocator {
     gc: Generation<ValueRef>,
     // OPTIMIZE: make the key just point inside the value
     symbol_table: HashMap<String, HeapValueRef<Symbol>>,
@@ -238,10 +256,10 @@ pub struct ValueManager {
     type_idxs: HashMap<HeapValueRef<Type>, TypeIndex>
 }
 
-impl ValueManager {
-    /// Create a new `ValueManager` with a maximum heap size of `max_heap`.
-    pub fn new(max_heap: usize) -> ValueManager {
-        let mut res = ValueManager {
+impl Allocator {
+    /// Create a new `Allocator` with a maximum heap size of `max_heap`.
+    pub fn new(max_heap: usize) -> Allocator {
+        let mut res = Allocator {
             gc: Generation::new(max_heap),
             symbol_table: HashMap::new(),
             types: HashMap::new(),
@@ -250,48 +268,44 @@ impl ValueManager {
 
         let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
         res.insert(TypeIndex::Type, HeapValueRef::new(unsafe { transmute(type_type) }));
-        res.uniform_init(type_type, |heap_value| Type::uniform::<Type>(heap_value));
+        res.uniform_init(type_type, |typ_base| Type::new_typ(typ_base));
 
-        let tuple_type = res.create_dyn_refs_type::<Tuple>().unwrap();
-        res.insert(TypeIndex::Tuple, tuple_type);
-        let symbol_type = res.create_dyn_bytes_type::<Symbol>().unwrap();
-        res.insert(TypeIndex::Symbol, symbol_type);
+        res.insert_typ::<Tuple>().unwrap();
+        res.insert_typ::<Symbol>().unwrap();
 
-        let promise_type = res.create_uniform_type::<Promise>().unwrap();
-        res.insert(TypeIndex::Promise, promise_type);
+        res.insert_typ::<Promise>().unwrap();
 
-        let func_type = res.create_dyn_refs_type::<Function>().unwrap();
-        res.insert(TypeIndex::Function, func_type);
-        let method_type = res.create_uniform_type::<Method>().unwrap();
-        res.insert(TypeIndex::Method, method_type);
-        let block_type = res.create_dyn_refs_type::<Block>().unwrap();
-        res.insert(TypeIndex::Block, block_type);
-        let call_type = res.create_dyn_refs_type::<Call>().unwrap();
-        res.insert(TypeIndex::Call, call_type);
-        let def_type = res.create_uniform_type::<Def>().unwrap();
-        res.insert(TypeIndex::Def, def_type);
-        let const_type = res.create_uniform_type::<Const>().unwrap();
-        res.insert(TypeIndex::Const, const_type);
-        let lex_type = res.create_uniform_type::<Lex>().unwrap();
-        res.insert(TypeIndex::Lex, lex_type);
+        res.insert_typ::<Function>().unwrap();
+        res.insert_typ::<Method>().unwrap();
+        res.insert_typ::<Block>().unwrap();
+        res.insert_typ::<Call>().unwrap();
+        res.insert_typ::<Def>().unwrap();
+        res.insert_typ::<Const>().unwrap();
+        res.insert_typ::<Lex>().unwrap();
 
-        let block_cont_type = res.create_uniform_type::<BlockCont>().unwrap();
-        res.insert(TypeIndex::BlockCont, block_cont_type);
-        let def_cont_type = res.create_uniform_type::<DefCont>().unwrap();
-        res.insert(TypeIndex::DefCont, def_cont_type);
-        let callee_cont_type = res.create_uniform_type::<CalleeCont>().unwrap();
-        res.insert(TypeIndex::CalleeCont, callee_cont_type);
-        let arg_cont_type = res.create_dyn_refs_type::<ArgCont>().unwrap();
-        res.insert(TypeIndex::ArgCont, arg_cont_type);
-        let halt_type = res.create_uniform_type::<Halt>().unwrap();
-        res.insert(TypeIndex::Halt, halt_type);
+        res.insert_typ::<BlockCont>().unwrap();
+        res.insert_typ::<DefCont>().unwrap();
+        res.insert_typ::<CalleeCont>().unwrap();
+        res.insert_typ::<ArgCont>().unwrap();
+        res.insert_typ::<Halt>().unwrap();
 
-        let env_type = res.create_dyn_refs_type::<Env>().unwrap();
-        res.insert(TypeIndex::Env, env_type);
-        let closure_type = res.create_uniform_type::<Closure>().unwrap();
-        res.insert(TypeIndex::Closure, closure_type);
+        res.insert_typ::<Env>().unwrap();
+        res.insert_typ::<Closure>().unwrap();
 
         res
+    }
+
+    fn insert_typ<T: HeapValueSub>(&mut self) -> Option<()> {
+        self.create_typ::<T>()
+            .map(|typ| self.insert(T::TYPE_INDEX, typ))
+    }
+
+    fn get_symbol(&self, name: &str) -> Option<HeapValueRef<Symbol>> {
+        self.symbol_table.get(name).map(|&sym| sym)
+    }
+
+    fn insert_symbol(&mut self, name: String, sym: HeapValueRef<Symbol>) {
+        self.symbol_table.insert(name, sym);
     }
 
     pub fn with_gc_retry<C, R>(&mut self, mut create: C, roots: &mut [&mut ValueRef])
@@ -418,20 +432,9 @@ impl ValueManager {
     /// Create a new `Bool` from `b`.
     pub fn create_bool(&self, b: bool) -> ScalarValueRef<bool> { ScalarValueRef::from(b) }
 
-    /// Create a new dynamic type for `T` with uniformly sized instances.
-    pub fn create_uniform_type<T: HeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
-        self.uniform_create(|base| Type::uniform::<T>(base))
-    }
-    /// Create a new dynamic type for `T` with with `ValueRef`-tailed instances.
-    pub fn create_dyn_refs_type<T>(&mut self) -> Option<HeapValueRef<Type>>
-        where T: DynHeapValueSub, T::TailItem: Into<ValueRef>
-    {
-        self.uniform_create(|base| Type::dyn_refs::<T>(base))
-    }
-
-    /// Create a new dynamic type for `T` with with byte-tailed instances.
-    pub fn create_dyn_bytes_type<T: DynHeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
-        self.uniform_create(|base| Type::dyn_bytes::<T>(base))
+    /// Create a new dynamic type for `T` (using `T::new_typ`)
+    pub fn create_typ<T: HeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
+        self.uniform_create(T::new_typ)
     }
 
     /// Create a new Tuple.
@@ -601,7 +604,7 @@ impl ValueManager {
     }
 }
 
-impl TypeRegistry for ValueManager {
+impl TypeRegistry for Allocator {
     fn insert(&mut self, index: TypeIndex, typ: HeapValueRef<Type>) {
         self.types.insert(index, typ);
         self.type_idxs.insert(typ, index);
@@ -656,7 +659,7 @@ mod tests {
 
     #[test]
     fn create() {
-        let mut factory = ValueManager::new(1024);
+        let mut factory = Allocator::new(1024);
 
         let n = factory.create_int(5).into();
         let tup = factory.create_tuple(1, iter::once(n)).unwrap();

@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
 use object_model::{ValueRef, HeapValueRef};
-use value::ValueManager;
+use value::Allocator;
 use ast::{Method, Block};
 
-#![arguments(factory: &mut ValueManager)]
+#![arguments(factory: &mut Allocator)]
 
 pub program -> HeapValueRef<Block> = ws? block:body ws? { block }
 

@@ -2,7 +2,7 @@ use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
 use object_model::{DynamicDebug, ValueRef, ScalarValueRef, HeapValueRef};
-use value::{Reinit, TypeRegistry, ValueManager, OutOfMemory, ValueView, Tuple};
+use value::{Reinit, TypeRegistry, Allocator, OutOfMemory, ValueView, Tuple};
 use ast::Block;
 use continuations::Halt;
 use env::Unbound;
@@ -67,7 +67,7 @@ enum State {
 }
 
 impl State {
-    fn start(factory: &mut ValueManager, program: HeapValueRef<Block>) -> State {
+    fn start(factory: &mut Allocator, program: HeapValueRef<Block>) -> State {
         State::Eval {
             expr: ValueRef::from(program),
             lenv: ScalarValueRef::from(false).into(),
@@ -78,13 +78,13 @@ impl State {
 }
 
 pub struct Interpreter {
-    pub values: ValueManager
+    pub values: Allocator
 }
 
 impl Interpreter {
     pub fn new(max_heap: usize) -> Interpreter {
         Interpreter {
-            values: ValueManager::new(max_heap)
+            values: Allocator::new(max_heap)
         }
     }
 
@@ -96,7 +96,7 @@ impl Interpreter {
                 State::Eval { expr, lenv, denv, cont } => self.eval(expr, lenv, denv, cont)?,
                 State::Exec { stmt, lenv, denv, cont } => self.exec(stmt, lenv, denv, cont)?,
                 State::Continue { value, cont }
-                    if cont.is_instance::<ValueManager, Halt>(&self.values) => return Ok(value),
+                    if cont.is_instance::<Allocator, Halt>(&self.values) => return Ok(value),
                 State::Continue { value, cont } => self.invoke(cont, value)?,
                 State::Apply { callee, args, denv, cont } => self.apply(callee, args, denv, cont)?
             }
@@ -281,7 +281,7 @@ impl Interpreter {
 
     fn with_gc_retry<C, R>(&mut self, create: C, roots: &mut [&mut ValueRef])
         -> Result<R, EvalError>
-        where C: FnMut(&mut ValueManager) -> Option<R>
+        where C: FnMut(&mut Allocator) -> Option<R>
     {
         self.values.with_gc_retry(create, roots).map_err(EvalError::from)
     }
