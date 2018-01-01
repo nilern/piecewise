@@ -1,7 +1,7 @@
 use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
-use object_model::{DynamicDebug, ValueRef, HeapValueRef};
+use object_model::{DynamicDebug, ValueRef, ScalarValueRef, HeapValueRef};
 use value::{Reinit, TypeRegistry, ValueManager, OutOfMemory, ValueView, Tuple};
 use ast::Block;
 use continuations::Halt;
@@ -70,8 +70,8 @@ impl State {
     fn start(factory: &mut ValueManager, program: HeapValueRef<Block>) -> State {
         State::Eval {
             expr: ValueRef::from(program),
-            lenv: ValueRef::from(false),
-            denv: ValueRef::from(false),
+            lenv: ScalarValueRef::from(false).into(),
+            denv: ScalarValueRef::from(false).into(),
             cont: ValueRef::from(factory.create_halt().unwrap())
         }
     }

@@ -1,8 +1,8 @@
-use std::mem::transmute;
 use std::fmt::{self, Formatter};
 
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
-                   ValueRef, HeapValueRef};
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, Unbox,
+                   HeapValue, DynHeapValue,
+                   ValueRef, ScalarValueRef, HeapValueRef};
 use value::{TypeIndex, TypeRegistry};
 use ast::{Block, Call};
 
@@ -14,11 +14,11 @@ pub struct BlockCont {
     pub lenv: ValueRef,
     pub denv: ValueRef,
     pub block: HeapValueRef<Block>,
-    pub index: ValueRef
+    pub index: ScalarValueRef<isize>
 }
 
 impl BlockCont {
-    pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self.index) >> 3 } } // FIXME
+    pub fn index(&self) -> usize { self.index.unbox() as usize }
 }
 
 impl HeapValueSub for BlockCont {
@@ -35,7 +35,7 @@ impl DynamicDebug for BlockCont {
          .field("lenv", &self.lenv.fmt_wrap(types))
          .field("denv", &self.denv.fmt_wrap(types))
          .field("block", &self.block.fmt_wrap(types))
-         .field("index", &self.index.fmt_wrap(types))
+         .field("index", &self.index)
          .finish()
     }
 }
@@ -104,12 +104,12 @@ pub struct ArgCont {
     pub lenv: ValueRef,
     pub denv: ValueRef,
     pub call: HeapValueRef<Call>,
-    pub index: ValueRef,
+    pub index: ScalarValueRef<isize>,
     pub callee: ValueRef
 }
 
 impl ArgCont {
-    pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self) >> 3 } }
+    pub fn index(&self) -> usize { self.index.unbox() as usize }
 
     pub fn args(&self) -> &[ValueRef] { self.tail() }
 }
@@ -132,7 +132,7 @@ impl DynamicDebug for ArgCont {
          .field("lenv", &self.lenv.fmt_wrap(types))
          .field("denv", &self.denv.fmt_wrap(types))
          .field("call", &self.call.fmt_wrap(types))
-         .field("index", &self.index.fmt_wrap(types))
+         .field("index", &self.index)
          .field("callee", &self.callee.fmt_wrap(types))
          .field("args", &self.args().fmt_wrap(types))
          .finish()

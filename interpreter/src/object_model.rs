@@ -11,6 +11,13 @@ use value::{ValueView, TypeIndex, TypeRegistry};
 
 // ================================================================================================
 
+/// Unboxable scalar reference.
+pub trait Unbox {
+    type Target: Copy;
+
+    fn unbox(self) -> Self::Target;
+}
+
 /// A subtype of `HeapValue`.
 pub trait HeapValueSub: Sized {
     /// Type index of `Self`.
@@ -336,10 +343,10 @@ impl ValueRef {
             }
         } else {
             match self.0 & TAG_MASK {
-                0b000 => ValueView::Int((self.0 >> SHIFT) as isize),
-                0b010 => ValueView::Float((self.0 & !TAG_MASK) as f64),
-                0b100 => ValueView::Char(unsafe { transmute((self.0 >> SHIFT) as u32) }),
-                0b110 => ValueView::Bool(unsafe { transmute((self.0 >> SHIFT) as u8) }),
+                0b000 => ValueView::Int(unsafe { transmute(self) }),
+                0b010 => ValueView::Float(unsafe { transmute(self) }),
+                0b100 => ValueView::Char(unsafe { transmute(self) }),
+                0b110 => ValueView::Bool(unsafe { transmute(self) }),
                 _ => unreachable!()
             }
         }
@@ -359,20 +366,8 @@ impl From<*const HeapValue> for ValueRef {
     fn from(ptr: *const HeapValue) -> ValueRef { ValueRef(ptr as usize | PTR_BIT) }
 }
 
-impl From<isize> for ValueRef {
-    fn from(n: isize) -> ValueRef { ValueRef((n as usize) << SHIFT) }
-}
-
-impl From<f64> for ValueRef {
-    fn from(n: f64) -> ValueRef { ValueRef((n as usize & !TAG_MASK) | 0b010) }
-}
-
-impl From<char> for ValueRef {
-    fn from(c: char) -> ValueRef { ValueRef((c as usize) << SHIFT | 0b100) }
-}
-
-impl From<bool> for ValueRef {
-    fn from(b: bool) -> ValueRef { ValueRef((b as usize) << SHIFT | 0b110) }
+impl<T: Copy> From<ScalarValueRef<T>> for ValueRef {
+    fn from(svref: ScalarValueRef<T>) -> ValueRef { ValueRef(svref.0) }
 }
 
 impl<T: HeapValueSub> From<HeapValueRef<T>> for ValueRef {
@@ -396,6 +391,72 @@ impl ObjectRef for ValueRef {
 impl DynamicDebug for ValueRef {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, type_reg: &T) -> Result<(), fmt::Error> {
         self.view(type_reg).fmt(f, type_reg)
+    }
+}
+
+// ================================================================================================
+
+/// A scalar reference that unboxes to a `T`.
+pub struct ScalarValueRef<T: Copy>(usize, PhantomData<T>);
+
+impl<T: Copy> Clone for ScalarValueRef<T> {
+    fn clone(&self) -> Self { ScalarValueRef(self.0, self.1) }
+}
+
+impl<T: Copy> Copy for ScalarValueRef<T> {}
+
+impl From<isize> for ScalarValueRef<isize> {
+    fn from(n: isize) -> ScalarValueRef<isize> {
+        ScalarValueRef((n as usize) << SHIFT, PhantomData::default())
+    }
+}
+
+impl From<f64> for ScalarValueRef<f64> {
+    fn from(n: f64) -> ScalarValueRef<f64> {
+        ScalarValueRef((unsafe { transmute::<_, usize>(n) } & !TAG_MASK) | 0b010,
+                       PhantomData::default())
+    }
+}
+
+impl From<char> for ScalarValueRef<char> {
+    fn from(c: char) -> ScalarValueRef<char> {
+        ScalarValueRef((c as usize) << SHIFT | 0b100, PhantomData::default())
+    }
+}
+
+impl From<bool> for ScalarValueRef<bool> {
+    fn from(b: bool) -> ScalarValueRef<bool> {
+        ScalarValueRef((b as usize) << SHIFT | 0b110, PhantomData::default())
+    }
+}
+
+impl Unbox for ScalarValueRef<isize> {
+    type Target = isize;
+
+    fn unbox(self) -> isize { (self.0 >> SHIFT) as isize }
+}
+
+impl Unbox for ScalarValueRef<f64> {
+    type Target = f64;
+
+    fn unbox(self) -> f64 { unsafe { transmute((self.0 & !TAG_MASK) as f64) } }
+}
+
+impl Unbox for ScalarValueRef<char> {
+    type Target = char;
+
+    fn unbox(self) -> char { unsafe { transmute((self.0 >> SHIFT) as u32) } }
+}
+
+impl Unbox for ScalarValueRef<bool> {
+    type Target = bool;
+
+    fn unbox(self) -> bool { unsafe { transmute((self.0 >> SHIFT) as u8) } }
+}
+
+impl<T: Copy + Debug> Debug for ScalarValueRef<T> where Self: Unbox<Target=T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.unbox().fmt(f)
     }
 }
 

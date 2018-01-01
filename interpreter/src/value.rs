@@ -9,7 +9,7 @@ use std::str;
 use gce::{GSize, Initializable, start_init, Generation};
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
-                   ValueRef, HeapValueRef};
+                   ValueRef, ScalarValueRef, HeapValueRef};
 use ast::{Function, Method, Block, Def, Call, Const, Lex};
 use continuations::{BlockCont, DefCont, CalleeCont, ArgCont, Halt};
 use env::{Env, Closure};
@@ -89,10 +89,10 @@ pub enum ValueView {
 
     Null,
 
-    Int(isize),
-    Float(f64),
-    Char(char),
-    Bool(bool)
+    Int(ScalarValueRef<isize>),
+    Float(ScalarValueRef<f64>),
+    Char(ScalarValueRef<char>),
+    Bool(ScalarValueRef<bool>)
 }
 
 impl DynamicDebug for ValueView {
@@ -317,7 +317,7 @@ impl ValueManager {
         let uptr = start_init(ptr);
         let tvref = HeapValueRef::new(uptr);
         f(uptr, HeapValue {
-            link: ValueRef::from(tvref),
+            link: tvref.into(),
             typ: self.get(T::TYPE_INDEX)
         });
         tvref
@@ -407,16 +407,16 @@ impl ValueManager {
     }
 
     /// Create a new `Int` from `n`.
-    pub fn create_int(&self, n: isize) -> ValueRef { ValueRef::from(n) }
+    pub fn create_int(&self, n: isize) -> ScalarValueRef<isize> { ScalarValueRef::from(n) }
 
     /// Create a new `Float` from `n`.
-    pub fn create_float(&self, n: f64) -> ValueRef { ValueRef::from(n) }
+    pub fn create_float(&self, n: f64) -> ScalarValueRef<f64> { ScalarValueRef::from(n) }
 
     /// Create a new `Char` from `c`.
-    pub fn create_char(&self, c: char) -> ValueRef { ValueRef::from(c) }
+    pub fn create_char(&self, c: char) -> ScalarValueRef<char> { ScalarValueRef::from(c) }
 
     /// Create a new `Bool` from `b`.
-    pub fn create_bool(&self, b: bool) -> ValueRef { ValueRef::from(b) }
+    pub fn create_bool(&self, b: bool) -> ScalarValueRef<bool> { ScalarValueRef::from(b) }
 
     /// Create a new dynamic type for `T` with uniformly sized instances.
     pub fn create_uniform_type<T: HeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
@@ -658,7 +658,7 @@ mod tests {
     fn create() {
         let mut factory = ValueManager::new(1024);
 
-        let n = factory.create_int(5);
+        let n = factory.create_int(5).into();
         let tup = factory.create_tuple(1, iter::once(n)).unwrap();
         let sym = factory.create_symbol(&"foo").unwrap();
 

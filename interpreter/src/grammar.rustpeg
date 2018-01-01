@@ -46,7 +46,7 @@ simple -> ValueRef
         ValueRef::from(factory.create_function(&methods).unwrap())
     }
     / "[" ws? b:body ws? "]" {
-        let guard_value = factory.create_bool(true);
+        let guard_value = factory.create_bool(true).into();
         let guard = ValueRef::from(factory.create_const(guard_value).unwrap());
         let method = factory.create_method(/* FIXME: */ guard, guard,ValueRef::from(b)).unwrap();
         ValueRef::from(factory.create_function(&[method]).unwrap())
@@ -57,7 +57,7 @@ simple -> ValueRef
 
 method -> HeapValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
     let guard = guard.unwrap_or_else(|| {
-        let value = factory.create_bool(true);
+        let value = factory.create_bool(true).into();
         ValueRef::from(factory.create_const(value).unwrap())
     });
     factory.create_method(pattern, guard, ValueRef::from(body)).unwrap()
