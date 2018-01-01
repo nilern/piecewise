@@ -15,6 +15,7 @@ pub mod value;
 pub mod ast;
 pub mod lexer;
 pub mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
+pub mod continuations;
 pub mod eval;
 
 use parser::program;

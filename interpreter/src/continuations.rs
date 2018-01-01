@@ -1,0 +1,160 @@
+use std::mem::transmute;
+use std::fmt::{self, Formatter};
+
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
+                   ValueRef, TypedValueRef};
+use value::{TypeIndex, TypeRegistry};
+use ast::{Block, Call};
+
+/// Block continuation
+#[repr(C)]
+pub struct BlockCont {
+    pub base: HeapValue,
+    pub parent: ValueRef,
+    pub lenv: ValueRef,
+    pub denv: ValueRef,
+    pub block: TypedValueRef<Block>,
+    pub index: ValueRef
+}
+
+impl BlockCont {
+    pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self.index) >> 3 } } // FIXME
+}
+
+impl HeapValueSub for BlockCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::BlockCont;
+
+    const UNIFORM_REF_LEN: usize = 5;
+}
+
+impl DynamicDebug for BlockCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("BlockCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("block", &self.block.fmt_wrap(types))
+         .field("index", &self.index.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Assigning continuation
+#[repr(C)]
+pub struct DefCont {
+    pub base: HeapValue,
+    pub parent: ValueRef,
+    pub lenv: ValueRef,
+    pub denv: ValueRef,
+    pub var: ValueRef
+}
+
+impl HeapValueSub for DefCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
+
+    const UNIFORM_REF_LEN: usize = 4;
+}
+
+impl DynamicDebug for DefCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("DefCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("var", &self.var.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Continuation expecting callee value
+#[repr(C)]
+pub struct CalleeCont {
+    pub base: HeapValue,
+    pub parent: ValueRef,
+    pub lenv: ValueRef,
+    pub denv: ValueRef,
+    pub call: TypedValueRef<Call>
+}
+
+impl HeapValueSub for CalleeCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::CalleeCont;
+
+    const UNIFORM_REF_LEN: usize = 4;
+}
+
+impl DynamicDebug for CalleeCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("CalleeCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("call", &self.call.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Continuation expecting argument value
+#[repr(C)]
+pub struct ArgCont {
+    pub base: DynHeapValue,
+    pub parent: ValueRef,
+    pub lenv: ValueRef,
+    pub denv: ValueRef,
+    pub call: TypedValueRef<Call>,
+    pub index: ValueRef,
+    pub callee: ValueRef
+}
+
+impl ArgCont {
+    pub fn index(&self) -> usize { unsafe { transmute::<_, usize>(self) >> 3 } }
+
+    pub fn args(&self) -> &[ValueRef] { self.tail() }
+}
+
+impl HeapValueSub for ArgCont {
+    const TYPE_INDEX: TypeIndex = TypeIndex::ArgCont;
+
+    const UNIFORM_REF_LEN: usize = 6;
+}
+
+impl DynHeapValueSub for ArgCont {
+    type TailItem = ValueRef;
+}
+
+impl DynamicDebug for ArgCont {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("ArgCont")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("parent", &self.parent.fmt_wrap(types))
+         .field("lenv", &self.lenv.fmt_wrap(types))
+         .field("denv", &self.denv.fmt_wrap(types))
+         .field("call", &self.call.fmt_wrap(types))
+         .field("index", &self.index.fmt_wrap(types))
+         .field("callee", &self.callee.fmt_wrap(types))
+         .field("args", &self.args().fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Halt continuation
+#[repr(C)]
+pub struct Halt {
+    pub base: HeapValue
+}
+
+impl HeapValueSub for Halt {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Halt;
+
+    const UNIFORM_REF_LEN: usize = 0;
+}
+
+impl DynamicDebug for Halt {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Halt")
+         .field("base", &self.base.fmt_wrap(types))
+         .finish()
+    }
+}

@@ -4,8 +4,9 @@ use std::fmt::{self, Formatter, Debug};
 use object_model::{DynamicDebug, ValueRef, TypedValueRef};
 use value::{Unbound, Reinit,
             TypeRegistry, ValueManager, OutOfMemory, ValueView,
-            Tuple, Halt};
+            Tuple};
 use ast::Block;
+use continuations::Halt;
 
 pub enum EvalError {
     OOM(OutOfMemory),
@@ -169,30 +170,30 @@ impl Interpreter {
         match cont.view(&self.values) {
             ValueView::BlockCont(mut cont) => {
                 let index = cont.index() + 1;
-                if index == cont.block().stmts().len() {
+                if index == cont.block.stmts().len() {
                     Ok(State::Eval {
-                        expr: cont.block().expr,
-                        lenv: cont.lenv(),
-                        denv: cont.denv(),
-                        cont: cont.parent()
+                        expr: cont.block.expr,
+                        lenv: cont.lenv,
+                        denv: cont.denv,
+                        cont: cont.parent
                     })
                 } else {
                     self.with_gc_retry(move |factory| {
-                        let lenv = cont.lenv();
-                        let denv = cont.denv();
-                        let block = cont.block();
+                        let lenv = cont.lenv;
+                        let denv = cont.denv;
+                        let block = cont.block;
                         factory
-                        .create_block_cont(cont.parent(), lenv, denv, block, index)
+                        .create_block_cont(cont.parent, lenv, denv, block, index)
                         .map(|cont| State::Exec {
-                            stmt: cont.block().stmts()[index],
+                            stmt: cont.block.stmts()[index],
                             lenv, denv, cont: cont.into()
                         })
                     }, &mut [cont.as_mut()])
                 }
             },
             ValueView::DefCont(cont) => {
-                self.assign(cont.lenv(), cont.denv(), cont.var(), value)?;
-                Ok(State::Continue { value /* won't be used anyway */, cont: cont.parent() })
+                self.assign(cont.lenv, cont.denv, cont.var, value)?;
+                Ok(State::Continue { value /* won't be used anyway */, cont: cont.parent })
             },
             ValueView::CalleeCont(mut cont) =>
                 self.with_gc_retry(move |factory| {
