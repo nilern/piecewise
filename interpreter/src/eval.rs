@@ -4,7 +4,8 @@ use std::fmt::{self, Formatter, Debug};
 use object_model::{DynamicDebug, ValueRef, TypedValueRef};
 use value::{Unbound, Reinit,
             TypeRegistry, ValueManager, OutOfMemory, ValueView,
-            Tuple, Block, Halt};
+            Tuple, Halt};
+use ast::Block;
 
 pub enum EvalError {
     OOM(OutOfMemory),
@@ -112,7 +113,7 @@ impl Interpreter {
                 }, &mut [f.as_mut(), &mut lenv, &mut cont])
                 .map(|closure| State::Continue { value: closure.into(), cont }),
             ValueView::Block(tvref) if tvref.stmts().is_empty() =>
-                Ok(State::Eval { expr: tvref.expr(), lenv, denv, cont }),
+                Ok(State::Eval { expr: tvref.expr, lenv, denv, cont }),
             ValueView::Block(mut block) => self.with_gc_retry(move |factory| {
                 factory.create_block_lenv(lenv, block.stmts())
                 .and_then(|lenv| {
@@ -134,13 +135,13 @@ impl Interpreter {
                 }, &mut [call.as_mut(), &mut lenv, &mut denv, &mut cont])
                 .map(|cont| State::Eval { expr: call.callee, lenv, denv, cont: cont.into() }),
             ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(&self.values) {
-                lenv.get(lvar.name(), &self.values)
+                lenv.get(lvar.name, &self.values)
                     .map(|value| State::Continue { value: value, cont })
                     .map_err(EvalError::from)
             } else {
                 unimplemented!()
             },
-            ValueView::Const(tvref) => Ok(State::Continue { value: tvref.value(), cont }),
+            ValueView::Const(tvref) => Ok(State::Continue { value: tvref.value, cont }),
             _ => unimplemented!()
         }
     }
@@ -150,8 +151,8 @@ impl Interpreter {
     {
         match stmt.view(&self.values) {
             ValueView::Def(def) => {
-                if let ValueView::Lex(mut lvar) = def.pattern().view(&self.values) {
-                    let mut expr = def.expr();
+                if let ValueView::Lex(mut lvar) = def.pattern.view(&self.values) {
+                    let mut expr = def.expr;
                     self.with_gc_retry(move |factory| {
                         factory.create_def_cont(cont, lenv, denv, lvar.into())
                                .map(|cont| State::Eval { expr, lenv, denv, cont: cont.into() })
@@ -170,7 +171,7 @@ impl Interpreter {
                 let index = cont.index() + 1;
                 if index == cont.block().stmts().len() {
                     Ok(State::Eval {
-                        expr: cont.block().expr(),
+                        expr: cont.block().expr,
                         lenv: cont.lenv(),
                         denv: cont.denv(),
                         cont: cont.parent()
@@ -244,7 +245,7 @@ impl Interpreter {
             let mut method = f.function.methods()[0];
             if let ValueView::Lex(mut param) = method.pattern.view(&self.values) {
                 self.with_gc_retry(move |factory| {
-                    factory.create_method_lenv(f.lenv, param.name(), args.values()[0])
+                    factory.create_method_lenv(f.lenv, param.name, args.values()[0])
                            .map(|lenv| State::Eval {
                                expr: method.body, lenv: lenv.into(), denv, cont
                            })
@@ -263,7 +264,7 @@ impl Interpreter {
     {
         match var.view(&self.values) {
             ValueView::Lex(lvar) => if let ValueView::Env(lenv) = lenv.view(&self.values) {
-                lenv.get(lvar.name(), &self.values).map_err(EvalError::from)
+                lenv.get(lvar.name, &self.values).map_err(EvalError::from)
                     .and_then(|promise|
                         if let ValueView::Promise(mut promise) = promise.view(&self.values) {
                             promise.init(value, &self.values).map_err(EvalError::from)

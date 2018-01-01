@@ -1,4 +1,192 @@
-use std::convert::TryFrom;
+use std::fmt::{self, Formatter};
+
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
+                   ValueRef, TypedValueRef};
+use value::{TypeRegistry, TypeIndex, Symbol};
+
+/// Function AST node
+pub struct Function {
+    pub base: DynHeapValue
+}
+
+impl Function {
+    pub fn methods(&self) -> &[TypedValueRef<Method>] { self.tail() }
+}
+
+impl HeapValueSub for Function {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Function;
+
+    const UNIFORM_REF_LEN: usize = 0;
+}
+
+impl DynHeapValueSub for Function {
+    type TailItem = TypedValueRef<Method>;
+}
+
+impl DynamicDebug for Function {
+    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+        f.debug_struct("Function")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("methods", &self.methods().fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Method AST (function sub)node
+pub struct Method {
+    pub base: HeapValue,
+    pub pattern: ValueRef,
+    pub guard: ValueRef,
+    pub body: ValueRef
+}
+
+impl HeapValueSub for Method {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Method;
+
+    const UNIFORM_REF_LEN: usize = 3;
+}
+
+impl DynamicDebug for Method {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Method")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("pattern", &self.pattern.fmt_wrap(types))
+         .field("guard", &self.guard.fmt_wrap(types))
+         .field("body", &self.body.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Block AST node
+pub struct Block {
+    pub base: DynHeapValue,
+    pub expr: ValueRef,
+}
+
+impl Block {
+    pub fn stmts(&self) -> &[ValueRef] { self.tail() }
+}
+
+impl HeapValueSub for Block {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Block;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynHeapValueSub for Block {
+    type TailItem = ValueRef;
+}
+
+impl DynamicDebug for Block {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Block")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("expr", &self.expr.fmt_wrap(types))
+         .field("stmts", &self.stmts().fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// Call AST node
+pub struct Call {
+    pub base: DynHeapValue,
+    pub callee: ValueRef,
+}
+
+impl Call {
+    pub fn args(&self) -> &[ValueRef] { self.tail() }
+}
+
+impl HeapValueSub for Call {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Call;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynHeapValueSub for Call {
+    type TailItem = ValueRef;
+}
+
+impl DynamicDebug for Call {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Call")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("callee", &self.callee.fmt_wrap(types))
+         .field("args", &self.args().fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// An AST node for definitions.
+#[repr(C)]
+pub struct Def {
+    pub base: HeapValue,
+    pub pattern: ValueRef,
+    pub expr: ValueRef
+}
+
+impl HeapValueSub for Def {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Def;
+
+    const UNIFORM_REF_LEN: usize = 2;
+}
+
+impl DynamicDebug for Def {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Def")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("pattern", &self.pattern.fmt_wrap(types))
+         .field("expr", &self.expr.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// An AST node for constants.
+#[repr(C)]
+pub struct Const {
+    pub heap_value: HeapValue,
+    /// The value of the constant
+    pub value: ValueRef
+}
+
+impl HeapValueSub for Const {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Const;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynamicDebug for Const {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Const")
+         .field("heap_value", &self.heap_value.fmt_wrap(types))
+         .field("value", &self.value.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/// An AST node for lexical variable names
+#[repr(C)]
+pub struct Lex {
+    pub base: HeapValue,
+    pub name: TypedValueRef<Symbol>
+}
+
+impl HeapValueSub for Lex {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Lex;
+
+    const UNIFORM_REF_LEN: usize = 1;
+}
+
+impl DynamicDebug for Lex {
+    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+        f.debug_struct("Lex")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("name", &self.name.fmt_wrap(types))
+         .finish()
+    }
+}
+
+/*use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::iter::Peekable;
 use gc::{Gc, Trace, Finalize};
@@ -173,4 +361,4 @@ pub fn analyze_clauses(clauses: Vec<Clause>) -> Result<Expr, ClauseError> {
         },
         None => Err(ClauseError)
     }
-}
+} */

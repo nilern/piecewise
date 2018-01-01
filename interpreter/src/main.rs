@@ -12,7 +12,7 @@ pub mod util;
 pub mod gce;
 pub mod object_model;
 pub mod value;
-//pub mod ast;
+pub mod ast;
 pub mod lexer;
 pub mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
 pub mod eval;
