@@ -2,14 +2,14 @@ use std::fmt::{self, Formatter};
 use std::ops::Deref;
 
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
-                   ValueRef, TypedValueRef};
+                   ValueRef, HeapValueRef};
 use value::{TypeIndex, TypeRegistry, ValueView, Symbol};
 use ast::Function;
 
 // ================================================================================================
 
 /// Error for unbound variables.
-pub struct Unbound(pub TypedValueRef<Symbol>);
+pub struct Unbound(pub HeapValueRef<Symbol>);
 
 impl DynamicDebug for Unbound {
    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
@@ -29,7 +29,7 @@ pub struct Env {
 }
 
 impl Env {
-    fn parent<R: TypeRegistry>(&self, types: &R) -> Option<TypedValueRef<Env>> {
+    fn parent<R: TypeRegistry>(&self, types: &R) -> Option<HeapValueRef<Env>> {
         if let ValueView::Env(parent) = self.parent.view(types) {
             Some(parent)
         } else {
@@ -37,7 +37,7 @@ impl Env {
         }
     }
 
-    pub fn get<R: TypeRegistry>(&self, name: TypedValueRef<Symbol>, types: &R)
+    pub fn get<R: TypeRegistry>(&self, name: HeapValueRef<Symbol>, types: &R)
         -> Result<ValueRef, Unbound>
     {
         let mut frame: *const Env = self as _;
@@ -87,7 +87,7 @@ impl DynamicDebug for Env {
 /// Function closure
 pub struct Closure {
     pub base: HeapValue,
-    pub function: TypedValueRef<Function>,
+    pub function: HeapValueRef<Function>,
     pub lenv: ValueRef
 }
 

@@ -1,7 +1,7 @@
 use std::fmt::{self, Formatter};
 
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
-                   ValueRef, TypedValueRef};
+                   ValueRef, HeapValueRef};
 use value::{TypeRegistry, TypeIndex, Symbol};
 
 /// Function AST node
@@ -10,7 +10,7 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn methods(&self) -> &[TypedValueRef<Method>] { self.tail() }
+    pub fn methods(&self) -> &[HeapValueRef<Method>] { self.tail() }
 }
 
 impl HeapValueSub for Function {
@@ -20,7 +20,7 @@ impl HeapValueSub for Function {
 }
 
 impl DynHeapValueSub for Function {
-    type TailItem = TypedValueRef<Method>;
+    type TailItem = HeapValueRef<Method>;
 }
 
 impl DynamicDebug for Function {
@@ -168,7 +168,7 @@ impl DynamicDebug for Const {
 #[repr(C)]
 pub struct Lex {
     pub base: HeapValue,
-    pub name: TypedValueRef<Symbol>
+    pub name: HeapValueRef<Symbol>
 }
 
 impl HeapValueSub for Lex {

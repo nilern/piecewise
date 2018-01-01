@@ -9,7 +9,7 @@ use std::str;
 use gce::{GSize, Initializable, start_init, Generation};
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
-                   ValueRef, TypedValueRef};
+                   ValueRef, HeapValueRef};
 use ast::{Function, Method, Block, Def, Call, Const, Lex};
 use continuations::{BlockCont, DefCont, CalleeCont, ArgCont, Halt};
 use env::{Env, Closure};
@@ -51,41 +51,41 @@ pub enum TypeIndex {
 /// Converts between type values and `TypeIndex`:es.
 pub trait TypeRegistry {
     /// Add a mapping.
-    fn insert(&mut self, index: TypeIndex, typ: TypedValueRef<Type>);
+    fn insert(&mut self, index: TypeIndex, typ: HeapValueRef<Type>);
 
     /// Get the `Type` for `index`.
-    fn get(&self, index: TypeIndex) -> TypedValueRef<Type>;
+    fn get(&self, index: TypeIndex) -> HeapValueRef<Type>;
 
     /// Get the `TypeIndex` for `typ`.
-    fn index_of(&self, typ: TypedValueRef<Type>) -> TypeIndex;
+    fn index_of(&self, typ: HeapValueRef<Type>) -> TypeIndex;
 }
 
 // ================================================================================================
 
 /// Unwraps scalars and makes heap value typing static.
 pub enum ValueView {
-    Type(TypedValueRef<Type>),
-    Tuple(TypedValueRef<Tuple>),
-    Symbol(TypedValueRef<Symbol>),
+    Type(HeapValueRef<Type>),
+    Tuple(HeapValueRef<Tuple>),
+    Symbol(HeapValueRef<Symbol>),
 
-    Promise(TypedValueRef<Promise>),
+    Promise(HeapValueRef<Promise>),
 
-    Function(TypedValueRef<Function>),
-    Method(TypedValueRef<Method>),
-    Block(TypedValueRef<Block>),
-    Call(TypedValueRef<Call>),
-    Def(TypedValueRef<Def>),
-    Lex(TypedValueRef<Lex>),
-    Const(TypedValueRef<Const>),
+    Function(HeapValueRef<Function>),
+    Method(HeapValueRef<Method>),
+    Block(HeapValueRef<Block>),
+    Call(HeapValueRef<Call>),
+    Def(HeapValueRef<Def>),
+    Lex(HeapValueRef<Lex>),
+    Const(HeapValueRef<Const>),
 
-    BlockCont(TypedValueRef<BlockCont>),
-    DefCont(TypedValueRef<DefCont>),
-    CalleeCont(TypedValueRef<CalleeCont>),
-    ArgCont(TypedValueRef<ArgCont>),
-    Halt(TypedValueRef<Halt>),
+    BlockCont(HeapValueRef<BlockCont>),
+    DefCont(HeapValueRef<DefCont>),
+    CalleeCont(HeapValueRef<CalleeCont>),
+    ArgCont(HeapValueRef<ArgCont>),
+    Halt(HeapValueRef<Halt>),
 
-    Env(TypedValueRef<Env>),
-    Closure(TypedValueRef<Closure>),
+    Env(HeapValueRef<Env>),
+    Closure(HeapValueRef<Closure>),
 
     Null,
 
@@ -233,9 +233,9 @@ pub struct OutOfMemory;
 pub struct ValueManager {
     gc: Generation<ValueRef>,
     // OPTIMIZE: make the key just point inside the value
-    symbol_table: HashMap<String, TypedValueRef<Symbol>>,
-    types: HashMap<TypeIndex, TypedValueRef<Type>>,
-    type_idxs: HashMap<TypedValueRef<Type>, TypeIndex>
+    symbol_table: HashMap<String, HeapValueRef<Symbol>>,
+    types: HashMap<TypeIndex, HeapValueRef<Type>>,
+    type_idxs: HashMap<HeapValueRef<Type>, TypeIndex>
 }
 
 impl ValueManager {
@@ -249,7 +249,7 @@ impl ValueManager {
         };
 
         let type_type: Initializable<Type> = unsafe { res.allocate_t() }.unwrap();
-        res.insert(TypeIndex::Type, TypedValueRef::new(unsafe { transmute(type_type) }));
+        res.insert(TypeIndex::Type, HeapValueRef::new(unsafe { transmute(type_type) }));
         res.uniform_init(type_type, |heap_value| Type::uniform::<Type>(heap_value));
 
         let tuple_type = res.create_dyn_refs_type::<Tuple>().unwrap();
@@ -311,11 +311,11 @@ impl ValueManager {
         .ok_or(OutOfMemory)
     }
 
-    fn init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
+    fn init<T, F>(&self, ptr: Initializable<T>, f: F) -> HeapValueRef<T>
         where T: HeapValueSub, F: FnOnce(Unique<T>, HeapValue)
     {
         let uptr = start_init(ptr);
-        let tvref = TypedValueRef::new(uptr);
+        let tvref = HeapValueRef::new(uptr);
         f(uptr, HeapValue {
             link: ValueRef::from(tvref),
             typ: self.get(T::TYPE_INDEX)
@@ -324,7 +324,7 @@ impl ValueManager {
     }
 
     /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
-    fn uniform_init<T, F>(&self, ptr: Initializable<T>, f: F) -> TypedValueRef<T>
+    fn uniform_init<T, F>(&self, ptr: Initializable<T>, f: F) -> HeapValueRef<T>
         where T: HeapValueSub, F: FnOnce(HeapValue) -> T
     {
         self.init(ptr, |mut uptr, heap_value| {
@@ -333,7 +333,7 @@ impl ValueManager {
     }
 
     fn init_with_slice<T, F, E>(&self, iptr: Initializable<T>, f: F, slice: &[E])
-        -> TypedValueRef<T>
+        -> HeapValueRef<T>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
     {
         self.init(iptr, |mut uptr, heap_value| {
@@ -349,7 +349,7 @@ impl ValueManager {
     }
 
     fn init_with_iter<T, F, I, E>(&self, iptr: Initializable<T>, f: F, len: usize, iter: I)
-        -> TypedValueRef<T>
+        -> HeapValueRef<T>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T,
               I: Iterator<Item=E>, E: Copy
     {
@@ -375,14 +375,14 @@ impl ValueManager {
 
     /// Allocate and Initialize a `T` with a granule alignment of 1, delegating to `f` for
     /// everything but the `HeapValue` part.
-    fn uniform_create<T, F>(&mut self, f: F) -> Option<TypedValueRef<T>>
+    fn uniform_create<T, F>(&mut self, f: F) -> Option<HeapValueRef<T>>
         where T: HeapValueSub, F: Fn(HeapValue) -> T
     {
         unsafe { self.allocate_t() }.map(|typ| self.uniform_init(typ, f))
     }
 
     fn create_with_slice<T, F, E>(&mut self, gsize: GSize, f: F, slice: &[E])
-        -> Option<TypedValueRef<T>>
+        -> Option<HeapValueRef<T>>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
     {
         unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
@@ -390,14 +390,14 @@ impl ValueManager {
             .map(|iptr| self.init_with_slice(iptr, f, slice))
     }
 
-    fn create_with_vref_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<TypedValueRef<T>>
+    fn create_with_vref_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<HeapValueRef<T>>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy + Into<ValueRef>
     {
         self.create_with_slice(GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
 
     fn create_with_vref_iter<T, F, I, E>(&mut self, f: F, len: usize, iter: I)
-        -> Option<TypedValueRef<T>>
+        -> Option<HeapValueRef<T>>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T,
               I: Iterator<Item=E>, E: Copy + Into<ValueRef>
     {
@@ -419,30 +419,30 @@ impl ValueManager {
     pub fn create_bool(&self, b: bool) -> ValueRef { ValueRef::from(b) }
 
     /// Create a new dynamic type for `T` with uniformly sized instances.
-    pub fn create_uniform_type<T: HeapValueSub>(&mut self) -> Option<TypedValueRef<Type>> {
+    pub fn create_uniform_type<T: HeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
         self.uniform_create(|base| Type::uniform::<T>(base))
     }
     /// Create a new dynamic type for `T` with with `ValueRef`-tailed instances.
-    pub fn create_dyn_refs_type<T>(&mut self) -> Option<TypedValueRef<Type>>
+    pub fn create_dyn_refs_type<T>(&mut self) -> Option<HeapValueRef<Type>>
         where T: DynHeapValueSub, T::TailItem: Into<ValueRef>
     {
         self.uniform_create(|base| Type::dyn_refs::<T>(base))
     }
 
     /// Create a new dynamic type for `T` with with byte-tailed instances.
-    pub fn create_dyn_bytes_type<T: DynHeapValueSub>(&mut self) -> Option<TypedValueRef<Type>> {
+    pub fn create_dyn_bytes_type<T: DynHeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
         self.uniform_create(|base| Type::dyn_bytes::<T>(base))
     }
 
     /// Create a new Tuple.
-    pub fn create_tuple<I>(&mut self, len: usize, values: I) -> Option<TypedValueRef<Tuple>>
+    pub fn create_tuple<I>(&mut self, len: usize, values: I) -> Option<HeapValueRef<Tuple>>
         where I: Iterator<Item=ValueRef>
     {
         self.create_with_vref_iter(|base| Tuple { base }, len, values)
     }
 
     /// Create a new `Symbol` from `chars`.
-    pub fn create_symbol(&mut self, chars: &str) -> Option<TypedValueRef<Symbol>> {
+    pub fn create_symbol(&mut self, chars: &str) -> Option<HeapValueRef<Symbol>> {
         self.symbol_table
             .get(chars).map(|&sym| sym)
             .or_else(|| {
@@ -457,7 +457,7 @@ impl ValueManager {
     }
 
     /// Create an uninitialized `Promise`.
-    pub fn create_promise(&mut self) -> Option<TypedValueRef<Promise>> {
+    pub fn create_promise(&mut self) -> Option<HeapValueRef<Promise>> {
         unsafe { self.allocate_t() }
             .map(|iptr| {
                 let mut uptr = start_init(iptr);
@@ -467,57 +467,57 @@ impl ValueManager {
                         typ: self.get(TypeIndex::Promise)
                     }
                 };
-                TypedValueRef::new(uptr)
+                HeapValueRef::new(uptr)
             })
     }
 
     /// Create a new `Function` node with `methods`.
-    pub fn create_function(&mut self, methods: &[TypedValueRef<Method>])
-        -> Option<TypedValueRef<Function>>
+    pub fn create_function(&mut self, methods: &[HeapValueRef<Method>])
+        -> Option<HeapValueRef<Function>>
     {
         self.create_with_vref_slice(|base| Function { base }, methods)
     }
 
     /// Create a new `Method` node.
     pub fn create_method(&mut self, pattern: ValueRef, guard: ValueRef, body: ValueRef)
-        -> Option<TypedValueRef<Method>>
+        -> Option<HeapValueRef<Method>>
     {
         self.uniform_create(|base| Method { base, pattern, guard, body })
     }
 
     /// Create a new `Block` node from `stmts` and `expr`.
     pub fn create_block(&mut self, stmts: &[ValueRef], expr: ValueRef)
-        -> Option<TypedValueRef<Block>>
+        -> Option<HeapValueRef<Block>>
     {
         self.create_with_vref_slice(|base| Block { base, expr }, stmts)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
-    pub fn create_def(&mut self, pattern: ValueRef, expr: ValueRef) -> Option<TypedValueRef<Def>> {
+    pub fn create_def(&mut self, pattern: ValueRef, expr: ValueRef) -> Option<HeapValueRef<Def>> {
         self.uniform_create(|base| Def { base, pattern, expr })
     }
 
     /// Create a new `Call` node from `callee` and `args`.
     pub fn create_call(&mut self, callee: ValueRef, args: &[ValueRef])
-        -> Option<TypedValueRef<Call>>
+        -> Option<HeapValueRef<Call>>
     {
         self.create_with_vref_slice(|base| Call { base, callee }, args)
     }
 
     /// Create a new `Const` node of `value`.
-    pub fn create_const(&mut self, value: ValueRef) -> Option<TypedValueRef<Const>> {
+    pub fn create_const(&mut self, value: ValueRef) -> Option<HeapValueRef<Const>> {
         self.uniform_create(|heap_value| Const { heap_value, value })
     }
 
     /// Create a new `Lex` node for the variable named `name`.
-    pub fn create_lex(&mut self, name: TypedValueRef<Symbol>) -> Option<TypedValueRef<Lex>> {
+    pub fn create_lex(&mut self, name: HeapValueRef<Symbol>) -> Option<HeapValueRef<Lex>> {
         self.uniform_create(|base| Lex { base, name })
     }
 
     /// Create a new block continuation
     pub fn create_block_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
-                             block: TypedValueRef<Block>, index: usize)
-        -> Option<TypedValueRef<BlockCont>>
+                             block: HeapValueRef<Block>, index: usize)
+        -> Option<HeapValueRef<BlockCont>>
     {
         self.uniform_create(|base| BlockCont {
             base, parent, lenv, denv, block,
@@ -528,23 +528,23 @@ impl ValueManager {
     /// Create a new assignment continuation
     pub fn create_def_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
                            var: ValueRef)
-        -> Option<TypedValueRef<DefCont>>
+        -> Option<HeapValueRef<DefCont>>
     {
         self.uniform_create(|base| DefCont { base, parent, lenv, denv, var })
     }
 
     /// Create new callee continuation
     pub fn create_callee_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
-                              call: TypedValueRef<Call>) -> Option<TypedValueRef<CalleeCont>>
+                              call: HeapValueRef<Call>) -> Option<HeapValueRef<CalleeCont>>
     {
         self.uniform_create(|base| CalleeCont { base, parent, lenv, denv, call })
     }
 
     /// Create new argument continuation
     pub fn create_arg_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
-                           call: TypedValueRef<Call>, index: usize, callee: ValueRef,
+                           call: HeapValueRef<Call>, index: usize, callee: ValueRef,
                            args: &[ValueRef])
-        -> Option<TypedValueRef<ArgCont>>
+        -> Option<HeapValueRef<ArgCont>>
     {
         self.create_with_vref_slice(|base| ArgCont {
             base, parent, lenv, denv, call, index: (index as isize).into(), callee
@@ -552,13 +552,13 @@ impl ValueManager {
     }
 
     /// Create a new halt continuation.
-    pub fn create_halt(&mut self) -> Option<TypedValueRef<Halt>> {
+    pub fn create_halt(&mut self) -> Option<HeapValueRef<Halt>> {
         self.uniform_create(|base| Halt { base })
     }
 
     /// Create a new lexical block `Env` that inherits from (= represents inner scope of) `Env`.
     pub fn create_block_lenv(&mut self, parent: ValueRef, stmts: &[ValueRef])
-        -> Option<TypedValueRef<Env>>
+        -> Option<HeapValueRef<Env>>
     {
         let mut bindings: Vec<ValueRef> = Vec::with_capacity(2*stmts.len());
         for stmt in stmts {
@@ -579,39 +579,39 @@ impl ValueManager {
 
     /// Create a new dynamic block `Env` that inherits from (= represents inner scope of) `Env`.
     pub fn create_block_denv(&mut self, parent: ValueRef, stmts: &[ValueRef])
-        -> Option<TypedValueRef<Env>>
+        -> Option<HeapValueRef<Env>>
     {
         let empty_dummy: [ValueRef; 0] = [];
         self.create_with_vref_slice(|base| Env { base, parent }, &empty_dummy)
     }
 
     /// Create a new lexical method `Env` that inherits from `parent`.
-    pub fn create_method_lenv(&mut self, parent: ValueRef, param: TypedValueRef<Symbol>,
+    pub fn create_method_lenv(&mut self, parent: ValueRef, param: HeapValueRef<Symbol>,
                               arg: ValueRef)
-        -> Option<TypedValueRef<Env>>
+        -> Option<HeapValueRef<Env>>
     {
         self.create_with_vref_slice(|base| Env { base, parent }, &[param.into(), arg])
     }
 
     /// Close `function` over `lenv`.
-    pub fn create_closure(&mut self, function: TypedValueRef<Function>, lenv: ValueRef)
-        -> Option<TypedValueRef<Closure>>
+    pub fn create_closure(&mut self, function: HeapValueRef<Function>, lenv: ValueRef)
+        -> Option<HeapValueRef<Closure>>
     {
         self.uniform_create(|base| Closure { base, function, lenv })
     }
 }
 
 impl TypeRegistry for ValueManager {
-    fn insert(&mut self, index: TypeIndex, typ: TypedValueRef<Type>) {
+    fn insert(&mut self, index: TypeIndex, typ: HeapValueRef<Type>) {
         self.types.insert(index, typ);
         self.type_idxs.insert(typ, index);
     }
 
-    fn get(&self, index: TypeIndex) -> TypedValueRef<Type> {
+    fn get(&self, index: TypeIndex) -> HeapValueRef<Type> {
         *self.types.get(&index).expect(&format!("No type found for {:?}", index))
     }
 
-    fn index_of(&self, typ: TypedValueRef<Type>) -> TypeIndex {
+    fn index_of(&self, typ: HeapValueRef<Type>) -> TypeIndex {
         *self.type_idxs.get(&typ).unwrap()
     }
 }

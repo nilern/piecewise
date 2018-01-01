@@ -1,7 +1,7 @@
 use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
-use object_model::{DynamicDebug, ValueRef, TypedValueRef};
+use object_model::{DynamicDebug, ValueRef, HeapValueRef};
 use value::{Reinit, TypeRegistry, ValueManager, OutOfMemory, ValueView, Tuple};
 use ast::Block;
 use continuations::Halt;
@@ -60,14 +60,14 @@ enum State {
     },
     Apply {
         callee: ValueRef,
-        args: TypedValueRef<Tuple>,
+        args: HeapValueRef<Tuple>,
         denv: ValueRef,
         cont: ValueRef
     }
 }
 
 impl State {
-    fn start(factory: &mut ValueManager, program: TypedValueRef<Block>) -> State {
+    fn start(factory: &mut ValueManager, program: HeapValueRef<Block>) -> State {
         State::Eval {
             expr: ValueRef::from(program),
             lenv: ValueRef::from(false),
@@ -88,7 +88,7 @@ impl Interpreter {
         }
     }
 
-    pub fn run(&mut self, program: TypedValueRef<Block>) -> Result<ValueRef, EvalError> {
+    pub fn run(&mut self, program: HeapValueRef<Block>) -> Result<ValueRef, EvalError> {
         let mut state = State::start(&mut self.values, program);
 
         loop {
@@ -237,7 +237,7 @@ impl Interpreter {
         }
     }
 
-    fn apply(&mut self, callee: ValueRef, mut args: TypedValueRef<Tuple>, mut denv: ValueRef,
+    fn apply(&mut self, callee: ValueRef, mut args: HeapValueRef<Tuple>, mut denv: ValueRef,
              mut cont: ValueRef) -> Result<State, EvalError>
     {
         let callee = callee.force().ok_or(EvalError::Uninitialized(callee))?;

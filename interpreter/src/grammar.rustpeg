@@ -1,14 +1,14 @@
 use std::str::FromStr;
 
-use object_model::{ValueRef, TypedValueRef};
+use object_model::{ValueRef, HeapValueRef};
 use value::ValueManager;
 use ast::{Method, Block};
 
 #![arguments(factory: &mut ValueManager)]
 
-pub program -> TypedValueRef<Block> = ws? block:body ws? { block }
+pub program -> HeapValueRef<Block> = ws? block:body ws? { block }
 
-body -> TypedValueRef<Block> = stmts:stmt* ws? expr:expr {
+body -> HeapValueRef<Block> = stmts:stmt* ws? expr:expr {
     factory.create_block(&stmts, expr).unwrap()
 }
 
@@ -55,7 +55,7 @@ simple -> ValueRef
     / var:var { var }
     / n:int { ValueRef::from(factory.create_const(n).unwrap()) }
 
-method -> TypedValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+method -> HeapValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
     let guard = guard.unwrap_or_else(|| {
         let value = factory.create_bool(true);
         ValueRef::from(factory.create_const(value).unwrap())

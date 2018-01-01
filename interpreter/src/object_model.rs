@@ -80,7 +80,7 @@ pub struct HeapValue {
     /// Multipurpose redirection field
     pub link: ValueRef,
     /// Dynamic type
-    pub typ: TypedValueRef<Type>
+    pub typ: HeapValueRef<Type>
 }
 
 impl HeapValue {
@@ -301,8 +301,8 @@ impl ValueRef {
     }
 
     /// Record the fact that `self` points to a `T`.
-    pub unsafe fn downcast<T>(self) -> TypedValueRef<T> {
-        TypedValueRef(self.0, PhantomData::default())
+    pub unsafe fn downcast<T: HeapValueSub>(self) -> HeapValueRef<T> {
+        HeapValueRef(self.0, PhantomData::default())
     }
 
     /// Get the corresponding `ValueView`.
@@ -375,8 +375,8 @@ impl From<bool> for ValueRef {
     fn from(b: bool) -> ValueRef { ValueRef((b as usize) << SHIFT | 0b110) }
 }
 
-impl<T> From<TypedValueRef<T>> for ValueRef {
-    fn from(tvref: TypedValueRef<T>) -> ValueRef { ValueRef(tvref.0) }
+impl<T: HeapValueSub> From<HeapValueRef<T>> for ValueRef {
+    fn from(tvref: HeapValueRef<T>) -> ValueRef { ValueRef(tvref.0) }
 }
 
 impl ObjectRef for ValueRef {
@@ -401,51 +401,51 @@ impl DynamicDebug for ValueRef {
 
 // ================================================================================================
 
-/// A statically typed `ValueRef`.
-pub struct TypedValueRef<T>(usize, PhantomData<T>);
+/// A statically typed `ValueRef` to a `HeapValueSub`.
+pub struct HeapValueRef<T: HeapValueSub>(usize, PhantomData<T>);
 
-impl<T> Clone for TypedValueRef<T> {
-    fn clone(&self) -> Self { TypedValueRef(self.0, self.1) }
+impl<T: HeapValueSub> Clone for HeapValueRef<T> {
+    fn clone(&self) -> Self { HeapValueRef(self.0, self.1) }
 }
 
-impl<T> Copy for TypedValueRef<T> {}
+impl<T: HeapValueSub> Copy for HeapValueRef<T> {}
 
-impl<T> PartialEq for TypedValueRef<T> {
-    fn eq(&self, other: &TypedValueRef<T>) -> bool { self.0 == other.0 }
+impl<T: HeapValueSub> PartialEq for HeapValueRef<T> {
+    fn eq(&self, other: &HeapValueRef<T>) -> bool { self.0 == other.0 }
 }
 
-impl<T> Eq for TypedValueRef<T> {}
+impl<T: HeapValueSub> Eq for HeapValueRef<T> {}
 
-impl<T> Hash for TypedValueRef<T> {
+impl<T: HeapValueSub> Hash for HeapValueRef<T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher { self.0.hash(state) }
 }
 
-impl<T> TypedValueRef<T> {
+impl<T: HeapValueSub> HeapValueRef<T> {
     /// Convert from a (freshly allocated) pointer.
-    pub fn new(ptr: Unique<T>) -> TypedValueRef<T> {
-        TypedValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
+    pub fn new(ptr: Unique<T>) -> HeapValueRef<T> {
+        HeapValueRef(ptr.as_ptr() as usize | PTR_BIT, PhantomData::default())
     }
 }
 
-impl<T> AsRef<ValueRef> for TypedValueRef<T> {
+impl<T: HeapValueSub> AsRef<ValueRef> for HeapValueRef<T> {
     fn as_ref(&self) -> &ValueRef { unsafe { transmute(self) } }
 }
 
-impl<T> AsMut<ValueRef> for TypedValueRef<T> {
+impl<T: HeapValueSub> AsMut<ValueRef> for HeapValueRef<T> {
     fn as_mut(&mut self) -> &mut ValueRef { unsafe { transmute(self) } }
 }
 
-impl<T> Deref for TypedValueRef<T> {
+impl<T: HeapValueSub> Deref for HeapValueRef<T> {
     type Target = T;
 
     fn deref(&self) -> &T { unsafe { transmute(self.0 & !TAG_MASK) } }
 }
 
-impl<T> DerefMut for TypedValueRef<T> {
+impl<T: HeapValueSub> DerefMut for HeapValueRef<T> {
     fn deref_mut(&mut self) -> &mut T { unsafe { transmute(self.0 & !TAG_MASK) } }
 }
 
-impl<T: DynamicDebug> DynamicDebug for TypedValueRef<T> {
+impl<T: HeapValueSub + DynamicDebug> DynamicDebug for HeapValueRef<T> {
     fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, type_reg: &R) -> Result<(), fmt::Error> {
         self.deref().fmt(f, type_reg)
     }

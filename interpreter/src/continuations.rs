@@ -2,7 +2,7 @@ use std::mem::transmute;
 use std::fmt::{self, Formatter};
 
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, HeapValue, DynHeapValue,
-                   ValueRef, TypedValueRef};
+                   ValueRef, HeapValueRef};
 use value::{TypeIndex, TypeRegistry};
 use ast::{Block, Call};
 
@@ -13,7 +13,7 @@ pub struct BlockCont {
     pub parent: ValueRef,
     pub lenv: ValueRef,
     pub denv: ValueRef,
-    pub block: TypedValueRef<Block>,
+    pub block: HeapValueRef<Block>,
     pub index: ValueRef
 }
 
@@ -75,7 +75,7 @@ pub struct CalleeCont {
     pub parent: ValueRef,
     pub lenv: ValueRef,
     pub denv: ValueRef,
-    pub call: TypedValueRef<Call>
+    pub call: HeapValueRef<Call>
 }
 
 impl HeapValueSub for CalleeCont {
@@ -103,7 +103,7 @@ pub struct ArgCont {
     pub parent: ValueRef,
     pub lenv: ValueRef,
     pub denv: ValueRef,
-    pub call: TypedValueRef<Call>,
+    pub call: HeapValueRef<Call>,
     pub index: ValueRef,
     pub callee: ValueRef
 }
