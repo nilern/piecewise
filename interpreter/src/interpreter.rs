@@ -113,7 +113,7 @@ impl TypeRegistry for Interpreter {
 // OPTIMIZE: make this Copy
 /// Memory allocator and value factory.
 pub struct Allocator<'a> {
-    interpreter: &'a mut Interpreter
+    pub interpreter: &'a mut Interpreter // HACK: pub
 }
 
 impl<'a> Allocator<'a> {
@@ -340,29 +340,14 @@ impl<'a> Allocator<'a> {
     pub fn create_block_lenv(&mut self, parent: ValueRef, stmts: &[ValueRef])
         -> Option<HeapValueRef<Env>>
     {
-        let mut bindings: Vec<ValueRef> = Vec::with_capacity(2*stmts.len());
-        for stmt in stmts {
-            if let ValueView::Def(def) = stmt.view(self.interpreter) {
-                if let ValueView::Lex(lvar) = def.pattern.view(self.interpreter) {
-                    bindings.push(lvar.name.into());
-                    if let Some(promise) = self.create_promise() {
-                        bindings.push(promise.into());
-                    } else {
-                        return None;
-                    }
-                }
-            }
-        }
-
-        self.create_with_vref_slice(|base| Env { base, parent }, &bindings)
+        Env::block_lenv(self, parent, stmts)
     }
 
     /// Create a new dynamic block `Env` that inherits from (= represents inner scope of) `Env`.
     pub fn create_block_denv(&mut self, parent: ValueRef, stmts: &[ValueRef])
         -> Option<HeapValueRef<Env>>
     {
-        let empty_dummy: [ValueRef; 0] = [];
-        self.create_with_vref_slice(|base| Env { base, parent }, &empty_dummy)
+        Env::block_denv(self, parent, stmts)
     }
 
     /// Create a new lexical method `Env` that inherits from `parent`.
@@ -370,14 +355,14 @@ impl<'a> Allocator<'a> {
                               arg: ValueRef)
         -> Option<HeapValueRef<Env>>
     {
-        self.create_with_vref_slice(|base| Env { base, parent }, &[param.into(), arg])
+        Env::method_lenv(self, parent, param, arg)
     }
 
     /// Close `function` over `lenv`.
     pub fn create_closure(&mut self, function: HeapValueRef<Function>, lenv: ValueRef)
         -> Option<HeapValueRef<Closure>>
     {
-        self.uniform_create(|base| Closure { base, function, lenv })
+        Closure::new(self, function, lenv)
     }
 }
 

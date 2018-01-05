@@ -31,6 +31,39 @@ pub struct Env {
 }
 
 impl Env {
+    pub fn block_lenv(allocator: &mut Allocator, parent: ValueRef, stmts: &[ValueRef])
+        -> Option<HeapValueRef<Env>>
+    {
+        let mut bindings: Vec<ValueRef> = Vec::with_capacity(2*stmts.len());
+        for stmt in stmts {
+            if let ValueView::Def(def) = stmt.view(allocator.interpreter) {
+                if let ValueView::Lex(lvar) = def.pattern.view(allocator.interpreter) {
+                    bindings.push(lvar.name.into());
+                    if let Some(promise) = allocator.create_promise() {
+                        bindings.push(promise.into());
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        allocator.create_with_vref_slice(|base| Env { base, parent }, &bindings)
+    }
+
+    pub fn block_denv(allocator: &mut Allocator, parent: ValueRef, stmts: &[ValueRef])
+        -> Option<HeapValueRef<Env>>
+    {
+        let empty_dummy: [ValueRef; 0] = [];
+        allocator.create_with_vref_slice(|base| Env { base, parent }, &empty_dummy)
+    }
+
+    pub fn method_lenv(allocator: &mut Allocator, parent: ValueRef, param: HeapValueRef<Symbol>,
+                       arg: ValueRef) -> Option<HeapValueRef<Env>>
+    {
+        allocator.create_with_vref_slice(|base| Env { base, parent }, &[param.into(), arg])
+    }
+
     fn parent<R: TypeRegistry>(&self, types: &R) -> Option<HeapValueRef<Env>> {
         if let ValueView::Env(parent) = self.parent.view(types) {
             Some(parent)
@@ -94,6 +127,14 @@ pub struct Closure {
     pub base: HeapValue,
     pub function: HeapValueRef<Function>,
     pub lenv: ValueRef
+}
+
+impl Closure {
+    pub fn new(allocator: &mut Allocator, function: HeapValueRef<Function>, lenv: ValueRef)
+        -> Option<HeapValueRef<Closure>>
+    {
+        allocator.uniform_create(|base| Closure { base, function, lenv })
+    }
 }
 
 impl HeapValueSub for Closure {
