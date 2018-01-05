@@ -19,6 +19,17 @@ pub struct BlockCont {
 }
 
 impl BlockCont {
+    pub fn new(allocator: &mut Allocator, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+               block: HeapValueRef<Block>, index: usize)
+        -> Option<HeapValueRef<BlockCont>>
+    {
+        allocator.uniform_create(|base| BlockCont {
+            base, parent, lenv, denv, block,
+            index: (index as isize).into()
+        })
+    }
+
+
     pub fn index(&self) -> usize { self.index.unbox() as usize }
 }
 
@@ -54,6 +65,15 @@ pub struct DefCont {
     pub var: ValueRef
 }
 
+impl DefCont {
+    pub fn new(allocator: &mut Allocator, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+               var: ValueRef)
+        -> Option<HeapValueRef<DefCont>>
+    {
+        allocator.uniform_create(|base| DefCont { base, parent, lenv, denv, var })
+    }
+}
+
 impl HeapValueSub for DefCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
     const UNIFORM_REF_LEN: usize = 4;
@@ -83,6 +103,14 @@ pub struct CalleeCont {
     pub lenv: ValueRef,
     pub denv: ValueRef,
     pub call: HeapValueRef<Call>
+}
+
+impl CalleeCont {
+    pub fn new(allocator: &mut Allocator, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+               call: HeapValueRef<Call>) -> Option<HeapValueRef<CalleeCont>>
+    {
+        allocator.uniform_create(|base| CalleeCont { base, parent, lenv, denv, call })
+    }
 }
 
 impl HeapValueSub for CalleeCont {
@@ -119,6 +147,15 @@ pub struct ArgCont {
 }
 
 impl ArgCont {
+    pub fn new(allocator: &mut Allocator, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
+               call: HeapValueRef<Call>, index: usize, callee: ValueRef,  args: &[ValueRef])
+        -> Option<HeapValueRef<ArgCont>>
+    {
+        allocator.create_with_vref_slice(|base| ArgCont {
+            base, parent, lenv, denv, call, index: (index as isize).into(), callee
+        }, args)
+    }
+
     pub fn index(&self) -> usize { self.index.unbox() as usize }
 
     pub fn args(&self) -> &[ValueRef] { self.tail() }
@@ -156,6 +193,12 @@ impl DynamicDebug for ArgCont {
 #[repr(C)]
 pub struct Halt {
     pub base: HeapValue
+}
+
+impl Halt {
+    pub fn new(allocator: &mut Allocator) -> Option<HeapValueRef<Halt>> {
+        allocator.uniform_create(|base| Halt { base })
+    }
 }
 
 impl HeapValueSub for Halt {

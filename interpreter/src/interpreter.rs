@@ -304,10 +304,7 @@ impl<'a> Allocator<'a> {
                              block: HeapValueRef<Block>, index: usize)
         -> Option<HeapValueRef<BlockCont>>
     {
-        self.uniform_create(|base| BlockCont {
-            base, parent, lenv, denv, block,
-            index: (index as isize).into()
-        })
+        BlockCont::new(self, parent, lenv, denv, block, index)
     }
 
     /// Create a new assignment continuation
@@ -315,14 +312,14 @@ impl<'a> Allocator<'a> {
                            var: ValueRef)
         -> Option<HeapValueRef<DefCont>>
     {
-        self.uniform_create(|base| DefCont { base, parent, lenv, denv, var })
+        DefCont::new(self, parent, lenv, denv, var)
     }
 
     /// Create new callee continuation
     pub fn create_callee_cont(&mut self, parent: ValueRef, lenv: ValueRef, denv: ValueRef,
                               call: HeapValueRef<Call>) -> Option<HeapValueRef<CalleeCont>>
     {
-        self.uniform_create(|base| CalleeCont { base, parent, lenv, denv, call })
+        CalleeCont::new(self, parent, lenv, denv, call)
     }
 
     /// Create new argument continuation
@@ -331,14 +328,12 @@ impl<'a> Allocator<'a> {
                            args: &[ValueRef])
         -> Option<HeapValueRef<ArgCont>>
     {
-        self.create_with_vref_slice(|base| ArgCont {
-            base, parent, lenv, denv, call, index: (index as isize).into(), callee
-        }, args)
+        ArgCont::new(self, parent, lenv, denv, call, index, callee, args)
     }
 
     /// Create a new halt continuation.
     pub fn create_halt(&mut self) -> Option<HeapValueRef<Halt>> {
-        self.uniform_create(|base| Halt { base })
+        Halt::new(self)
     }
 
     /// Create a new lexical block `Env` that inherits from (= represents inner scope of) `Env`.
