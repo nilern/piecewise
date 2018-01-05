@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 use std::str;
 
-use gce::GSize;
+use gce::{GSize, start_init};
 use interpreter::Allocator;
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
@@ -140,6 +140,12 @@ pub struct Tuple {
 }
 
 impl Tuple {
+    pub fn new<I>(allocator: &mut Allocator, len: usize, values: I) -> Option<HeapValueRef<Tuple>>
+        where I: Iterator<Item=ValueRef>
+    {
+        allocator.create_with_vref_iter(|base| Tuple { base }, len, values)
+    }
+
     pub fn values(&self) -> &[ValueRef] { self.tail() }
 }
 
@@ -147,7 +153,9 @@ impl HeapValueSub for Tuple {
     const TYPE_INDEX: TypeIndex = TypeIndex::Tuple;
     const UNIFORM_REF_LEN: usize = 0;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Tuple {
@@ -191,7 +199,9 @@ impl HeapValueSub for Symbol {
     const TYPE_INDEX: TypeIndex = TypeIndex::Symbol;
     const UNIFORM_REF_LEN: usize = 0;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_bytes::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_bytes::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Symbol {
@@ -212,14 +222,21 @@ pub struct Promise {
     pub base: HeapValue
 }
 
-impl HeapValueSub for Promise {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
-    const UNIFORM_REF_LEN: usize = 0;
-
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
-}
-
 impl Promise {
+    pub fn new(allocator: &mut Allocator) -> Option<HeapValueRef<Promise>> {
+        unsafe { allocator.allocate_t() }
+            .map(|iptr| {
+                let mut uptr = start_init(iptr);
+                *unsafe { uptr.as_mut() } = Promise {
+                    base: HeapValue {
+                        link: ValueRef::NULL,
+                        typ: allocator.get(TypeIndex::Promise)
+                    }
+                };
+                HeapValueRef::new(uptr)
+            })
+    }
+
     pub fn init<R: TypeRegistry>(&mut self, value: ValueRef, types: &R) -> Result<(), Reinit> {
         if let ValueView::Null = self.base.link.view(types) {
             self.base.link = value;
@@ -227,6 +244,15 @@ impl Promise {
         } else {
             Err(Reinit)
         }
+    }
+}
+
+impl HeapValueSub for Promise {
+    const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
+    const UNIFORM_REF_LEN: usize = 0;
+
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
     }
 }
 

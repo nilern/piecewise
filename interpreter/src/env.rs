@@ -1,6 +1,7 @@
 use std::fmt::{self, Formatter};
 use std::ops::Deref;
 
+use interpreter::Allocator;
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
                    ValueRef, HeapValueRef};
@@ -69,7 +70,9 @@ impl HeapValueSub for Env {
     const TYPE_INDEX: TypeIndex = TypeIndex::Env;
     const UNIFORM_REF_LEN: usize = 1;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Env {
@@ -97,7 +100,9 @@ impl HeapValueSub for Closure {
     const TYPE_INDEX: TypeIndex = TypeIndex::Closure;
     const UNIFORM_REF_LEN: usize = 2;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Closure {

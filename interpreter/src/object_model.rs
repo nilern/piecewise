@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::hash::{Hash, Hasher};
 use std::slice;
 
+use interpreter::Allocator;
 use gce::{GSize, Object, ObjectRef};
 use value::{ValueView, TypeIndex, TypeRegistry};
 
@@ -25,7 +26,7 @@ pub trait HeapValueSub: Sized {
     /// The constant portion (or minimum number) of `ValueRef` fields on instances of `self`.
     const UNIFORM_REF_LEN: usize;
 
-    fn new_typ(typ_base: HeapValue) -> Type;
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>>;
 }
 
 /// A subtype of `DynHeapValue`.
@@ -216,37 +217,43 @@ impl Iterator for ObjRefs {
 /// A dynamic type.
 #[repr(C)]
 pub struct Type {
-    heap_value: HeapValue,
+    base: HeapValue,
     gsize_with_dyn: usize,
     ref_len_with_dyn: usize
 }
 
 impl Type {
-    fn new<T: HeapValueSub>(heap_value: HeapValue, has_dyn_gsize: bool, has_dyn_ref_len: bool)
-        -> Type
+    pub fn make<T>(base: HeapValue, has_dyn_gsize: bool, has_dyn_ref_len: bool)
+        -> Type where T: HeapValueSub
     {
         Type {
-            heap_value,
+            base,
             gsize_with_dyn: usize::from(GSize::of::<T>()) << 1 | has_dyn_gsize as usize,
             ref_len_with_dyn: T::UNIFORM_REF_LEN << 1 | has_dyn_ref_len as usize
         }
     }
 
+    fn new<T>(allocator: &mut Allocator, has_dyn_gsize: bool, has_dyn_ref_len: bool)
+        -> Option<HeapValueRef<Type>> where T: HeapValueSub
+    {
+        allocator.uniform_create(|base| Type::make::<T>(base, has_dyn_gsize, has_dyn_ref_len))
+    }
+
     /// Create a new dynamic type for `T` with uniformly sized instances.
-    pub fn uniform<T: HeapValueSub>(heap_value: HeapValue) -> Type {
-        Type::new::<T>(heap_value, false, false)
+    pub fn uniform<T: HeapValueSub>(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::new::<T>(allocator, false, false)
     }
 
     /// Create a new dynamic type for `T` with `ValueRef`-tailed instances.
-    pub fn dyn_refs<T>(heap_value: HeapValue) -> Type
+    pub fn dyn_refs<T>(allocator: &mut Allocator) -> Option<HeapValueRef<Type>>
         where T: DynHeapValueSub, T::TailItem: Into<ValueRef>
     {
-        Type::new::<T>(heap_value, true, true)
+        Type::new::<T>(allocator, true, true)
     }
 
     /// Create a new dynamic type for `T` with byte-tailed instances.
-    pub fn dyn_bytes<T: DynHeapValueSub>(heap_value: HeapValue) -> Type {
-        Type::new::<T>(heap_value, true, false)
+    pub fn dyn_bytes<T: DynHeapValueSub>(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::new::<T>(allocator, true, false)
     }
 
     /// The constant portion (or minimum) granule size of instances.
@@ -266,13 +273,15 @@ impl HeapValueSub for Type {
     const TYPE_INDEX: TypeIndex = TypeIndex::Type;
     const UNIFORM_REF_LEN: usize = 0;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Type>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Type {
     fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
         f.debug_struct("Type")
-         .field("heap_value", &self.heap_value.fmt_wrap(types))
+         .field("heap_value", &self.base.fmt_wrap(types))
          .field("gsize", &self.gsize_with_dyn)
          .field("ref_len", &self.ref_len_with_dyn)
          .finish()

@@ -1,5 +1,6 @@
 use std::fmt::{self, Formatter};
 
+use interpreter::Allocator;
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, Unbox,
                    HeapValue, DynHeapValue, Type,
                    ValueRef, ScalarValueRef, HeapValueRef};
@@ -25,7 +26,9 @@ impl HeapValueSub for BlockCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::BlockCont;
     const UNIFORM_REF_LEN: usize = 5;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for BlockCont {
@@ -55,7 +58,9 @@ impl HeapValueSub for DefCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::DefCont;
     const UNIFORM_REF_LEN: usize = 4;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for DefCont {
@@ -84,7 +89,9 @@ impl HeapValueSub for CalleeCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::CalleeCont;
     const UNIFORM_REF_LEN: usize = 4;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for CalleeCont {
@@ -121,7 +128,9 @@ impl HeapValueSub for ArgCont {
     const TYPE_INDEX: TypeIndex = TypeIndex::ArgCont;
     const UNIFORM_REF_LEN: usize = 6;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for ArgCont {
@@ -153,7 +162,9 @@ impl HeapValueSub for Halt {
     const TYPE_INDEX: TypeIndex = TypeIndex::Halt;
     const UNIFORM_REF_LEN: usize = 0;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Halt {

@@ -1,5 +1,6 @@
 use std::fmt::{self, Formatter};
 
+use interpreter::Allocator;
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
                    ValueRef, HeapValueRef};
@@ -18,7 +19,9 @@ impl HeapValueSub for Function {
     const TYPE_INDEX: TypeIndex = TypeIndex::Function;
     const UNIFORM_REF_LEN: usize = 0;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Function {
@@ -46,7 +49,9 @@ impl HeapValueSub for Method {
     const TYPE_INDEX: TypeIndex = TypeIndex::Method;
     const UNIFORM_REF_LEN: usize = 3;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Method {
@@ -74,7 +79,9 @@ impl HeapValueSub for Block {
     const TYPE_INDEX: TypeIndex = TypeIndex::Block;
     const UNIFORM_REF_LEN: usize = 1;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Block {
@@ -105,7 +112,9 @@ impl HeapValueSub for Call {
     const TYPE_INDEX: TypeIndex = TypeIndex::Call;
     const UNIFORM_REF_LEN: usize = 1;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::dyn_refs::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::dyn_refs::<Self>(allocator)
+    }
 }
 
 impl DynHeapValueSub for Call {
@@ -134,7 +143,9 @@ impl HeapValueSub for Def {
     const TYPE_INDEX: TypeIndex = TypeIndex::Def;
     const UNIFORM_REF_LEN: usize = 2;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Def {
@@ -159,7 +170,9 @@ impl HeapValueSub for Const {
     const TYPE_INDEX: TypeIndex = TypeIndex::Const;
     const UNIFORM_REF_LEN: usize = 1;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Const {
@@ -182,7 +195,9 @@ impl HeapValueSub for Lex {
     const TYPE_INDEX: TypeIndex = TypeIndex::Lex;
     const UNIFORM_REF_LEN: usize = 1;
 
-    fn new_typ(typ_base: HeapValue) -> Type { Type::uniform::<Self>(typ_base) }
+    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
+        Type::uniform::<Self>(allocator)
+    }
 }
 
 impl DynamicDebug for Lex {

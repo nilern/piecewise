@@ -38,7 +38,7 @@ impl Interpreter {
             let type_type: Initializable<Type> = unsafe { allocator.allocate_t() }.unwrap();
             allocator.interpreter
                      .insert(TypeIndex::Type, HeapValueRef::new(unsafe { transmute(type_type) }));
-            allocator.uniform_init(type_type, |typ_base| Type::new_typ(typ_base));
+            allocator.uniform_init(type_type, |base| Type::make::<Type>(base, false, false));
 
             Self::insert_typ::<Tuple>(allocator).unwrap();
             Self::insert_typ::<Symbol>(allocator).unwrap();
@@ -128,7 +128,7 @@ impl<'a> Allocator<'a> {
     }
 
     /// Allocate a `T` with a granule alignment of 1.
-    unsafe fn allocate_t<T>(&mut self) -> Option<Initializable<T>> {
+    pub unsafe fn allocate_t<T>(&mut self) -> Option<Initializable<T>> {
         self.interpreter.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
                                      NonZero::new_unchecked(GSize::of::<T>()))
     }
@@ -212,7 +212,7 @@ impl<'a> Allocator<'a> {
         self.create_with_slice(GSize::of::<T>() + GSize::from(slice.len()), f, slice)
     }
 
-    fn create_with_vref_iter<T, F, I, E>(&mut self, f: F, len: usize, iter: I)
+    pub fn create_with_vref_iter<T, F, I, E>(&mut self, f: F, len: usize, iter: I)
         -> Option<HeapValueRef<T>>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T,
               I: Iterator<Item=E>, E: Copy + Into<ValueRef>
@@ -236,14 +236,14 @@ impl<'a> Allocator<'a> {
 
     /// Create a new dynamic type for `T` (using `T::new_typ`)
     pub fn create_typ<T: HeapValueSub>(&mut self) -> Option<HeapValueRef<Type>> {
-        self.uniform_create(T::new_typ)
+        T::new_typ(self)
     }
 
     /// Create a new Tuple.
     pub fn create_tuple<I>(&mut self, len: usize, values: I) -> Option<HeapValueRef<Tuple>>
         where I: Iterator<Item=ValueRef>
     {
-        self.create_with_vref_iter(|base| Tuple { base }, len, values)
+        Tuple::new(self, len, values)
     }
 
     /// Create a new `Symbol` from `chars`.
@@ -253,17 +253,7 @@ impl<'a> Allocator<'a> {
 
     /// Create an uninitialized `Promise`.
     pub fn create_promise(&mut self) -> Option<HeapValueRef<Promise>> {
-        unsafe { self.allocate_t() }
-            .map(|iptr| {
-                let mut uptr = start_init(iptr);
-                *unsafe { uptr.as_mut() } = Promise {
-                    base: HeapValue {
-                        link: ValueRef::NULL,
-                        typ: self.interpreter.get(TypeIndex::Promise)
-                    }
-                };
-                HeapValueRef::new(uptr)
-            })
+        Promise::new(self)
     }
 
     /// Create a new `Function` node with `methods`.
@@ -393,5 +383,19 @@ impl<'a> Allocator<'a> {
         -> Option<HeapValueRef<Closure>>
     {
         self.uniform_create(|base| Closure { base, function, lenv })
+    }
+}
+
+impl<'a> TypeRegistry for Allocator<'a> {
+    fn insert(&mut self, index: TypeIndex, typ: HeapValueRef<Type>) {
+        self.interpreter.insert(index, typ)
+    }
+
+    fn get(&self, index: TypeIndex) -> HeapValueRef<Type> {
+        self.interpreter.get(index)
+    }
+
+    fn index_of(&self, typ: HeapValueRef<Type>) -> TypeIndex {
+        self.interpreter.index_of(typ)
     }
 }
