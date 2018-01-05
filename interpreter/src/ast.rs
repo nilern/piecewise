@@ -12,6 +12,12 @@ pub struct Function {
 }
 
 impl Function {
+    pub fn new(allocator: &mut Allocator, methods: &[HeapValueRef<Method>])
+        -> Option<HeapValueRef<Function>>
+    {
+        allocator.create_with_vref_slice(|base| Function { base }, methods)
+    }
+
     pub fn methods(&self) -> &[HeapValueRef<Method>] { self.tail() }
 }
 
@@ -45,6 +51,14 @@ pub struct Method {
     pub body: ValueRef
 }
 
+impl Method {
+    pub fn new(allocator: &mut Allocator, pattern: ValueRef, guard: ValueRef, body: ValueRef)
+        -> Option<HeapValueRef<Method>>
+    {
+        allocator.uniform_create(|base| Method { base, pattern, guard, body })
+    }
+}
+
 impl HeapValueSub for Method {
     const TYPE_INDEX: TypeIndex = TypeIndex::Method;
     const UNIFORM_REF_LEN: usize = 3;
@@ -72,6 +86,12 @@ pub struct Block {
 }
 
 impl Block {
+    pub fn new(allocator: &mut Allocator, stmts: &[ValueRef], expr: ValueRef)
+        -> Option<HeapValueRef<Block>>
+    {
+        allocator.create_with_vref_slice(|base| Block { base, expr }, stmts)
+    }
+
     pub fn stmts(&self) -> &[ValueRef] { self.tail() }
 }
 
@@ -105,6 +125,12 @@ pub struct Call {
 }
 
 impl Call {
+    pub fn new(allocator: &mut Allocator, callee: ValueRef, args: &[ValueRef])
+        -> Option<HeapValueRef<Call>>
+    {
+        allocator.create_with_vref_slice(|base| Call { base, callee }, args)
+    }
+
     pub fn args(&self) -> &[ValueRef] { self.tail() }
 }
 
@@ -139,6 +165,14 @@ pub struct Def {
     pub expr: ValueRef
 }
 
+impl Def {
+    pub fn new(allocator: &mut Allocator, pattern: ValueRef, expr: ValueRef)
+        -> Option<HeapValueRef<Def>>
+    {
+        allocator.uniform_create(|base| Def { base, pattern, expr })
+    }
+}
+
 impl HeapValueSub for Def {
     const TYPE_INDEX: TypeIndex = TypeIndex::Def;
     const UNIFORM_REF_LEN: usize = 2;
@@ -166,6 +200,12 @@ pub struct Const {
     pub value: ValueRef
 }
 
+impl Const {
+    pub fn new(allocator: &mut Allocator, value: ValueRef) -> Option<HeapValueRef<Const>> {
+        allocator.uniform_create(|heap_value| Const { heap_value, value })
+    }
+}
+
 impl HeapValueSub for Const {
     const TYPE_INDEX: TypeIndex = TypeIndex::Const;
     const UNIFORM_REF_LEN: usize = 1;
@@ -189,6 +229,14 @@ impl DynamicDebug for Const {
 pub struct Lex {
     pub base: HeapValue,
     pub name: HeapValueRef<Symbol>
+}
+
+impl Lex {
+    pub fn new(allocator: &mut Allocator, name: HeapValueRef<Symbol>)
+        -> Option<HeapValueRef<Lex>>
+    {
+        allocator.uniform_create(|base| Lex { base, name })
+    }
 }
 
 impl HeapValueSub for Lex {

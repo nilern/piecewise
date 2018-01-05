@@ -260,43 +260,43 @@ impl<'a> Allocator<'a> {
     pub fn create_function(&mut self, methods: &[HeapValueRef<Method>])
         -> Option<HeapValueRef<Function>>
     {
-        self.create_with_vref_slice(|base| Function { base }, methods)
+        Function::new(self, methods)
     }
 
     /// Create a new `Method` node.
     pub fn create_method(&mut self, pattern: ValueRef, guard: ValueRef, body: ValueRef)
         -> Option<HeapValueRef<Method>>
     {
-        self.uniform_create(|base| Method { base, pattern, guard, body })
+        Method::new(self, pattern, guard, body)
     }
 
     /// Create a new `Block` node from `stmts` and `expr`.
     pub fn create_block(&mut self, stmts: &[ValueRef], expr: ValueRef)
         -> Option<HeapValueRef<Block>>
     {
-        self.create_with_vref_slice(|base| Block { base, expr }, stmts)
+        Block::new(self, stmts, expr)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
     pub fn create_def(&mut self, pattern: ValueRef, expr: ValueRef) -> Option<HeapValueRef<Def>> {
-        self.uniform_create(|base| Def { base, pattern, expr })
+        Def::new(self, pattern, expr)
     }
 
     /// Create a new `Call` node from `callee` and `args`.
     pub fn create_call(&mut self, callee: ValueRef, args: &[ValueRef])
         -> Option<HeapValueRef<Call>>
     {
-        self.create_with_vref_slice(|base| Call { base, callee }, args)
+        Call::new(self, callee, args)
     }
 
     /// Create a new `Const` node of `value`.
     pub fn create_const(&mut self, value: ValueRef) -> Option<HeapValueRef<Const>> {
-        self.uniform_create(|heap_value| Const { heap_value, value })
+        Const::new(self, value)
     }
 
     /// Create a new `Lex` node for the variable named `name`.
     pub fn create_lex(&mut self, name: HeapValueRef<Symbol>) -> Option<HeapValueRef<Lex>> {
-        self.uniform_create(|base| Lex { base, name })
+        Lex::new(self, name)
     }
 
     /// Create a new block continuation
