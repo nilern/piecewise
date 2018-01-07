@@ -1,0 +1,7 @@
+[package]
+name = "pcws-domain"
+version = "0.1.0"
+authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
+
+[dependencies]
+pcws-gc = { path = "../gc"}

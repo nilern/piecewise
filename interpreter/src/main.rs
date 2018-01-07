@@ -10,7 +10,7 @@ use std::io::{self, Read};
 // HACK: these are pub just for rustdoc
 pub mod util;
 pub mod gce;
-pub mod object_model;
+pub mod domain;
 pub mod value;
 pub mod interpreter;
 pub mod ast;
@@ -21,7 +21,6 @@ pub mod env;
 pub mod eval;
 
 use parser::program;
-use object_model::DynamicDebug;
 use interpreter::Interpreter;
 
 fn main() {

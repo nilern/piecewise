@@ -1,3 +1,10 @@
+#![feature(nonzero, unique, shared)]
+
+extern crate core;
+extern crate nix;
+#[macro_use]
+extern crate intrusive_collections;
+
 mod util;
 mod descriptor;
 mod layout;
@@ -7,9 +14,9 @@ mod mark_n_sweep;
 
 use std::ptr::Shared;
 
-pub use self::layout::GSize;
-pub use self::util::{Uninitialized, Initializable, start_init};
-pub use self::mark_n_sweep::Generation;
+pub use layout::GSize;
+pub use util::{Uninitialized, Initializable, start_init};
+pub use mark_n_sweep::Generation;
 
 /// Managed heap value.
 pub trait Object {

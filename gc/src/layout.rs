@@ -2,7 +2,7 @@ use core::nonzero::Zeroable;
 use std::mem::{size_of, transmute};
 use std::ops::Add;
 
-use gce::util::CeilDiv;
+use util::CeilDiv;
 
 // ================================================================================================
 

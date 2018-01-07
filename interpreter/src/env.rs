@@ -1,11 +1,12 @@
 use std::fmt::{self, Formatter};
 use std::ops::Deref;
 
+use domain::{TypeRegistry, Type, Symbol};
 use interpreter::Allocator;
 use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
-                   HeapValue, DynHeapValue, Type,
+                   HeapValue, DynHeapValue,
                    ValueRef, HeapValueRef};
-use value::{TypeIndex, TypeRegistry, ValueView, Symbol};
+use value::{TypeIndex, ValueView};
 use ast::Function;
 
 // ================================================================================================

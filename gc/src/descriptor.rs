@@ -6,8 +6,8 @@ use std::ops::Index;
 use std::ptr::Shared;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
-use gce::util::{Uninitialized, Initializable, Foam, Span, AllocSat};
-use gce::layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
+use util::{Uninitialized, Initializable, Foam, Span, AllocSat};
+use layout::{Arena, Block, DESCR_SHIFT, DESCR_MASK, Granule, GSize, Markmap};
 
 // ================================================================================================
 
@@ -270,7 +270,7 @@ mod tests {
     use std::mem::size_of;
 
     use super::{Descriptor, FreeRope};
-    use gce::layout::DESCR_SIZE;
+    use layout::DESCR_SIZE;
 
     #[test]
     fn descriptor_size() {

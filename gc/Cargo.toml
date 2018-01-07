@@ -1,0 +1,8 @@
+[package]
+name = "pcws-gc"
+version = "0.1.0"
+authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
+
+[dependencies]
+nix = "0.9"
+intrusive-collections = "0.7"

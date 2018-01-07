@@ -1,19 +1,10 @@
 use std::fmt::{self, Debug, Formatter};
-use std::str;
 
-use gce::{GSize, start_init};
-use interpreter::Allocator;
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
-                   HeapValue, DynHeapValue, Type,
-                   ValueRef, ScalarValueRef, HeapValueRef};
+use domain::{TypeRegistry, DynamicDebug, ScalarValueRef, HeapValueRef,
+             Type, Promise, Tuple, Symbol};
 use ast::{Function, Method, Block, Def, Call, Const, Lex};
 use continuations::{BlockCont, DefCont, CalleeCont, ArgCont, Halt};
 use env::{Env, Closure};
-
-// ================================================================================================
-
-#[derive(Debug)]
-pub struct Reinit;
 
 // ================================================================================================
 
@@ -42,18 +33,6 @@ pub enum TypeIndex {
 
     Env,
     Closure
-}
-
-/// Converts between type values and `TypeIndex`:es.
-pub trait TypeRegistry {
-    /// Add a mapping.
-    fn insert(&mut self, index: TypeIndex, typ: HeapValueRef<Type>);
-
-    /// Get the `Type` for `index`.
-    fn get(&self, index: TypeIndex) -> HeapValueRef<Type>;
-
-    /// Get the `TypeIndex` for `typ`.
-    fn index_of(&self, typ: HeapValueRef<Type>) -> TypeIndex;
 }
 
 // ================================================================================================
@@ -89,6 +68,48 @@ pub enum ValueView {
     Float(ScalarValueRef<f64>),
     Char(ScalarValueRef<char>),
     Bool(ScalarValueRef<bool>)
+}
+
+impl ValueRef {
+    /// Get the corresponding `ValueView`.
+    pub fn view<T: TypeRegistry>(self, type_reg: &T) -> ValueView {
+        if self == Self::NULL {
+            ValueView::Null
+        } else if let Some(sptr) = self.ptr() {
+            match type_reg.index_of(unsafe { sptr.as_ref() }.typ) {
+                TypeIndex::Type   => ValueView::Type(unsafe { self.downcast() }),
+                TypeIndex::Tuple  => ValueView::Tuple(unsafe { self.downcast() }),
+                TypeIndex::Symbol => ValueView::Symbol(unsafe { self.downcast() }),
+
+                TypeIndex::Promise => ValueView::Promise(unsafe { self.downcast() }),
+
+                TypeIndex::Function => ValueView::Function(unsafe { self.downcast() }),
+                TypeIndex::Method   => ValueView::Method(unsafe { self.downcast() }),
+                TypeIndex::Block    => ValueView::Block(unsafe { self.downcast() }),
+                TypeIndex::Call     => ValueView::Call(unsafe { self.downcast() }),
+                TypeIndex::Def      => ValueView::Def(unsafe { self.downcast() }),
+                TypeIndex::Const    => ValueView::Const(unsafe { self.downcast() }),
+                TypeIndex::Lex      => ValueView::Lex(unsafe { self.downcast() }),
+
+                TypeIndex::BlockCont  => ValueView::BlockCont(unsafe { self.downcast() }),
+                TypeIndex::DefCont    => ValueView::DefCont(unsafe { self.downcast() }),
+                TypeIndex::CalleeCont => ValueView::CalleeCont(unsafe { self.downcast() }),
+                TypeIndex::ArgCont    => ValueView::ArgCont(unsafe { self.downcast() }),
+                TypeIndex::Halt       => ValueView::Halt(unsafe { self.downcast() }),
+
+                TypeIndex::Env     => ValueView::Env(unsafe { self.downcast() }),
+                TypeIndex::Closure => ValueView::Closure(unsafe { self.downcast() })
+            }
+        } else {
+            match self.0 & TAG_MASK {
+                0b000 => ValueView::Int(unsafe { transmute(self) }),
+                0b010 => ValueView::Float(unsafe { transmute(self) }),
+                0b100 => ValueView::Char(unsafe { transmute(self) }),
+                0b110 => ValueView::Bool(unsafe { transmute(self) }),
+                _ => unreachable!()
+            }
+        }
+    }
 }
 
 impl DynamicDebug for ValueView {
@@ -127,140 +148,6 @@ impl DynamicDebug for ValueView {
             &Char(v) => v.fmt(f),
             &Bool(v) => v.fmt(f)
         }
-    }
-}
-
-// ================================================================================================
-
-// TODO: `mod domain` for these
-
-/// Tuple
-pub struct Tuple {
-    pub base: DynHeapValue
-}
-
-impl Tuple {
-    pub fn new<I>(allocator: &mut Allocator, len: usize, values: I) -> Option<HeapValueRef<Tuple>>
-        where I: Iterator<Item=ValueRef>
-    {
-        allocator.create_with_vref_iter(|base| Tuple { base }, len, values)
-    }
-
-    pub fn values(&self) -> &[ValueRef] { self.tail() }
-}
-
-impl HeapValueSub for Tuple {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Tuple;
-    const UNIFORM_REF_LEN: usize = 0;
-
-    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
-        Type::dyn_refs::<Self>(allocator)
-    }
-}
-
-impl DynHeapValueSub for Tuple {
-    type TailItem = ValueRef;
-}
-
-impl DynamicDebug for Tuple {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
-        f.debug_struct("Tuple")
-         .field("base", &self.base.fmt_wrap(types))
-         .field("values", &self.values().fmt_wrap(types))
-         .finish()
-    }
-}
-
-/// Symbol (hash-consed string)
-pub struct Symbol {
-    base: DynHeapValue
-}
-
-impl Symbol {
-    pub fn new(allocator: &mut Allocator, chars: &str) -> Option<HeapValueRef<Symbol>> {
-        allocator.get_symbol(chars)
-                 .or_else(|| {
-                     let bytes = chars.as_bytes();
-                     let gsize = GSize::of::<Symbol>() + GSize::from_bytesize(bytes.len());
-                     let sym = allocator.create_with_slice(gsize, |base| Symbol { base }, bytes);
-                     if let Some(sym) = sym {
-                         allocator.insert_symbol(chars.to_string(), sym);
-                     }
-                     sym
-                 })
-    }
-
-    fn chars(&self) -> &str {
-        unsafe { str::from_utf8_unchecked(self.tail()) }
-    }
-}
-
-impl HeapValueSub for Symbol {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Symbol;
-    const UNIFORM_REF_LEN: usize = 0;
-
-    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
-        Type::dyn_bytes::<Self>(allocator)
-    }
-}
-
-impl DynHeapValueSub for Symbol {
-    type TailItem = u8;
-}
-
-impl DynamicDebug for Symbol {
-    fn fmt<T: TypeRegistry>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
-        f.debug_struct("Symbol")
-         .field("base", &self.base.fmt_wrap(types))
-         .field("chars", &self.chars())
-         .finish()
-    }
-}
-
-/// Indirection
-pub struct Promise {
-    pub base: HeapValue
-}
-
-impl Promise {
-    pub fn new(allocator: &mut Allocator) -> Option<HeapValueRef<Promise>> {
-        unsafe { allocator.allocate_t() }
-            .map(|iptr| {
-                let mut uptr = start_init(iptr);
-                *unsafe { uptr.as_mut() } = Promise {
-                    base: HeapValue {
-                        link: ValueRef::NULL,
-                        typ: allocator.get(TypeIndex::Promise)
-                    }
-                };
-                HeapValueRef::new(uptr)
-            })
-    }
-
-    pub fn init<R: TypeRegistry>(&mut self, value: ValueRef, types: &R) -> Result<(), Reinit> {
-        if let ValueView::Null = self.base.link.view(types) {
-            self.base.link = value;
-            Ok(())
-        } else {
-            Err(Reinit)
-        }
-    }
-}
-
-impl HeapValueSub for Promise {
-    const TYPE_INDEX: TypeIndex = TypeIndex::Promise;
-    const UNIFORM_REF_LEN: usize = 0;
-
-    fn new_typ(allocator: &mut Allocator) -> Option<HeapValueRef<Type>> {
-        Type::uniform::<Self>(allocator)
-    }
-}
-
-impl DynamicDebug for Promise {
-    fn fmt<R: TypeRegistry>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
-        f.debug_struct("Promise")
-         .field("base", &self.base.fmt_wrap(types))
-         .finish()
     }
 }
 

@@ -3,10 +3,10 @@ use std::mem::transmute;
 use std::ptr::Unique;
 use intrusive_collections::{IntrusivePointer, RBTree, UnsafeRef, Bound};
 
-use gce::util::{Uninitialized, Initializable, Foam, Span, AllocSat};
-use gce::layout::Markmap;
-use gce::arena::ArenaAllocator;
-use gce::descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope, AddrFreeRope, SizeFreeRope};
+use util::{Uninitialized, Initializable, Foam, Span, AllocSat};
+use layout::Markmap;
+use arena::ArenaAllocator;
+use descriptor::{Descriptor, MSBlock, LargeObjRope, FreeRope, AddrFreeRope, SizeFreeRope};
 
 // ================================================================================================
 

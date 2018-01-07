@@ -1,10 +1,10 @@
 use std::fmt::{self, Formatter};
 
+use domain::{HeapValueSub, DynHeapValueSub, TypeRegistry, DynamicDebug,
+             HeapValue, DynHeapValue, ValueRef, HeapValueRef,
+             Type, Symbol};
 use interpreter::Allocator;
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
-                   HeapValue, DynHeapValue, Type,
-                   ValueRef, HeapValueRef};
-use value::{TypeRegistry, TypeIndex, Symbol};
+use value::TypeIndex;
 
 /// Function AST node
 pub struct Function {

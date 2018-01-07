@@ -4,11 +4,11 @@ use std::ptr::{self, Unique, Shared};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
-use gce::{Object, ObjectRef};
-use gce::util::{Uninitialized, Initializable, CeilDiv, Foam, Span, AllocSat};
-use gce::layout::{Block, GSize};
-use gce::block::BlockAllocator;
-use gce::descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
+use super::{Object, ObjectRef};
+use util::{Uninitialized, Initializable, CeilDiv, Foam, Span, AllocSat};
+use layout::{Block, GSize};
+use block::BlockAllocator;
+use descriptor::{Descriptor, SubDescr, MSBlockAdapter, LargeObjRopeAdapter};
 
 const LARGE_OBJ_THRESHOLD: usize = Block::WSIZE * 8 / 10;
 

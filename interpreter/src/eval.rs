@@ -1,9 +1,10 @@
 use std::iter;
 use std::fmt::{self, Formatter};
 
+use domain::{TypeRegistry, Tuple};
 use interpreter::{Interpreter, Allocator};
 use object_model::{DynamicDebug, ValueRef, ScalarValueRef, HeapValueRef};
-use value::{Reinit, TypeRegistry, ValueView, Tuple};
+use value::{Reinit, ValueView};
 use ast::Block;
 use continuations::Halt;
 use env::Unbound;

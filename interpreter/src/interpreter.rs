@@ -5,10 +5,10 @@ use std::slice;
 use std::collections::HashMap;
 
 use gce::{GSize, Initializable, start_init, Generation};
-use object_model::{HeapValueSub,
-                   HeapValue, DynHeapValue, Type,
-                   ValueRef, ScalarValueRef, HeapValueRef};
-use value::{TypeIndex, TypeRegistry, ValueView, Promise, Symbol, Tuple};
+use domain::{HeapValueSub, TypeRegistry, HeapValue, DynHeapValue,
+             ValueRef, ScalarValueRef, HeapValueRef
+             Promise, Symbol, Tuple};
+use value::TypeIndex;
 use ast::{Function, Method, Block, Def, Call, Const, Lex};
 use continuations::{BlockCont, DefCont, CalleeCont, ArgCont, Halt};
 use env::{Env, Closure};

@@ -7,9 +7,9 @@ use nix::libc::c_void;
 #[cfg(unix)]
 use nix::sys::mman::{mmap, munmap, PROT_READ, PROT_WRITE, MAP_ANON, MAP_PRIVATE};
 
-use gce::util::{Uninitialized, CeilDiv};
-use gce::layout::{Arena, Block};
-use gce::descriptor::FreeRope;
+use util::{Uninitialized, CeilDiv};
+use layout::{Arena, Block};
+use descriptor::FreeRope;
 
 pub struct ArenaAllocator {
     max_heap: usize,

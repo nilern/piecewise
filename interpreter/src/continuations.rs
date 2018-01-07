@@ -1,10 +1,11 @@
 use std::fmt::{self, Formatter};
 
+use domain::TypeRegistry;
 use interpreter::Allocator;
-use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug, Unbox,
+use object_model::{HeapValueSub, DynHeapValueSub, DynamicDebug,
                    HeapValue, DynHeapValue, Type,
                    ValueRef, ScalarValueRef, HeapValueRef};
-use value::{TypeIndex, TypeRegistry};
+use value::{TypeIndex};
 use ast::{Block, Call};
 
 /// Block continuation
