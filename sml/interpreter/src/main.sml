@@ -1,4 +1,4 @@
-structure Parser : sig
+structure Parser :> sig
     val parse : unit -> unit
 end = struct
     structure PcwsLrVals =
@@ -34,7 +34,7 @@ end = struct
             fun loop lexer =
                 let val (ast, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
-                    val doc = Value.toDoc ast <+> PPrint.text "==>"
+                    val doc = Value.exprToDoc ast <+> PPrint.text "==>"
                               <+> Value.valueToDoc (Interpreter.interpret ast)
                 in print (PPrint.pretty 80 doc)
                  ; if PcwsParser.sameToken(nextToken, dummyEOF)

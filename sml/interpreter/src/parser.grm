@@ -89,9 +89,9 @@ fun extractBlock pos (items as (Clause _ :: _)) =
     | EOF
 
 %nonterm program of Value.expr
-    (* | stmt of Cst.stmt
-       | expr of Cst.expr
-       | blockItem of blockItem
+       | stmt of Value.stmt
+       | expr of Value.expr
+       (*| blockItem of blockItem
 
        | infix0 of Cst.expr
        | infix1 of Cst.expr
@@ -115,28 +115,31 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
        | exprList of Cst.expr list
        | exprListTwoPlus of Cst.expr list
-       | mapPairs of (Cst.expr * Cst.expr) list
-       | stmtList of Cst.stmt list
-       | blockItemList of blockItem list *)
+       | mapPairs of (Cst.expr * Cst.expr) list*)
+       | stmtList of Value.stmt list
+       (*| blockItemList of blockItem list *)
 
 %eop EOF
 %noshift EOF
 
 %%
 
-program : simple (simple) (* stmtList (bareBlockFromStmts (List.rev stmtList)) *)
+program : expr (Value.Block (exprleft, Vector.fromList [], expr))
+        | stmtList SEMI expr (Value.Block (stmtListleft, Vector.fromList (List.rev stmtList),
+                                           expr))
 
-(* stmt : expr EQ expr  (Cst.FixS (Cst.Stmt.Def (Cst.Bind (expr1, NONE), expr2)))
-     | expr AUG expr (Cst.FixS (Cst.Stmt.AugDef (Cst.Bind (expr1, NONE), expr2)))
-     | expr          (Cst.FixS (Cst.Stmt.Expr expr))
+stmt : expr EQ expr (Value.Def (expr1, NONE, expr2))
+     | expr         (Value.Expr expr)
 
-blockItem : app DARROW stmt
+(*blockItem : app DARROW stmt
             (Clause (Vector.fromList (List.rev app), NONE, stmt))
           | stmt (Stmt stmt)
 
-expr : infix0 (infix0)
+expr : infix0 (infix0) *)
 
-infix0 : infix0 OP0 infix1 (opCall infix0left OP0left OP0 infix0 infix1)
+expr : simple (simple)
+
+(*infix0 : infix0 OP0 infix1 (opCall infix0left OP0left OP0 infix0 infix1)
        | infix1            (infix1)
 infix1 : infix1 OP1 infix2 (opCall infix1left OP1left OP1 infix1 infix2)
        | infix2            (infix2)
@@ -211,10 +214,10 @@ exprListTwoPlus : expr COMMA expr            ([expr2, expr1])
 
 mapPairs : ARROW                          ([])
          | expr ARROW expr                ([(expr1, expr2)])
-         | mapPairs COMMA expr ARROW expr ((expr1, expr2) :: mapPairs)
+         | mapPairs COMMA expr ARROW expr ((expr1, expr2) :: mapPairs) *)
 
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
 
-blockItemList : blockItem                    ([blockItem])
+(*blockItemList : blockItem                    ([blockItem])
               | blockItemList SEMI blockItem (blockItem :: blockItemList) *)

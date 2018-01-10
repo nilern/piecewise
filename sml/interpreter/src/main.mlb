@@ -4,7 +4,9 @@ local
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb
 
     ../../compiler/src/util/pprint.sml
-    
+    ../../compiler/src/util/option_ext.sml
+    ../../compiler/src/util/vector_ext.sml
+
     ../../compiler/src/util/pos.sml
     ../../compiler/src/util/name.sml
 
