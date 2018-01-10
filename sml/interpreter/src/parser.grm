@@ -88,7 +88,7 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
     | EOF
 
-%nonterm program of Ast.expr
+%nonterm program of Value.expr
     (* | stmt of Cst.stmt
        | expr of Cst.expr
        | blockItem of blockItem
@@ -103,11 +103,15 @@ fun extractBlock pos (items as (Clause _ :: _)) =
        | infix7 of Cst.expr
        | app of Cst.expr list
        | primCall of Cst.expr
-       | simple of Cst.expr
+       | simple of Cst.expr *)
 
-       | datum of Cst.expr
-       | prim of Cst.expr
-       | compound of Cst.expr
+       | simple of Value.expr
+
+       | id of Value.triv
+
+       (*| datum of Cst.expr*)
+       | prim of Value.content
+       (*| compound of Cst.expr
 
        | exprList of Cst.expr list
        | exprListTwoPlus of Cst.expr list
@@ -120,7 +124,7 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
 %%
 
-program : LEXID (Ast.Id LEXID) (* stmtList (bareBlockFromStmts (List.rev stmtList)) *)
+program : simple (simple) (* stmtList (bareBlockFromStmts (List.rev stmtList)) *)
 
 (* stmt : expr EQ expr  (Cst.FixS (Cst.Stmt.Def (Cst.Bind (expr1, NONE), expr2)))
      | expr AUG expr (Cst.FixS (Cst.Stmt.AugDef (Cst.Bind (expr1, NONE), expr2)))
@@ -167,21 +171,22 @@ simple : LPAREN expr RPAREN (expr)
          (Cst.FixE (Cst.Expr.Fn (LBRACKETleft, NONE, Name.freshFromString "params",
                               Vector.fromList [(Cst.Prolog (Vector.fromList [], NONE),
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
-       | LEXID (Cst.FixE (Cst.Expr.Triv (LEXIDleft,
-                                         Cst.Expr.Triv.Var (BaseVar.Lex (Name.fromString LEXID)))))
-       | DYNID (Cst.FixE (Cst.Expr.Triv (DYNIDleft,
-                                         Cst.Expr.Triv.Var (BaseVar.Dyn (Name.fromString DYNID)))))
-       | datum (datum)
+       | datum (datum) *)
 
-datum : prim     (prim)
-      | compound (compound)
+simple : id   (Value.Triv (idleft, id))
+       | prim (Value.Triv (primleft, Value.Const (Value.wrap prim)))
 
-prim : INT (Cst.FixE (Cst.Expr.Triv (INTleft, Cst.Expr.Triv.Const
-                                                  (Const.Int (valOf (LargeInt.fromString INT))))))
-     | STRING (Cst.FixE (Cst.Expr.Triv (STRINGleft, Cst.Expr.Triv.Const (Const.String STRING))))
-     | CHAR   (Cst.FixE (Cst.Expr.Triv (CHARleft, Cst.Expr.Triv.Const (Const.Char CHAR))))
+id : LEXID (Value.Lex LEXID)
+   | DYNID (Value.Dyn DYNID)
 
-compound : LPAREN exprList RPAREN
+(* datum : prim     (prim)
+      | compound (compound) *)
+
+prim : INT    (Value.Int (valOf (Int.fromString INT)))
+     | STRING (Value.String STRING)
+     | CHAR   (Value.Char (String.sub (CHAR, 0)))
+
+(*compound : LPAREN exprList RPAREN
            (applyNameRev LPARENleft (Name.fromString "tuple") exprList)
          | LBRACKET exprList RBRACKET
            (applyNameRev LBRACKETleft (Name.fromString "array") exprList)

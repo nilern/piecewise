@@ -30,6 +30,8 @@ signature PPRINT = sig
 
     val int : int -> doc
     val word : word -> doc
+    val real : real -> doc
+    val char : char -> doc
 
     val pretty : int -> doc -> string
 end
@@ -127,6 +129,8 @@ structure PPrint :> PPRINT = struct
 
     val int = text o Int.toString
     val word = text o Word.toString
+    val real = text o Real.toString
+    val char = text o Char.toString
 
     fun pretty pageWidth (doc: doc) =
             #2 (#run doc { index = 0, col = 0,

@@ -32,7 +32,7 @@ end = struct
             fun loop lexer =
                 let val (ast, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
-                in print (PPrint.pretty 80 (Ast.toDoc ast))
+                in print (PPrint.pretty 80 (Value.toDoc ast))
                  ; if PcwsParser.sameToken(nextToken, dummyEOF)
                    then ()
                    else loop lexer

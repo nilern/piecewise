@@ -7,7 +7,7 @@ local
     ../../compiler/src/util/pos.sml
     ../../compiler/src/util/name.sml
 
-    ast.sml
+    value.sml
     parser.grm.sig
     parser.grm.sml
     ../../compiler/src/pass/lexer.lex.sml
