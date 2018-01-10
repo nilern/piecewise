@@ -12,6 +12,8 @@ end = struct
                     structure ParserData = PcwsLrVals.ParserData
                     structure Lex = PcwsLex)
 
+    val op<+> = PPrint.<+>
+
     fun invoke lexstream =
         let fun print_error (s, p, _) =
                 TextIO.output(TextIO.stdOut, String.concat[
@@ -32,7 +34,9 @@ end = struct
             fun loop lexer =
                 let val (ast, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
-                in print (PPrint.pretty 80 (Value.toDoc ast))
+                    val doc = Value.toDoc ast <+> PPrint.text "==>"
+                              <+> Value.valueToDoc (Interpreter.interpret ast)
+                in print (PPrint.pretty 80 doc)
                  ; if PcwsParser.sameToken(nextToken, dummyEOF)
                    then ()
                    else loop lexer
