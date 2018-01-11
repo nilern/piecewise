@@ -1,7 +1,47 @@
-(*datatype blockItem = Clause of Cst.expr vector * Cst.expr option * Cst.stmt
-                   | Stmt of Cst.stmt
+datatype block_item = MethodHeader of Value.expr * Value.expr option
+                    | Stmt of Value.stmt
 
-fun opCall pos opPos opStr l r =
+(* HACK: raise Fail ... *)
+local
+    fun parseBlockPrefix (items as (MethodHeader _ :: _)) = (NONE, items)
+      | parseBlockPrefix (Stmt stmt :: items) =
+        (case parseBlockPrefix items
+         of (SOME (stmts, expr), tail) => (SOME (stmt :: stmts, expr), tail)
+          | (NONE, tail) =>
+             (case stmt
+              of Value.Expr expr => (SOME ([], expr), tail)
+               | _ => raise Fail "block ends in non-expression"))
+      | parseBlockPrefix [] = (NONE, [])
+
+    fun parseFn pos items =
+        let fun parseMethods (MethodHeader (pat, guard) :: items) =
+                (case parseBlockPrefix items
+                 of (SOME (stmts, expr), tail) =>
+                     (case stmts
+                      of stmt :: _ =>
+                          Value.Method (pat, guard,
+                                        Value.Block (Value.stmtPos stmt, Vector.fromList stmts, expr))
+                       | [] => Value.Method (pat, guard, expr)) ::
+                          (case tail
+                           of _ :: _ => parseMethods tail
+                            | []     => [])
+                  | (NONE, _) => raise Fail "method has no body")
+              | parseMethods (_ :: items) = raise Fail "unreachable code reached"
+              | parseMethods [] = raise Fail "function has no methods"
+        in Value.Fn (pos, Vector.fromList (parseMethods items))
+        end
+
+    fun parseBlock pos items =
+        case parseBlockPrefix items
+        of (SOME (stmts, expr), []) => Value.Block (pos, Vector.fromList stmts, expr)
+         | (NONE, []) => raise Fail "empty block"
+         | (_, _ :: _) => raise Fail "method header in block"
+in fun parseBlockOrFn pos =
+       fn items as (MethodHeader _ :: _) => parseFn pos items
+        | items => parseBlock pos items
+end
+
+(*fun opCall pos opPos opStr l r =
         Cst.FixE (Cst.Expr.Call (pos,
                               Cst.FixE (Cst.Expr.Triv (opPos, Cst.Expr.Triv.Var (BaseVar.Lex
                                                                       (Name.fromString opStr)))),
@@ -18,36 +58,7 @@ fun applyNameRev pos name revExprs =
 fun extractCall _ [e] = e
   | extractCall pos (f::args) =
     Cst.FixE (Cst.Expr.Call (pos, f, Vector.fromList args))
-  | extractCall _ [] = raise LrParser.ParseError
-
-fun bareBlockFromStmts stmts = (* OPTIMIZE: *)
-    let val Cst.FixS (Cst.Stmt.Expr expr) = List.last stmts
-    in (Vector.fromList (List.take (stmts, (List.length stmts - 1))), expr)
-    end
-
-fun blockFromStmts pos stmts = Cst.FixE (Cst.Expr.Block (pos, bareBlockFromStmts stmts))
-
-fun extractBlock pos (items as (Clause _ :: _)) =
-        let fun stmtSplit (Stmt stmt::items) =
-                    let val (stmts', items') = stmtSplit items
-                    in (stmt::stmts', items') end
-              | stmtSplit items = ([], items)
-            fun clauses (Clause(formals, cond, stmt)::items) =
-                    let val (stmts, items') = stmtSplit items
-                    in ( Cst.Prolog (formals, cond)
-                       , blockFromStmts (Cst.stmtPos stmt) (stmt::stmts))
-                       :: clauses items'
-                    end
-              | clauses [] = []
-              | clauses _ = raise LrParser.ParseError
-        in Cst.FixE (Cst.Expr.Fn (pos, NONE, Name.freshFromString "params",
-                     Vector.fromList (clauses items))) end
-  | extractBlock pos (items as (Stmt _ :: _)) =
-        let fun unwrapStmt (Stmt stmt) = stmt
-              | unwrapStmt (Clause _) = raise LrParser.ParseError
-        in blockFromStmts pos (List.map unwrapStmt items)
-        end
-  | extractBlock _ [] = raise LrParser.ParseError *)
+  | extractCall _ [] = raise LrParser.ParseError *)
 
 %%
 
@@ -91,9 +102,8 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 %nonterm program of Value.expr
        | stmt of Value.stmt
        | expr of Value.expr
-       (*| blockItem of blockItem
 
-       | infix0 of Cst.expr
+       (*)| infix0 of Cst.expr
        | infix1 of Cst.expr
        | infix2 of Cst.expr
        | infix3 of Cst.expr
@@ -107,6 +117,9 @@ fun extractBlock pos (items as (Clause _ :: _)) =
 
        | simple of Value.expr
 
+       | blockItem of block_item
+       | methodHeader of block_item
+
        | id of Value.triv
 
        (*| datum of Cst.expr*)
@@ -117,7 +130,7 @@ fun extractBlock pos (items as (Clause _ :: _)) =
        | exprListTwoPlus of Cst.expr list
        | mapPairs of (Cst.expr * Cst.expr) list*)
        | stmtList of Value.stmt list
-       (*| blockItemList of blockItem list *)
+       | blockItemList of block_item list
 
 %eop EOF
 %noshift EOF
@@ -168,16 +181,20 @@ primCall : PRIM app (Cst.FixE (Cst.Expr.PrimCall (PRIMleft, Primop.fromString PR
                                  Vector.fromList (List.rev app))))
 
 simple : LPAREN expr RPAREN (expr)
-       | LBRACE blockItemList RBRACE
-         (extractBlock LBRACEleft (List.rev blockItemList))
        | LBRACKET stmtList RBRACKET
          (Cst.FixE (Cst.Expr.Fn (LBRACKETleft, NONE, Name.freshFromString "params",
                               Vector.fromList [(Cst.Prolog (Vector.fromList [], NONE),
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | datum (datum) *)
 
-simple : id   (Value.Triv (idleft, id))
-       | prim (Value.Triv (primleft, Value.Const (Value.wrap prim)))
+simple : LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft (List.rev blockItemList))
+       | id                          (Value.Triv (idleft, id))
+       | prim                        (Value.Triv (primleft, Value.Const (Value.wrap prim)))
+
+blockItem : methodHeader (methodHeader)
+          | stmt         (Stmt stmt)
+
+methodHeader : expr DARROW (MethodHeader (expr, NONE))
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
@@ -219,5 +236,5 @@ mapPairs : ARROW                          ([])
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
 
-(*blockItemList : blockItem                    ([blockItem])
-              | blockItemList SEMI blockItem (blockItem :: blockItemList) *)
+blockItemList : blockItem                    ([blockItem])
+              | blockItemList SEMI blockItem (blockItem :: blockItemList)

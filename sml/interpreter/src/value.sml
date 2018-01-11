@@ -6,8 +6,11 @@ structure Value :> sig
                      | Bool of bool
                      | String of string
 
-    datatype expr = Block of Pos.t * stmt vector * expr
+    (* TODO: Triv -> Var, Const into expr *)
+    datatype expr = Fn of Pos.t * method vector
+                  | Block of Pos.t * stmt vector * expr
                   | Triv of Pos.t * triv
+    and method = Method of expr * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
     and triv = Lex of string
@@ -41,8 +44,10 @@ end = struct
     val op<+> = PPrint.<+>
     val op<$> = PPrint.<$>
 
-    datatype expr = Block of Pos.t * stmt vector * expr
+    datatype expr = Fn of Pos.t * method vector
+                  | Block of Pos.t * stmt vector * expr
                   | Triv of Pos.t * triv
+    and method = Method of expr * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
     and triv = Lex of string
