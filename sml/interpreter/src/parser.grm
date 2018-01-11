@@ -17,14 +17,18 @@ local
         let fun parseMethods (MethodHeader (pat, guard) :: items) =
                 (case parseBlockPrefix items
                  of (SOME (stmts, expr), tail) =>
-                     (case stmts
-                      of stmt :: _ =>
-                          Value.Method (pat, guard,
-                                        Value.Block (Value.stmtPos stmt, Vector.fromList stmts, expr))
-                       | [] => Value.Method (pat, guard, expr)) ::
-                          (case tail
-                           of _ :: _ => parseMethods tail
-                            | []     => [])
+                     let val method =
+                             case stmts
+                             of stmt :: _ =>
+                                 Value.Method (pat, guard,
+                                               Value.Block (Value.stmtPos stmt,
+                                                            Vector.fromList stmts, expr))
+                              | [] => Value.Method (pat, guard, expr)
+                         val methods = case tail
+                                       of _ :: _ => parseMethods tail
+                                        | []     => []
+                     in method :: methods
+                     end
                   | (NONE, _) => raise Fail "method has no body")
               | parseMethods (_ :: items) = raise Fail "unreachable code reached"
               | parseMethods [] = raise Fail "function has no methods"
@@ -117,9 +121,6 @@ fun extractCall _ [e] = e
 
        | simple of Value.expr
 
-       | blockItem of block_item
-       | methodHeader of block_item
-
        | id of Value.var
 
        (*| datum of Cst.expr*)
@@ -187,14 +188,9 @@ simple : LPAREN expr RPAREN (expr)
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | datum (datum) *)
 
-simple : LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft (List.rev blockItemList))
+simple : LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft blockItemList)
        | id                          (Value.Var (idleft, id))
        | prim                        (Value.Const (primleft, Value.wrap prim))
-
-blockItem : methodHeader (methodHeader)
-          | stmt         (Stmt stmt)
-
-methodHeader : expr DARROW (MethodHeader (expr, NONE))
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
@@ -236,5 +232,6 @@ mapPairs : ARROW                          ([])
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
 
-blockItemList : blockItem                    ([blockItem])
-              | blockItemList SEMI blockItem (blockItem :: blockItemList)
+blockItemList : expr DARROW blockItemList (MethodHeader (expr, NONE) :: blockItemList)
+              | stmt SEMI blockItemList   (Stmt stmt :: blockItemList)
+              | stmt                      ([Stmt stmt])
