@@ -23,7 +23,7 @@ end = struct
     end
 
     datatype cont = Stmt of cont * Env.t * Env.t * Value.stmt vector * int * Value.expr
-                  | Def of cont * Env.t * Env.t * Value.triv
+                  | Def of cont * Env.t * Env.t * Value.var
                   | Halt
 
     fun eval cont lenv denv =
@@ -34,14 +34,14 @@ end = struct
                     val denv = Env.pushBlock denv (Value.blockBinders Value.dynName stmts)
                 in exec (Stmt (cont, lenv, denv, stmts, 0, expr)) lenv denv (Vector.sub (stmts, 0))
                 end
-         | Value.Triv (_, Value.Lex name) => continue (Env.lookup lenv name) cont
-         | Value.Triv (_, Value.Dyn name) => continue (Env.lookup denv name) cont
-         | Value.Triv (_, Value.Const v) => continue v cont
+         | Value.Var (_, Value.Lex name) => continue (Env.lookup lenv name) cont
+         | Value.Var (_, Value.Dyn name) => continue (Env.lookup denv name) cont
+         | Value.Const (_, v) => continue v cont
 
     and exec cont lenv denv =
-        fn Value.Def (Value.Triv (_, var as Value.Lex _), NONE, expr) =>
+        fn Value.Def (Value.Var (_, var as Value.Lex _), NONE, expr) =>
            eval (Def (cont, lenv, denv, var)) lenv denv expr
-         | Value.Def (Value.Triv (_, var as Value.Dyn _), NONE, expr) =>
+         | Value.Def (Value.Var (_, var as Value.Dyn _), NONE, expr) =>
            eval (Def (cont, lenv, denv, var)) lenv denv expr
          | Value.Expr expr => eval cont lenv denv expr
 

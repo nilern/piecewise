@@ -120,7 +120,7 @@ fun extractCall _ [e] = e
        | blockItem of block_item
        | methodHeader of block_item
 
-       | id of Value.triv
+       | id of Value.var
 
        (*| datum of Cst.expr*)
        | prim of Value.content
@@ -188,8 +188,8 @@ simple : LPAREN expr RPAREN (expr)
        | datum (datum) *)
 
 simple : LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft (List.rev blockItemList))
-       | id                          (Value.Triv (idleft, id))
-       | prim                        (Value.Triv (primleft, Value.Const (Value.wrap prim)))
+       | id                          (Value.Var (idleft, id))
+       | prim                        (Value.Const (primleft, Value.wrap prim))
 
 blockItem : methodHeader (methodHeader)
           | stmt         (Stmt stmt)

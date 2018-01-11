@@ -6,35 +6,35 @@ structure Value :> sig
                      | Bool of bool
                      | String of string
 
-    (* TODO: Triv -> Var, Const into expr *)
     datatype expr = Fn of Pos.t * method vector
                   | Block of Pos.t * stmt vector * expr
-                  | Triv of Pos.t * triv
+                  | Var of Pos.t * var
+                  | Const of Pos.t * value
     and method = Method of expr * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
-    and triv = Lex of string
+    and var = Lex of string
              | Dyn of string
-             | Const of value
 
     val wrap : content -> value
     val uninitialized : unit -> value
     val initialize : value -> value -> unit
     val force : value -> content option
 
-    val lexName : triv -> string option
-    val dynName : triv -> string option
+    val lexName : var -> string option
+    val dynName : var -> string option
 
-    val patBinders : (triv -> string option) -> expr -> string vector
-    val stmtBinders : (triv -> string option) -> stmt -> string vector
-    val blockBinders : (triv -> string option) -> stmt vector -> string vector
+    val patBinders : (var -> string option) -> expr -> string vector
+    val stmtBinders : (var -> string option) -> stmt -> string vector
+    val blockBinders : (var -> string option) -> stmt vector -> string vector
 
     val exprPos : expr -> Pos.t
     val stmtPos : stmt -> Pos.t
 
     val exprToDoc : expr -> PPrint.doc
     val stmtToDoc : stmt -> PPrint.doc
-    val trivToDoc : triv -> PPrint.doc
+    val methodToDoc : method -> PPrint.doc
+    val varToDoc : var -> PPrint.doc
     val valueToDoc : value -> PPrint.doc
     val contentToDoc : content -> PPrint.doc
 
@@ -46,13 +46,13 @@ end = struct
 
     datatype expr = Fn of Pos.t * method vector
                   | Block of Pos.t * stmt vector * expr
-                  | Triv of Pos.t * triv
+                  | Var of Pos.t * var
+                  | Const of Pos.t * value
     and method = Method of expr * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
-    and triv = Lex of string
+    and var = Lex of string
              | Dyn of string
-             | Const of value
     and value = Value of value_state ref
     and value_state = Present of content
                     | Redirect of value
@@ -83,15 +83,17 @@ end = struct
 
     val lexName =
         fn Lex name => SOME name
-         | _ => NONE
+         | Dyn _ => NONE
 
     val dynName =
         fn Dyn name => SOME name
-         | _ => NONE
+         | Lex _ => NONE
 
     fun patBinders f =
-        fn Block (_, _, _) => Vector.fromList [] (* actually, illegal pattern *)
-         | Triv (_, t) => OptionExt.toVector (f t)
+        fn Fn _ => Vector.fromList [] (* actually, illegal pattern *)
+         | Block _ => Vector.fromList [] (* actually, illegal pattern *)
+         | Var (_, v) => OptionExt.toVector (f v)
+         | Const _ => Vector.fromList []
 
     fun stmtBinders f =
         fn Def (pat, _, _) => patBinders f pat
@@ -100,8 +102,10 @@ end = struct
     fun blockBinders f stmts = VectorExt.flatMap (stmtBinders f) stmts
 
     val exprPos =
-        fn Block (pos, _, _) => pos
-         | Triv (pos, _) => pos
+        fn Fn (pos, _) => pos
+         | Block (pos, _, _) => pos
+         | Var (pos, _) => pos
+         | Const (pos, _) => pos
 
     val stmtPos =
         fn Def (pat, _, _) => exprPos pat
@@ -120,20 +124,33 @@ end = struct
         of SOME c => contentToDoc c
          | NONE => PP.text "#<unbound>"
 
-    val trivToDoc =
+    val varToDoc =
         fn Lex cs  => PP.text cs
          | Dyn cs  => PP.text ("$" ^ cs)
-         | Const v => valueToDoc v
 
     val rec exprToDoc =
-        fn Block (_, stmts, expr) =>
-            PP.punctuate (PP.semi ^^ PP.line) (Vector.map stmtToDoc stmts) ^^
-                PP.semi <$> exprToDoc expr
-         | Triv (_, t) => trivToDoc t
+        fn Fn (_, methods) =>
+            PP.lBrace ^^
+                PP.nest 2 (PP.line ^^ PP.punctuate (PP.semi ^^ PP.line)
+                                                   (Vector.map methodToDoc methods)) <$>
+                    PP.rBrace
+         | Block (_, stmts, expr) =>
+            PP.lBrace ^^
+                PP.nest 2 (PP.line ^^ PP.punctuate (PP.semi ^^ PP.line)
+                                                   (Vector.map stmtToDoc stmts) ^^
+                               PP.semi <$> exprToDoc expr) <$>
+                        PP.rBrace
+         | Var (_, v)   => varToDoc v
+         | Const (_, c) => valueToDoc c
+
     and stmtToDoc =
         fn Def (pat, SOME guard, expr) =>
             exprToDoc pat <+> PP.text "|" <+> exprToDoc guard <+> PP.text "=" <+> exprToDoc expr
          | Def (pat, NONE, expr) =>
             exprToDoc pat <+> PP.text "=" <+> exprToDoc expr
          | Expr expr => exprToDoc expr
+
+    and methodToDoc =
+        fn Method (pat, NONE, body) =>
+            exprToDoc pat <+> PP.text "=>" <+> exprToDoc body
 end
