@@ -26,6 +26,9 @@ end = struct
                   | Def of cont * Env.t * Env.t * Value.var
                   | Halt
 
+    fun lookup lenv _ (Value.Lex name) = Env.lookup lenv name
+      | lookup _ denv (Value.Dyn name) = Env.lookup denv name
+
     fun eval cont lenv denv =
         fn Value.Block (_, stmts, expr) =>
            if Vector.length stmts = 0
@@ -34,14 +37,11 @@ end = struct
                     val denv = Env.pushBlock denv (Value.blockBinders Value.dynName stmts)
                 in exec (Stmt (cont, lenv, denv, stmts, 0, expr)) lenv denv (Vector.sub (stmts, 0))
                 end
-         | Value.Var (_, Value.Lex name) => continue (Env.lookup lenv name) cont
-         | Value.Var (_, Value.Dyn name) => continue (Env.lookup denv name) cont
+         | Value.Var (_, var) => continue (lookup lenv denv var) cont
          | Value.Const (_, v) => continue v cont
 
     and exec cont lenv denv =
-        fn Value.Def (Value.Var (_, var as Value.Lex _), NONE, expr) =>
-           eval (Def (cont, lenv, denv, var)) lenv denv expr
-         | Value.Def (Value.Var (_, var as Value.Dyn _), NONE, expr) =>
+        fn Value.Def (Value.Var (_, var), NONE, expr) =>
            eval (Def (cont, lenv, denv, var)) lenv denv expr
          | Value.Expr expr => eval cont lenv denv expr
 
@@ -52,12 +52,9 @@ end = struct
                then exec (Stmt (cont, lenv, denv, stmts, i, expr)) lenv denv (Vector.sub (stmts, i))
                else eval cont lenv denv expr
             end
-         | Def (cont, lenv, denv, Value.Lex name) =>
-            ( Value.initialize (Env.lookup lenv name) value
-            ; continue value cont )
-         | Def (cont, lenv, denv, Value.Dyn name) =>
-            ( Value.initialize (Env.lookup denv name) value
-            ; continue value cont )
+         | Def (cont, lenv, denv, var) =>
+            ( Value.initialize (lookup lenv denv var) value
+            ; continue value cont)
          | Halt => value
 
     fun interpret expr = eval Halt Env.empty Env.empty expr
