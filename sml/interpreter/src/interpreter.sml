@@ -1,29 +1,9 @@
 structure Interpreter :> sig
     val interpret : Value.expr -> Value.value
 end = struct
-    structure Env :> sig
-        type t
-
-        val empty : t
-        val pushBlock : t -> string vector -> t
-        val lookup : t -> string -> Value.value
-    end = struct
-        structure StringMap = BinaryMapFn(type ord_key = string
-                                          val compare = String.compare)
-
-        type t = Value.value StringMap.map
-
-        val empty = StringMap.empty
-
-        fun pushBlock env names =
-            Vector.foldl (fn (name, env) => StringMap.insert (env, name, Value.uninitialized ()))
-                         env names
-
-        fun lookup env name = StringMap.lookup (env, name)
-    end
-
-    datatype cont = Stmt of cont * Env.t * Env.t * Value.stmt vector * int * Value.expr
-                  | Def of cont * Env.t * Env.t * Value.var
+    datatype cont = Stmt of cont * Value.value Env.t * Value.value Env.t
+                          * Value.stmt vector * int * Value.expr
+                  | Def of cont * Value.value Env.t * Value.value Env.t * Value.var
                   | Halt
 
     fun lookup lenv _ (Value.Lex name) = Env.lookup lenv name
@@ -34,7 +14,9 @@ end = struct
            if Vector.length stmts = 0
            then eval cont lenv denv expr
            else let val lenv = Env.pushBlock lenv (Value.blockBinders Value.lexName stmts)
+                                             Value.uninitialized
                     val denv = Env.pushBlock denv (Value.blockBinders Value.dynName stmts)
+                                             Value.uninitialized
                 in exec (Stmt (cont, lenv, denv, stmts, 0, expr)) lenv denv (Vector.sub (stmts, 0))
                 end
          | Value.Var (_, var) => continue (lookup lenv denv var) cont
