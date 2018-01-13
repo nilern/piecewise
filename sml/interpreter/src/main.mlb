@@ -1,5 +1,6 @@
 local
     $(SML_LIB)/basis/basis.mlb
+    $(SML_LIB)/basis/mlton.mlb
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
     $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb (* TODO: More specific path(s) for this stuff *)
 
@@ -11,6 +12,7 @@ local
     ../../compiler/src/util/name.sml
 
     env.sml
+    dump.sml
     value.sml
 
     parser.grm.sig
