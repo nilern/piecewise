@@ -120,6 +120,7 @@ fun extractCall _ [e] = e
 
        | app of Value.expr
        | appItems of Value.expr list
+       | primCall of Value.expr
 
        | simple of Value.expr
 
@@ -153,7 +154,8 @@ stmt : expr EQ expr (Value.Def (expr1, NONE, expr2))
 
 expr : infix0 (infix0) *)
 
-expr : app (app)
+expr : app      (app)
+     | primCall (primCall)
 
 (*infix0 : infix0 OP0 infix1 (opCall infix0left OP0left OP0 infix0 infix1)
        | infix1            (infix1)
@@ -185,10 +187,9 @@ app : appItems (case List.rev appItems
 appItems : simple          ([simple])
          | appItems simple (simple :: appItems)
 
-(* primCall : PRIM app (Cst.FixE (Cst.Expr.PrimCall (PRIMleft, Primop.fromString PRIM,
-                                 Vector.fromList (List.rev app))))
+primCall : PRIM appItems (Value.PrimCall (PRIMleft, PRIM, VectorExt.fromListRev appItems))
 
-simple : LPAREN expr RPAREN (expr)
+(* simple : LPAREN expr RPAREN (expr)
        | LBRACKET stmtList RBRACKET
          (Cst.FixE (Cst.Expr.Fn (LBRACKETleft, NONE, Name.freshFromString "params",
                               Vector.fromList [(Cst.Prolog (Vector.fromList [], NONE),

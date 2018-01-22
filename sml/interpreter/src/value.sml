@@ -10,6 +10,7 @@ structure Value :> sig
 
     and expr = Fn of Pos.t * method vector
              | Call of Pos.t * expr * expr vector
+             | PrimCall of Pos.t * string * expr vector
              | Block of Pos.t * stmt vector * expr
              | Var of Pos.t * var
              | Const of Pos.t * value
@@ -49,6 +50,7 @@ end = struct
 
     datatype expr = Fn of Pos.t * method vector
                   | Call of Pos.t * expr * expr vector
+                  | PrimCall of Pos.t * string * expr vector
                   | Block of Pos.t * stmt vector * expr
                   | Var of Pos.t * var
                   | Const of Pos.t * value
@@ -97,6 +99,7 @@ end = struct
 
     fun patBinders f =
         fn Fn _ => Vector.fromList [] (* actually, illegal pattern *)
+         | PrimCall (_, _, args) => VectorExt.flatMap (patBinders f) args
          | Call (_, _, args) => VectorExt.flatMap (patBinders f) args
          | Block _ => Vector.fromList [] (* actually, illegal pattern *)
          | Var (_, v) => OptionExt.toVector (f v)
@@ -110,6 +113,7 @@ end = struct
 
     val exprPos =
         fn Fn (pos, _) => pos
+         | PrimCall (pos, _, _) => pos
          | Call (pos, _, _) => pos
          | Block (pos, _, _) => pos
          | Var (pos, _) => pos
@@ -154,6 +158,10 @@ end = struct
          | Call (_, callee, args) =>
             let fun step (arg, acc) = acc <+> exprToDoc arg
             in PP.parens (PP.align (Vector.foldl step (exprToDoc callee) args))
+            end
+         | PrimCall (_, opcode, args) =>
+            let fun step (arg, acc) = acc <+> exprToDoc arg
+            in PP.parens (PP.align (Vector.foldl step (PP.text ("__" ^ opcode)) args))
             end
          | Block (_, stmts, expr) =>
             PP.lBrace ^^

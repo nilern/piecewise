@@ -1,0 +1,6 @@
+tuple = {
+  (__rest vs) => __tupleFromSlice vs; # HACK: Eventually `vs` won't be guaranteed to be a slice.
+  vs fail =< vs # HACK: `fail` is not used and thus should be `_`
+};
+tuple a b = tuple 3 5;
+b

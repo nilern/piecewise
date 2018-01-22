@@ -6,9 +6,12 @@ end = struct
     type stmt = Value.stmt
 
     val wrap = Value.wrap
+    val force = Value.force
 
     datatype cont = Callee of cont * value Env.t * value Env.t * expr vector
                   | Arg of cont * value Env.t * value Env.t * expr vector * int * value * value list
+                  | PrimArg of cont * value Env.t * value Env.t * expr vector
+                             * int * string * value list
                   | Stmt of cont * value Env.t * value Env.t * stmt vector * int * expr
                   | Def of cont * value Env.t * value Env.t * Value.var
                   | Halt
@@ -32,13 +35,23 @@ end = struct
             continue (wrap (Value.Closure (methods, lenv))) dump cont
          | Value.Call (_, callee, args) =>
             eval dump (Callee (cont, lenv, denv, args)) lenv denv callee
+         | Value.PrimCall (_, opcode, args) =>
+            let val i = 0
+            in if i < Vector.length args
+               then let val cont = PrimArg (cont, lenv, denv, args, i, opcode, [])
+                    in eval dump cont lenv denv (Vector.sub (args, i))
+                    end
+               else primApply dump cont denv opcode (Vector.fromList [])
+            end
          | Value.Block (_, stmts, expr) =>
-            if Vector.length stmts = 0
-            then eval dump cont lenv denv expr
-            else let val (lenv, denv) = declare lenv denv stmts
-                 in exec dump (Stmt (cont, lenv, denv, stmts, 0, expr))
-                         lenv denv (Vector.sub (stmts, 0))
-                 end
+            let val i = 0
+            in if i < Vector.length stmts
+               then let val (lenv, denv) = declare lenv denv stmts
+                        val cont = Stmt (cont, lenv, denv, stmts, i, expr)
+                    in exec dump cont lenv denv (Vector.sub (stmts, i))
+                    end
+               else eval dump cont lenv denv expr
+            end
          | Value.Var (_, var) => continue (lookup dump lenv denv var) dump cont
          | Value.Const (_, v) => continue v dump cont
 
@@ -66,6 +79,17 @@ end = struct
                     in apply dump cont denv callee (wrap (Value.Tuple argv))
                     end
             end
+         | PrimArg (cont, lenv, denv, argExprs, i, opcode, argValues) =>
+            let val i = i + 1
+            in if i < Vector.length argExprs
+               then let val cont =
+                            PrimArg (cont, lenv, denv, argExprs, i, opcode, value :: argValues)
+                    in eval dump cont lenv denv (Vector.sub (argExprs, i))
+                    end
+               else let val argv = VectorExt.fromListRev (value :: argValues)
+                    in primApply dump cont denv opcode argv
+                    end
+            end
          | Stmt (cont, lenv, denv, stmts, i, expr) =>
             let val i = i + 1
             in if i < Vector.length stmts
@@ -83,13 +107,23 @@ end = struct
              | NONE => value)
 
     and apply dump cont denv callee args =
-        case Value.force callee
+        case force callee
         of SOME (Value.Closure (methods, lenv)) =>
             (case Vector.sub (methods, 0)
              of Value.Method (Value.Var (_, var), _, body) =>
                  let val (lenv, denv) = define lenv denv var args
                  in eval dump cont lenv denv body
                  end)
+
+    and primApply dump cont denv opcode argv =
+        case opcode
+        of "iAdd" =>
+            if Vector.length argv = 2
+            then case (force (Vector.sub (argv, 0)), force (Vector.sub (argv, 1)))
+                 of (SOME (Value.Int a), SOME (Value.Int b)) =>
+                     continue (Value.wrap (Value.Int (a + b))) dump cont
+                  | _ => raise Fail "primApply: arg types"
+            else raise Fail "primApply: argc"
 
     fun interpret expr = eval Dump.empty Halt Env.empty Env.empty expr
 end
