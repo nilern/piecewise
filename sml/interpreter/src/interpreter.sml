@@ -14,7 +14,9 @@ end = struct
                    | Arg of envs * expr vector * int * value * value list
                    | PrimArg of envs * expr vector * int * string * value list
                    | Stmt of envs * stmt vector * expr * int
+                   | Match of envs * (* HACK: *) envs ref * expr vector * expr * int * value
                    | Init of envs * Value.var
+                   | Def of Value.var
 
     fun lookup dump { lex = lenv, dyn = denv } =
         fn Value.Lex name => Env.lookup lenv name
@@ -29,6 +31,9 @@ end = struct
     fun declare { lex = lenv, dyn = denv } stmts =
         { lex = Env.pushBlock lenv (Value.blockBinders Value.lexName stmts) Value.uninitialized
         , dyn = Env.pushBlock denv (Value.blockBinders Value.dynName stmts) Value.uninitialized }
+
+    fun applyDeltas { lex = lenv, dyn = denv } { lex = lDelta, dyn = dDelta } =
+        { lex = Env.merge lenv lDelta, dyn = Env.merge denv dDelta }
 
     fun eval dump cont envs =
         fn Value.Fn (_, methods) =>
@@ -57,6 +62,7 @@ end = struct
 
     and exec dump cont envs =
         fn Value.Def (Value.Var (_, var), NONE, expr) =>
+           (* TODO: Use the `match`, `Match` etc. machinery here as well. *)
            eval dump (Init (envs, var) :: cont) envs expr
          | Value.Expr expr => eval dump cont envs expr
 
@@ -97,6 +103,18 @@ end = struct
                     end
                else eval dump cont envs expr
             end
+         | Match (envs, envDeltas, pats, body, i, seq) :: cont =>
+            let val i = i + 1
+            in if i < Vector.length pats
+               then let val SOME (Value.Slice (vs, _)) = force seq
+                        val seq = wrap (Value.Slice (vs, i))
+                        val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
+                    in match dump cont envs envDeltas (Vector.sub (pats, i)) seq
+                    end
+               else let val envs = applyDeltas envs (!envDeltas)
+                    in eval dump cont envs body
+                    end
+            end
          | Init (envs, var) :: cont =>
             ( Value.initialize (lookup dump envs var) value
             ; continue value dump cont)
@@ -109,12 +127,15 @@ end = struct
         case force callee
         of SOME (Value.Closure (methods, lenv)) =>
             let val Value.Method (pats, _, body) = Vector.sub (methods, 0)
-            in case Vector.sub (pats, 0)
-               of Value.Var (_, var) =>
-                   let val envs = { lex = lenv, dyn = denv }
-                       val envs = define envs var args
-                   in eval dump cont envs body
-                   end
+                val i = 0
+            in if i < Vector.length pats
+               then let val envs = { lex = lenv, dyn = denv }
+                        val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+                        val argSlice = wrap (Value.Slice (args, 0))
+                        val cont = Match (envs, envDeltas, pats, body, i, argSlice) :: cont
+                    in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
+                    end
+               else raise Fail "unimplemented"
             end
 
     and primApply dump cont denv opcode argv =
@@ -126,6 +147,15 @@ end = struct
                      continue (Value.wrap (Value.Int (a + b))) dump cont
                   | _ => raise Fail "primApply: arg types"
             else raise Fail "primApply: argc"
+
+    and match dump cont envs envDeltas pattern argSeq =
+        case pattern
+        of Value.Var (_, var) =>
+            let val SOME (Value.Slice (vs, i)) = force argSeq
+                val SOME (Value.Tuple vs) = force vs
+            in envDeltas := define (!envDeltas) var (Vector.sub (vs, i))
+             ; continue argSeq dump cont
+            end
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
 end

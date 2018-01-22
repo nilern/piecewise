@@ -6,6 +6,7 @@ structure Value :> sig
                      | Bool of bool
                      | String of string
                      | Tuple of value vector
+                     | Slice of value * int
                      | Closure of method vector * value Env.t
 
     and expr = Fn of Pos.t * method vector
@@ -69,6 +70,7 @@ end = struct
                 | Bool of bool
                 | String of string
                 | Tuple of value vector
+                | Slice of value * int
                 | Closure of method vector * value Env.t
 
     val wrap = Value o ref o Present
