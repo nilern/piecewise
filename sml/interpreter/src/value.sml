@@ -14,7 +14,7 @@ structure Value :> sig
              | Block of Pos.t * stmt vector * expr
              | Var of Pos.t * var
              | Const of Pos.t * value
-    and method = Method of expr * expr option * expr
+    and method = Method of expr vector * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
     and var = Lex of string
@@ -54,7 +54,7 @@ end = struct
                   | Block of Pos.t * stmt vector * expr
                   | Var of Pos.t * var
                   | Const of Pos.t * value
-    and method = Method of expr * expr option * expr
+    and method = Method of expr vector * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
     and var = Lex of string
@@ -180,6 +180,6 @@ end = struct
          | Expr expr => exprToDoc expr
 
     and methodToDoc =
-        fn Method (pat, NONE, body) =>
-            exprToDoc pat <+> PP.text "=>" <+> exprToDoc body
+        fn Method (pats, NONE, body) =>
+            (PP.punctuate PP.space (Vector.map exprToDoc pats)) <+> PP.text "=>" <+> exprToDoc body
 end

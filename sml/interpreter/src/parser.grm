@@ -1,4 +1,4 @@
-datatype block_item = MethodHeader of Value.expr * Value.expr option
+datatype block_item = MethodHeader of Value.expr vector * Value.expr option
                     | Stmt of Value.stmt
 
 (* HACK: raise Fail ... *)
@@ -14,16 +14,16 @@ local
       | parseBlockPrefix [] = (NONE, [])
 
     fun parseFn pos items =
-        let fun parseMethods (MethodHeader (pat, guard) :: items) =
+        let fun parseMethods (MethodHeader (pats, guard) :: items) =
                 (case parseBlockPrefix items
                  of (SOME (stmts, expr), tail) =>
                      let val method =
                              case stmts
                              of stmt :: _ =>
-                                 Value.Method (pat, guard,
+                                 Value.Method (pats, guard,
                                                Value.Block (Value.stmtPos stmt,
                                                             Vector.fromList stmts, expr))
-                              | [] => Value.Method (pat, guard, expr)
+                              | [] => Value.Method (pats, guard, expr)
                          val methods = case tail
                                        of _ :: _ => parseMethods tail
                                         | []     => []
@@ -240,6 +240,7 @@ mapPairs : ARROW                          ([])
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
 
-blockItemList : expr DARROW blockItemList (MethodHeader (expr, NONE) :: blockItemList)
+blockItemList : appItems DARROW blockItemList
+                (MethodHeader (VectorExt.fromListRev appItems, NONE) :: blockItemList)
               | stmt SEMI blockItemList   (Stmt stmt :: blockItemList)
               | stmt                      ([Stmt stmt])

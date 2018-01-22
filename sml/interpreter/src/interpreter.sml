@@ -13,7 +13,7 @@ end = struct
                   | PrimArg of cont * value Env.t * value Env.t * expr vector
                              * int * string * value list
                   | Stmt of cont * value Env.t * value Env.t * stmt vector * int * expr
-                  | Def of cont * value Env.t * value Env.t * Value.var
+                  | Init of cont * value Env.t * value Env.t * Value.var
                   | Halt
 
     fun lookup dump lenv denv =
@@ -57,7 +57,7 @@ end = struct
 
     and exec dump cont lenv denv =
         fn Value.Def (Value.Var (_, var), NONE, expr) =>
-           eval dump (Def (cont, lenv, denv, var)) lenv denv expr
+           eval dump (Init (cont, lenv, denv, var)) lenv denv expr
          | Value.Expr expr => eval dump cont lenv denv expr
 
     and continue value dump =
@@ -98,7 +98,7 @@ end = struct
                     end
                else eval dump cont lenv denv expr
             end
-         | Def (cont, lenv, denv, var) =>
+         | Init (cont, lenv, denv, var) =>
             ( Value.initialize (lookup dump lenv denv var) value
             ; continue value dump cont)
          | Halt =>
@@ -109,11 +109,13 @@ end = struct
     and apply dump cont denv callee args =
         case force callee
         of SOME (Value.Closure (methods, lenv)) =>
-            (case Vector.sub (methods, 0)
-             of Value.Method (Value.Var (_, var), _, body) =>
-                 let val (lenv, denv) = define lenv denv var args
-                 in eval dump cont lenv denv body
-                 end)
+            let val Value.Method (pats, _, body) = Vector.sub (methods, 0)
+            in case Vector.sub (pats, 0)
+               of Value.Var (_, var) =>
+                   let val (lenv, denv) = define lenv denv var args
+                   in eval dump cont lenv denv body
+                   end
+            end
 
     and primApply dump cont denv opcode argv =
         case opcode
