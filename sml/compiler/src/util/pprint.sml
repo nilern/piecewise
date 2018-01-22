@@ -17,6 +17,7 @@ signature PPRINT = sig
     val punctuate : doc -> doc vector -> doc
 
     val space : doc
+    val comma : doc
     val semi : doc
     val lParen : doc
     val rParen : doc
@@ -76,6 +77,7 @@ structure PPrint :> PPRINT = struct
     val empty = text ""
 
     val space = text " "
+    val comma = text ","
     val semi = text ";"
     val lParen = text "("
     val rParen = text ")"

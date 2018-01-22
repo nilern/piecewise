@@ -2,6 +2,7 @@ structure Env :> sig
     type 'a t
 
     val empty : 'a t
+    val insert : 'a t -> string -> 'a -> 'a t
     val pushBlock : 'a t -> string vector -> (unit -> 'a) -> 'a t
     val find : 'a t -> string -> 'a option
     val lookup : 'a t -> string -> 'a
@@ -12,6 +13,8 @@ end = struct
     type 'a t = 'a StringMap.map
 
     val empty = StringMap.empty
+
+    fun insert env name value = StringMap.insert (env, name, value)
 
     fun pushBlock env names create =
         Vector.foldl (fn (name, env) => StringMap.insert (env, name, create ()))

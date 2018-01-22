@@ -5,16 +5,19 @@ structure Value :> sig
                      | Char of char
                      | Bool of bool
                      | String of string
+                     | Tuple of value vector
+                     | Closure of method vector * value Env.t
 
-    datatype expr = Fn of Pos.t * method vector
-                  | Block of Pos.t * stmt vector * expr
-                  | Var of Pos.t * var
-                  | Const of Pos.t * value
+    and expr = Fn of Pos.t * method vector
+             | Call of Pos.t * expr * expr vector
+             | Block of Pos.t * stmt vector * expr
+             | Var of Pos.t * var
+             | Const of Pos.t * value
     and method = Method of expr * expr option * expr
     and stmt = Def of expr * expr option * expr
              | Expr of expr
     and var = Lex of string
-             | Dyn of string
+            | Dyn of string
 
     val wrap : content -> value
     val uninitialized : unit -> value
@@ -45,6 +48,7 @@ end = struct
     val op<$> = PPrint.<$>
 
     datatype expr = Fn of Pos.t * method vector
+                  | Call of Pos.t * expr * expr vector
                   | Block of Pos.t * stmt vector * expr
                   | Var of Pos.t * var
                   | Const of Pos.t * value
@@ -62,6 +66,8 @@ end = struct
                 | Char of char
                 | Bool of bool
                 | String of string
+                | Tuple of value vector
+                | Closure of method vector * value Env.t
 
     val wrap = Value o ref o Present
 
@@ -91,6 +97,7 @@ end = struct
 
     fun patBinders f =
         fn Fn _ => Vector.fromList [] (* actually, illegal pattern *)
+         | Call (_, _, args) => VectorExt.flatMap (patBinders f) args
          | Block _ => Vector.fromList [] (* actually, illegal pattern *)
          | Var (_, v) => OptionExt.toVector (f v)
          | Const _ => Vector.fromList []
@@ -103,6 +110,7 @@ end = struct
 
     val exprPos =
         fn Fn (pos, _) => pos
+         | Call (pos, _, _) => pos
          | Block (pos, _, _) => pos
          | Var (pos, _) => pos
          | Const (pos, _) => pos
@@ -111,18 +119,27 @@ end = struct
         fn Def (pat, _, _) => exprPos pat
          | Expr expr => exprPos expr
 
-    val contentToDoc =
-        fn Int n      => PP.int n
-         | Float n    => PP.real n
-         | Char c     => PP.text "'" ^^ PP.char c ^^ PP.text "'"
-         | Bool true  => PP.text "True"
-         | Bool false => PP.text "False"
-         | String cs  => PP.text ("\"" ^ cs ^ "\"")
+    local val trailingComma =
+              fn 1 => PP.comma
+               | _ => PP.empty
+    in fun contentToDoc content=
+           case content
+           of Int n      => PP.int n
+            | Float n    => PP.real n
+            | Char c     => PP.text "'" ^^ PP.char c ^^ PP.text "'"
+            | Bool true  => PP.text "True"
+            | Bool false => PP.text "False"
+            | String cs  => PP.text ("\"" ^ cs ^ "\"")
+            | Tuple vs   =>
+               PP.parens (PP.punctuate (PP.comma ^^ PP.space) (Vector.map valueToDoc vs)
+                          ^^ trailingComma (Vector.length vs))
+            | Closure _  => PP.text "#<fn>"
 
-    fun valueToDoc v =
-        case force v
-        of SOME c => contentToDoc c
-         | NONE => PP.text "#<unbound>"
+       and valueToDoc v =
+           case force v
+           of SOME c => contentToDoc c
+            | NONE => PP.text "#<unbound>"
+    end
 
     val varToDoc =
         fn Lex cs  => PP.text cs
@@ -134,6 +151,10 @@ end = struct
                 PP.nest 2 (PP.line ^^ PP.punctuate (PP.semi ^^ PP.line)
                                                    (Vector.map methodToDoc methods)) <$>
                     PP.rBrace
+         | Call (_, callee, args) =>
+            let fun step (arg, acc) = acc <+> exprToDoc arg
+            in PP.parens (PP.align (Vector.foldl step (exprToDoc callee) args))
+            end
          | Block (_, stmts, expr) =>
             PP.lBrace ^^
                 PP.nest 2 (PP.line ^^ PP.punctuate (PP.semi ^^ PP.line)

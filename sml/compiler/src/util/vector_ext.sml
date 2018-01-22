@@ -12,6 +12,7 @@ signature VECTOR_EXT = sig
 
     val empty : unit -> 'a vector
     val singleton : 'a -> 'a vector
+    val fromListRev : 'a list -> 'a vector
 
     val conj : 'a vector -> 'a -> 'a vector
     val prepend : 'a vector -> 'a -> 'a vector
@@ -42,6 +43,19 @@ structure VectorExt :> VECTOR_EXT = struct
 
     fun empty () = Vector.fromList []
     fun singleton v = Vector.fromList [v]
+
+    fun fromListRev vs =
+        let fun loop (v :: vs) index =
+                let val builder = loop vs (index + 1)
+                in #update builder (#lastIndex builder - index, v)
+                 ; builder
+                end
+              | loop [] index =
+                let val {done = done, update = update, sub = _} = MLton.Vector.create index
+                in { build = done, update = update, lastIndex = index - 1 }
+                end
+        in #build (loop vs 0) ()
+        end
 
     fun conj vs v =
         let val len = Vector.length vs

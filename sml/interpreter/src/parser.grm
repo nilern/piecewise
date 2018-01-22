@@ -115,9 +115,11 @@ fun extractCall _ [e] = e
        | infix5 of Cst.expr
        | infix6 of Cst.expr
        | infix7 of Cst.expr
-       | app of Cst.expr list
        | primCall of Cst.expr
        | simple of Cst.expr *)
+
+       | app of Value.expr
+       | appItems of Value.expr list
 
        | simple of Value.expr
 
@@ -151,7 +153,7 @@ stmt : expr EQ expr (Value.Def (expr1, NONE, expr2))
 
 expr : infix0 (infix0) *)
 
-expr : simple (simple)
+expr : app (app)
 
 (*infix0 : infix0 OP0 infix1 (opCall infix0left OP0left OP0 infix0 infix1)
        | infix1            (infix1)
@@ -173,12 +175,17 @@ infix7 : infix7 OP7 app
                    OP7 infix7 (extractCall appleft(List.rev app)))
        | app                (extractCall appleft(List.rev app))
        | infix7 OP7 primCall (opCall infix7left OP7left OP7 infix7 primCall)
-       | primCall            (primCall)
+       | primCall            (primCall) *)
 
-app : simple     ([simple])
-    | app simple (simple :: app)
+app : appItems (case List.rev appItems
+                of [simple] => simple
+                 | callee :: args => Value.Call (appItemsleft, callee, Vector.fromList args)
+                 | [] => raise Fail "unreachable")
 
-primCall : PRIM app (Cst.FixE (Cst.Expr.PrimCall (PRIMleft, Primop.fromString PRIM,
+appItems : simple          ([simple])
+         | appItems simple (simple :: appItems)
+
+(* primCall : PRIM app (Cst.FixE (Cst.Expr.PrimCall (PRIMleft, Primop.fromString PRIM,
                                  Vector.fromList (List.rev app))))
 
 simple : LPAREN expr RPAREN (expr)
