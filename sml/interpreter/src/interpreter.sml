@@ -14,9 +14,8 @@ end = struct
                    | Arg of envs * expr vector * int * value * value list
                    | PrimArg of envs * expr vector * int * string * value list
                    | Stmt of envs * stmt vector * expr * int
+                   | Def of envs * expr * expr option
                    | Match of envs * (* HACK: *) envs ref * expr vector * expr * int * value
-                   | Init of envs * Value.var
-                   | Def of Value.var
 
     fun lookup dump { lex = lenv, dyn = denv } =
         fn Value.Lex name => Env.lookup lenv name
@@ -68,9 +67,10 @@ end = struct
          | Value.Const (_, v) => continue v dump cont
 
     and exec dump cont envs =
-        fn Value.Def (Value.Var (_, var), NONE, expr) =>
-           (* TODO: Use the `match`, `Match` etc. machinery here as well. *)
-           eval dump (Init (envs, var) :: cont) envs expr
+        fn Value.Def (pat, guard, expr) =>
+            let val cont = Def (envs, pat, guard) :: cont
+            in eval dump cont envs expr
+            end
          | Value.Expr expr => eval dump cont envs expr
 
     and continue value dump =
@@ -110,6 +110,19 @@ end = struct
                     end
                else eval dump cont envs expr
             end
+         | Def (envs, pat, (* TODO: *) guard) :: cont =>
+            let val i = 0
+                val pats = Vector.fromList [pat]
+                val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+                (* HACK: Look at `cont` and create a 'sub-block' as the `body`: *)
+                val Stmt (_, stmts, expr, stmtIndex) :: _ = cont
+                val stmts = VectorSlice.vector (VectorSlice.slice (stmts, stmtIndex + 1, NONE))
+                val body = Value.Block (Pos.def, stmts, expr)
+                val tup = wrap (Value.Tuple (Vector.fromList [value]))
+                val seq = wrap (Value.Slice (tup, i))
+                val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
+            in match dump cont envs envDeltas pat seq
+            end
          | Match (envs, envDeltas, pats, body, i, seq) :: cont =>
             let val i = i + 1
             in if i < Vector.length pats
@@ -118,12 +131,11 @@ end = struct
                         val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) seq
                     end
-               else ( define envs (!envDeltas)
+               else (* TODO: The `define` needs a `cont` ctor of its own when nested patterns are
+                             implemented: *)
+                    ( define envs (!envDeltas)
                     ; eval dump cont envs body )
             end
-         | Init (envs, var) :: cont =>
-            ( Value.initialize (lookup dump envs var) value
-            ; continue value dump cont)
          | [] =>
            (case Dump.pop dump
             of SOME (cont', dump') => continue value dump' cont'
@@ -137,7 +149,7 @@ end = struct
             in if i < Vector.length pats
                then let val envs = declareParams { lex = lenv, dyn = denv } pats
                         val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
-                        val argSlice = wrap (Value.Slice (args, 0))
+                        val argSlice = wrap (Value.Slice (args, i))
                         val cont = Match (envs, envDeltas, pats, body, i, argSlice) :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
                     end
