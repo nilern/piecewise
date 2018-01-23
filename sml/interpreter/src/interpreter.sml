@@ -23,17 +23,24 @@ end = struct
          | Value.Dyn name => valOf (OptionExt.orElse (Env.find denv name)
                                                      (fn () => Dump.find dump name))
 
-    fun define { lex = lenv, dyn = denv } var value =
+    fun insert { lex = lenv, dyn = denv } var value =
         case var
         of Value.Lex name => { lex = Env.insert lenv name value, dyn = denv }
          | Value.Dyn name => { lex = lenv, dyn = Env.insert denv name value }
 
     fun declare { lex = lenv, dyn = denv } stmts =
-        { lex = Env.pushBlock lenv (Value.blockBinders Value.lexName stmts) Value.uninitialized
-        , dyn = Env.pushBlock denv (Value.blockBinders Value.dynName stmts) Value.uninitialized }
+        { lex = Env.declare lenv (Value.blockBinders Value.lexName stmts) Value.uninitialized
+        , dyn = Env.declare denv (Value.blockBinders Value.dynName stmts) Value.uninitialized }
 
-    fun applyDeltas { lex = lenv, dyn = denv } { lex = lDelta, dyn = dDelta } =
-        { lex = Env.merge lenv lDelta, dyn = Env.merge denv dDelta }
+    fun declareParams { lex = lenv, dyn = denv } pats =
+        { lex = Env.declare lenv (VectorExt.flatMap (Value.patBinders Value.lexName) pats)
+                            Value.uninitialized
+        , dyn = Env.declare denv (VectorExt.flatMap (Value.patBinders Value.dynName) pats)
+                            Value.uninitialized }
+
+    fun define { lex = lenv, dyn = denv } { lex = lDelta, dyn = dDelta } =
+        ( Env.define lenv lDelta Value.initialize
+        ; Env.define denv dDelta Value.initialize )
 
     fun eval dump cont envs =
         fn Value.Fn (_, methods) =>
@@ -111,9 +118,8 @@ end = struct
                         val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) seq
                     end
-               else let val envs = applyDeltas envs (!envDeltas)
-                    in eval dump cont envs body
-                    end
+               else ( define envs (!envDeltas)
+                    ; eval dump cont envs body )
             end
          | Init (envs, var) :: cont =>
             ( Value.initialize (lookup dump envs var) value
@@ -129,7 +135,7 @@ end = struct
             let val Value.Method (pats, _, body) = Vector.sub (methods, 0)
                 val i = 0
             in if i < Vector.length pats
-               then let val envs = { lex = lenv, dyn = denv }
+               then let val envs = declareParams { lex = lenv, dyn = denv } pats
                         val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                         val argSlice = wrap (Value.Slice (args, 0))
                         val cont = Match (envs, envDeltas, pats, body, i, argSlice) :: cont
@@ -153,7 +159,7 @@ end = struct
         of Value.Var (_, var) =>
             let val SOME (Value.Slice (vs, i)) = force argSeq
                 val SOME (Value.Tuple vs) = force vs
-            in envDeltas := define (!envDeltas) var (Vector.sub (vs, i))
+            in envDeltas := insert (!envDeltas) var (Vector.sub (vs, i))
              ; continue argSeq dump cont
             end
 
