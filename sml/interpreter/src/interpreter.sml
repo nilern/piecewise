@@ -1,6 +1,8 @@
 structure Interpreter :> sig
     val interpret : Value.expr -> Value.value
 end = struct
+    structure Prim = Primops
+
     type value = Value.value
     type expr = Value.expr
     type stmt = Value.stmt
@@ -159,15 +161,7 @@ end = struct
                else raise Fail "unimplemented"
             end
 
-    and primApply dump cont denv opcode argv =
-        case opcode
-        of "iAdd" =>
-            if Vector.length argv = 2
-            then case (force (Vector.sub (argv, 0)), force (Vector.sub (argv, 1)))
-                 of (SOME (Value.Int a), SOME (Value.Int b)) =>
-                     continue (Value.wrap (Value.Int (a + b))) dump cont
-                  | _ => raise Fail "__iAdd: arg types"
-            else raise Fail "__iAdd: argc"
+    and primApply dump cont denv opcode argv = continue (Prim.applyPure opcode argv) dump cont
 
     and match dump cont envs envDeltas pattern argSeq =
         case pattern
@@ -180,28 +174,11 @@ end = struct
              ; continue argSeq dump cont
             end
          | Value.PrimCall (_, opcode, params) =>
-            let val SOME (innerArgSeq, outerArgSeq) = primUnApply opcode params argSeq
+            let val paramCount = Vector.length params
+                val SOME (innerArgSeq, outerArgSeq) = Prim.unApply opcode argSeq paramCount
                 val cont = OuterMatch outerArgSeq :: cont
             in match dump cont envs envDeltas (Vector.sub (params, 0)) innerArgSeq
             end
-
-    and primUnApply opcode params argSeq =
-        case opcode
-        of "rest" =>
-           if Vector.length params = 1
-           then case force argSeq
-                of SOME (Value.Slice (args, i)) =>
-                    (case force args
-                     of SOME (Value.Tuple argv) =>
-                         let val innerArgs = wrap (Value.Tuple (Vector.fromList [argSeq]))
-                         in SOME (wrap (Value.Slice (innerArgs, 0)),
-                                  wrap (Value.Slice (args, Vector.length argv)))
-                         end
-                      | SOME _ => raise Fail "__rest: arg types"
-                      | NONE => raise Fail "__rest: uninitialized")
-                 | SOME _ => raise Fail "__rest: arg types"
-                 | NONE => raise Fail "__rest: uninitialized"
-           else raise Fail "__rest: argc"
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
 end
