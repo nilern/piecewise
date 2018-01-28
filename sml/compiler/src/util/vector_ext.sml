@@ -8,6 +8,11 @@ signature VECTOR_EXT = sig
         val build : 'a t -> 'a vector
     end
 
+    type 'a builder = { done : unit -> 'a vector
+                      , sub : int -> 'a
+                      , update : int * 'a -> unit }
+    val builder : int -> 'a builder
+
     val toList : 'a vector -> 'a list
 
     val empty : unit -> 'a vector
@@ -16,6 +21,8 @@ signature VECTOR_EXT = sig
 
     val conj : 'a vector -> 'a -> 'a vector
     val prepend : 'a vector -> 'a -> 'a vector
+
+    val uncons : 'a vector -> ('a * 'a VectorSlice.slice) option
 
     val concat : 'a vector -> 'a vector -> 'a vector
     val flatten : 'a vector vector -> 'a vector
@@ -38,6 +45,11 @@ structure VectorExt :> VECTOR_EXT = struct
 
         fun build builder = Vector.fromList (List.rev (!builder))
     end
+
+    type 'a builder = { done : unit -> 'a vector
+                      , sub : int -> 'a
+                      , update : int * 'a -> unit }
+    val builder = MLton.Vector.create
 
     fun toList vec = Vector.foldr op:: [] vec
 
@@ -67,6 +79,11 @@ structure VectorExt :> VECTOR_EXT = struct
         let val len = Vector.length vs
         in Vector.tabulate (len + 1, fn 0 => v | i => Vector.sub(vs, i - 1))
         end
+
+    fun uncons vec =
+        if Vector.length vec > 0
+        then SOME (Vector.sub (vec, 0), VectorSlice.slice (vec, 1, NONE))
+        else NONE
 
     fun concat u v = Vector.concat [u, v]
     fun flatten vv = Vector.foldl (fn (v, acc) => concat v acc) (empty ()) vv

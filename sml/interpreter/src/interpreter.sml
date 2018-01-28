@@ -16,7 +16,7 @@ end = struct
                       | Opcode of string
 
     datatype frame = Callee of envs * expr vector
-                   | Arg of envs * expr vector * int * callable * value list
+                   | Arg of envs * expr VectorSlice.slice * callable * value VectorExt.builder
                    | Stmt of envs * stmt vector * expr * int
                    | Def of envs * expr * expr option
                    | Match of envs * (* HACK: *) envs ref * expr vector * int
@@ -53,13 +53,13 @@ end = struct
          | Value.Call (_, callee, args) =>
             eval dump (Callee (envs, args) :: cont) envs callee
          | Value.PrimCall (_, opcode, args) =>
-            let val i = 0
-            in if i < Vector.length args
-               then let val cont = Arg (envs, args, i, Opcode opcode, []) :: cont
-                    in eval dump cont envs (Vector.sub (args, i))
-                    end
-               else primApply dump cont (#dyn envs) opcode (Vector.fromList [])
-            end
+            (case VectorExt.uncons args
+             of SOME (argExpr, remArgs) =>
+                 let val argsBuilder = VectorExt.builder (Vector.length args)
+                     val cont = Arg (envs, remArgs, Opcode opcode, argsBuilder) :: cont
+                 in eval dump cont envs argExpr
+                 end
+              | NONE => primApply dump cont (#dyn envs) opcode #[])
          | Value.Block (_, stmts, expr) =>
             let val i = 0
             in if i < Vector.length stmts
@@ -81,25 +81,26 @@ end = struct
 
     and continue value dump =
         fn Callee (envs, argExprs) :: cont =>
-            let val i = 0
-            in if i < Vector.length argExprs
-               then let val cont = Arg (envs, argExprs, i, Value value, []) :: cont
-                    in eval dump cont envs (Vector.sub (argExprs, i))
-                    end
-               else apply dump cont (#dyn envs) value (wrap (Value.Tuple (Vector.fromList [])))
-            end
-         | Arg (envs, argExprs, i, callee, argValues) :: cont =>
-            let val i = i + 1
-            in if i < Vector.length argExprs
-               then let val cont = Arg (envs, argExprs, i, callee, value :: argValues) :: cont
-                    in eval dump cont envs (Vector.sub (argExprs, i))
-                    end
-               else let val argv = VectorExt.fromListRev (value :: argValues)
-                    in case callee
-                       of Value f => apply dump cont (#dyn envs) f (wrap (Value.Tuple argv))
-                        | Opcode opcode => primApply dump cont (#dyn envs) opcode argv
-                    end
-            end
+            (case VectorExt.uncons argExprs
+             of SOME (argExpr, remArgExprs) =>
+                 let val argsBuilder = VectorExt.builder (Vector.length argExprs)
+                     val cont = Arg (envs, remArgExprs, Value value, argsBuilder) :: cont
+                 in eval dump cont envs argExpr
+                 end
+              | NONE => apply dump cont (#dyn envs) value (wrap (Value.Tuple #[])))
+         | Arg (envs, argExprs, callee, argsBuilder) :: cont =>
+            ( #update argsBuilder (#2 (VectorSlice.base argExprs) - 1, value)
+            ; case VectorSliceExt.uncons argExprs
+              of SOME (argExpr, remArgExprs) =>
+                  let val cont = Arg (envs, remArgExprs, callee, argsBuilder) :: cont
+                  in eval dump cont envs argExpr
+                  end
+               | NONE =>
+                  let val argv = #done argsBuilder ()
+                  in case callee
+                     of Value f => apply dump cont (#dyn envs) f (wrap (Value.Tuple argv))
+                      | Opcode opcode => primApply dump cont (#dyn envs) opcode argv
+                  end)
          | Stmt (envs, stmts, expr, i) :: cont =>
             let val i = i + 1
             in if i < Vector.length stmts
