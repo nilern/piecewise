@@ -21,7 +21,8 @@ end = struct
                    | Def of envs * expr * expr option
                    | Match of envs * (* HACK: *) envs ref * expr vector * int
                    | OuterMatch of value
-                   | Commit of envs * (* HACK: *) envs ref * expr
+                   | Commit of envs * (* HACK: *) envs ref
+                   | Body of envs * expr
 
     fun lookup dump { lex = lenv, dyn = denv } =
         fn Value.Lex name => Env.lookup lenv name
@@ -110,15 +111,9 @@ end = struct
                else eval dump cont envs expr
             end
          | Def (envs, pat, (* TODO: *) guard) :: cont =>
-            let val i = 0
-                val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
-                (* HACK: Look at `cont` and create a 'sub-block' as the `body`: *)
-                val Stmt (_, stmts, expr, stmtIndex) :: _ = cont
-                val stmts = VectorSlice.vector (VectorSlice.slice (stmts, stmtIndex + 1, NONE))
-                val body = Value.Block (Pos.def, stmts, expr)
-                val tup = wrap (Value.Tuple (Vector.fromList [value]))
-                val seq = wrap (Value.Slice (tup, i))
-                val cont = Commit (envs, envDeltas, body) :: cont
+            let val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+                val seq = wrap (Value.Slice (wrap (Value.Tuple #[value]), 0))
+                val cont = Commit (envs, envDeltas) :: cont
             in match dump cont envs envDeltas pat seq
             end
          | Match (envs, envDeltas, pats, i) :: cont =>
@@ -130,14 +125,15 @@ end = struct
                else continue value dump cont
             end
          | OuterMatch argSeq :: cont => continue argSeq dump cont
-         | Commit (envs, envDeltas, body) :: cont =>
-           (* TODO: Check that value is an empty seq *)
-           ( define envs (!envDeltas)
-           ; eval dump cont envs body )
+         | Commit (envs, envDeltas) :: cont =>
+            (* TODO: Check that value is an empty seq *)
+            ( define envs (!envDeltas)
+            ; continue value dump cont )
+         | Body (envs, body) :: cont => eval dump cont envs body
          | [] =>
-           (case Dump.pop dump
-            of SOME (cont', dump') => continue value dump' cont'
-             | NONE => value)
+            (case Dump.pop dump
+             of SOME (cont', dump') => continue value dump' cont'
+              | NONE => value)
 
     and apply dump cont denv callee args =
         case force callee
@@ -149,8 +145,7 @@ end = struct
                         val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                         val argSlice = wrap (Value.Slice (args, i))
                         val cont = Match (envs, envDeltas, pats, i)
-                                   :: Commit (envs, envDeltas, body)
-                                   :: cont
+                                   :: Commit (envs, envDeltas) :: Body (envs, body) :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
                     end
                else raise Fail "unimplemented"
