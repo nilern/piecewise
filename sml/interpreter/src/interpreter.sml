@@ -12,9 +12,11 @@ end = struct
 
     type envs = { lex: value Env.t, dyn: value Env.t }
 
+    datatype callable = Value of value
+                      | Opcode of string
+
     datatype frame = Callee of envs * expr vector
-                   | Arg of envs * expr vector * int * value * value list
-                   | PrimArg of envs * expr vector * int * string * value list
+                   | Arg of envs * expr vector * int * callable * value list
                    | Stmt of envs * stmt vector * expr * int
                    | Def of envs * expr * expr option
                    | Match of envs * (* HACK: *) envs ref * expr vector * int
@@ -53,7 +55,7 @@ end = struct
          | Value.PrimCall (_, opcode, args) =>
             let val i = 0
             in if i < Vector.length args
-               then let val cont = PrimArg (envs, args, i, opcode, []) :: cont
+               then let val cont = Arg (envs, args, i, Opcode opcode, []) :: cont
                     in eval dump cont envs (Vector.sub (args, i))
                     end
                else primApply dump cont (#dyn envs) opcode (Vector.fromList [])
@@ -81,7 +83,7 @@ end = struct
         fn Callee (envs, argExprs) :: cont =>
             let val i = 0
             in if i < Vector.length argExprs
-               then let val cont = Arg (envs, argExprs, i, value, []) :: cont
+               then let val cont = Arg (envs, argExprs, i, Value value, []) :: cont
                     in eval dump cont envs (Vector.sub (argExprs, i))
                     end
                else apply dump cont (#dyn envs) value (wrap (Value.Tuple (Vector.fromList [])))
@@ -93,17 +95,9 @@ end = struct
                     in eval dump cont envs (Vector.sub (argExprs, i))
                     end
                else let val argv = VectorExt.fromListRev (value :: argValues)
-                    in apply dump cont (#dyn envs) callee (wrap (Value.Tuple argv))
-                    end
-            end
-         | PrimArg (envs, argExprs, i, opcode, argValues) :: cont =>
-            let val i = i + 1
-            in if i < Vector.length argExprs
-               then let val cont = PrimArg (envs, argExprs, i, opcode, value :: argValues) :: cont
-                    in eval dump cont envs (Vector.sub (argExprs, i))
-                    end
-               else let val argv = VectorExt.fromListRev (value :: argValues)
-                    in primApply dump cont (#dyn envs) opcode argv
+                    in case callee
+                       of Value f => apply dump cont (#dyn envs) f (wrap (Value.Tuple argv))
+                        | Opcode opcode => primApply dump cont (#dyn envs) opcode argv
                     end
             end
          | Stmt (envs, stmts, expr, i) :: cont =>
