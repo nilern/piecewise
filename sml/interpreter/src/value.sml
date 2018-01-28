@@ -21,10 +21,13 @@ structure Value :> sig
     and var = Lex of string
             | Dyn of string
 
+    exception ReadUninitialized of value
+
     val wrap : content -> value
     val uninitialized : unit -> value
     val initialize : value -> value -> unit
     val force : value -> content option
+    val forceExn : value -> content
 
     val lexName : var -> string option
     val dynName : var -> string option
@@ -73,6 +76,8 @@ end = struct
                 | Slice of value * int
                 | Closure of method vector * value Env.t
 
+    exception ReadUninitialized of value
+
     val wrap = Value o ref o Present
 
     fun uninitialized () = Value (ref Uninitialized)
@@ -85,11 +90,13 @@ end = struct
 
 
     (* TODO: Cycle detection to avoid infinite loops? *)
-    fun force (Value v) =
+    fun forceExn (value as Value v) =
         case !v
-        of Present c => SOME c
-         | Redirect v' => force v'
-         | Uninitialized => NONE
+        of Present c => c
+         | Redirect v' => forceExn v'
+         | Uninitialized => raise ReadUninitialized value
+
+    fun force v = SOME (forceExn v) handle ReadUninitialized _ => NONE
 
     val lexName =
         fn Lex name => SOME name
@@ -139,7 +146,7 @@ end = struct
             | Tuple vs   =>
                PP.parens (PP.punctuate (PP.comma ^^ PP.space) (Vector.map valueToDoc vs)
                           ^^ trailingComma (Vector.length vs))
-            | Slice (v, i) => PP.text "#<slice" <+> valueToDoc v <+> PP.int i ^^ PP.text ">" 
+            | Slice (v, i) => PP.text "#<slice" <+> valueToDoc v <+> PP.int i ^^ PP.text ">"
             | Closure _  => PP.text "#<fn>"
 
        and valueToDoc v =

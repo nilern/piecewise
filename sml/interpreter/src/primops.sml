@@ -1,35 +1,41 @@
 structure Primops :> sig
+    (* HACK: Using the generic `Fail` exception. *)
+
+    (* Apply primitive operation to arguments.
+       Raise `Uninitialized` if an the value of an uninitialized argument would be required. *)
     val applyPure : string -> Value.value vector -> Value.value
 
+    (* Match primitive pattern to a sequence and produce a new sequence of the given length.
+       Return the new sequence and the remainder of the matched sequence if successful.
+       Return none if the matched sequence was too short.
+       Raise `Uninitialized` if an the value of an uninitialized part of the sequence
+       would be required. *)
     val unApply : string -> Value.value -> int -> (Value.value * Value.value) option
 end = struct
-    val force = Value.force
+    val forceExn = Value.forceExn
     val wrap = Value.wrap
 
     fun applyPure opcode args =
         case opcode
         of "iAdd" =>
-            case Vector.map force args
-            of #[SOME (Value.Int a), SOME (Value.Int b)] => Value.wrap (Value.Int (a + b))
-             | #[SOME _, SOME _] => raise Fail "__iAdd: arg types"
-             | #[_, _] => raise Fail "__iAdd: uninitialized"
+            case Vector.map forceExn args
+            of #[Value.Int a, Value.Int b] => Value.wrap (Value.Int (a + b))
+             | #[_, _] => raise Fail "__iAdd: arg types"
              | _ => raise Fail "__iAdd: argc"
 
     fun unApply opcode argSeq patternCount =
         case opcode
         of "rest" =>
            if patternCount = 1
-           then case force argSeq
-                of SOME (Value.Slice (args, i)) =>
-                    (case force args
-                     of SOME (Value.Tuple argv) =>
+           then case forceExn argSeq
+                of Value.Slice (args, i) =>
+                    (case forceExn args
+                     of Value.Tuple argv =>
                          let val innerArgs = wrap (Value.Tuple (Vector.fromList [argSeq]))
                          in SOME (wrap (Value.Slice (innerArgs, 0)),
                                   wrap (Value.Slice (args, Vector.length argv)))
                          end
-                      | SOME _ => raise Fail "__rest: arg types"
-                      | NONE => raise Fail "__rest: uninitialized")
-                 | SOME _ => raise Fail "__rest: arg types"
-                 | NONE => raise Fail "__rest: uninitialized"
+                      | _ => raise Fail "__rest: arg types")
+                 | _ => raise Fail "__rest: arg types"
            else raise Fail "__rest: argc"
 end
