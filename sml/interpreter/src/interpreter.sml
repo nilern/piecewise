@@ -15,7 +15,8 @@ end = struct
                    | PrimArg of envs * expr vector * int * string * value list
                    | Stmt of envs * stmt vector * expr * int
                    | Def of envs * expr * expr option
-                   | Match of envs * (* HACK: *) envs ref * expr vector * int * value
+                   | Match of envs * (* HACK: *) envs ref * expr vector * int
+                   | OuterMatch of value
                    | Commit of envs * (* HACK: *) envs ref * expr
 
     fun lookup dump { lex = lenv, dyn = denv } =
@@ -123,17 +124,17 @@ end = struct
                 val cont = Commit (envs, envDeltas, body) :: cont
             in match dump cont envs envDeltas pat seq
             end
-         | Match (envs, envDeltas, pats, i, seq) :: cont =>
+         | Match (envs, envDeltas, pats, i) :: cont =>
             let val i = i + 1
             in if i < Vector.length pats
-               then let val SOME (Value.Slice (vs, _)) = force seq
-                        val seq = wrap (Value.Slice (vs, i))
-                        val cont = Match (envs, envDeltas, pats, i, seq) :: cont
-                    in match dump cont envs envDeltas (Vector.sub (pats, i)) seq
+               then let val cont = Match (envs, envDeltas, pats, i) :: cont
+                    in match dump cont envs envDeltas (Vector.sub (pats, i)) value
                     end
                else continue value dump cont
             end
+         | OuterMatch argSeq :: cont => continue argSeq dump cont
          | Commit (envs, envDeltas, body) :: cont =>
+           (* TODO: Check that value is an empty seq *)
            ( define envs (!envDeltas)
            ; eval dump cont envs body )
          | [] =>
@@ -150,7 +151,7 @@ end = struct
                then let val envs = declareParams { lex = lenv, dyn = denv } pats
                         val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                         val argSlice = wrap (Value.Slice (args, i))
-                        val cont = Match (envs, envDeltas, pats, i, argSlice)
+                        val cont = Match (envs, envDeltas, pats, i)
                                    :: Commit (envs, envDeltas, body)
                                    :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
@@ -165,17 +166,42 @@ end = struct
             then case (force (Vector.sub (argv, 0)), force (Vector.sub (argv, 1)))
                  of (SOME (Value.Int a), SOME (Value.Int b)) =>
                      continue (Value.wrap (Value.Int (a + b))) dump cont
-                  | _ => raise Fail "primApply: arg types"
-            else raise Fail "primApply: argc"
+                  | _ => raise Fail "__iAdd: arg types"
+            else raise Fail "__iAdd: argc"
 
     and match dump cont envs envDeltas pattern argSeq =
         case pattern
         of Value.Var (_, var) =>
-            let val SOME (Value.Slice (vs, i)) = force argSeq
-                val SOME (Value.Tuple vs) = force vs
-            in envDeltas := insert (!envDeltas) var (Vector.sub (vs, i))
+            let val SOME (Value.Slice (args, i)) = force argSeq
+                val SOME (Value.Tuple argv) = force args
+                val arg = Vector.sub (argv, i) (* TODO: Check that i < vvs.length *)
+                val argSeq = wrap (Value.Slice (args, i + 1))
+            in envDeltas := insert (!envDeltas) var arg
              ; continue argSeq dump cont
             end
+         | Value.PrimCall (_, opcode, params) =>
+            let val SOME (innerArgSeq, outerArgSeq) = primUnApply opcode params argSeq
+                val cont = OuterMatch outerArgSeq :: cont
+            in match dump cont envs envDeltas (Vector.sub (params, 0)) innerArgSeq
+            end
+
+    and primUnApply opcode params argSeq =
+        case opcode
+        of "rest" =>
+           if Vector.length params = 1
+           then case force argSeq
+                of SOME (Value.Slice (args, i)) =>
+                    (case force args
+                     of SOME (Value.Tuple argv) =>
+                         let val innerArgs = wrap (Value.Tuple (Vector.fromList [argSeq]))
+                         in SOME (wrap (Value.Slice (innerArgs, 0)),
+                                  wrap (Value.Slice (args, Vector.length argv)))
+                         end
+                      | SOME _ => raise Fail "__rest: arg types"
+                      | NONE => raise Fail "__rest: uninitialized")
+                 | SOME _ => raise Fail "__rest: arg types"
+                 | NONE => raise Fail "__rest: uninitialized"
+           else raise Fail "__rest: argc"
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
 end

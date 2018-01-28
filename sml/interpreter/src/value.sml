@@ -139,6 +139,7 @@ end = struct
             | Tuple vs   =>
                PP.parens (PP.punctuate (PP.comma ^^ PP.space) (Vector.map valueToDoc vs)
                           ^^ trailingComma (Vector.length vs))
+            | Slice (v, i) => PP.text "#<slice" <+> valueToDoc v <+> PP.int i ^^ PP.text ">" 
             | Closure _  => PP.text "#<fn>"
 
        and valueToDoc v =

@@ -196,7 +196,8 @@ primCall : PRIM appItems (Value.PrimCall (PRIMleft, PRIM, VectorExt.fromListRev 
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | datum (datum) *)
 
-simple : LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft blockItemList)
+simple : LPAREN expr RPAREN          (expr)
+       | LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft blockItemList)
        | id                          (Value.Var (idleft, id))
        | prim                        (Value.Const (primleft, Value.wrap prim))
 
