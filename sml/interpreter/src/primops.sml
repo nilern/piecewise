@@ -9,11 +9,11 @@ end = struct
     fun applyPure opcode args =
         case opcode
         of "iAdd" =>
-            if Vector.length args = 2
-            then case (force (Vector.sub (args, 0)), force (Vector.sub (args, 1)))
-                 of (SOME (Value.Int a), SOME (Value.Int b)) => Value.wrap (Value.Int (a + b))
-                  | _ => raise Fail "__iAdd: arg types"
-            else raise Fail "__iAdd: argc"
+            case Vector.map force args
+            of #[SOME (Value.Int a), SOME (Value.Int b)] => Value.wrap (Value.Int (a + b))
+             | #[SOME _, SOME _] => raise Fail "__iAdd: arg types"
+             | #[_, _] => raise Fail "__iAdd: uninitialized"
+             | _ => raise Fail "__iAdd: argc"
 
     fun unApply opcode argSeq patternCount =
         case opcode

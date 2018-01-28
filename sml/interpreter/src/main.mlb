@@ -1,26 +1,34 @@
-local
-    $(SML_LIB)/basis/basis.mlb
-    $(SML_LIB)/basis/mlton.mlb
-    $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
-    $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb (* TODO: More specific path(s) for this stuff *)
-
-    ../../compiler/src/util/pprint.sml
-    ../../compiler/src/util/option_ext.sml
-    ../../compiler/src/util/vector_ext.sml
-
-    ../../compiler/src/util/pos.sml
-    ../../compiler/src/util/name.sml
-
-    env.sml
-    dump.sml
-    value.sml
-    primops.sml
-
-    parser.grm.sig
-    parser.grm.sml
-    ../../compiler/src/pass/lexer.lex.sml
-
-    interpreter.sml
+ann "allowSuccessorML true"
 in
-    main.sml
+    local
+        $(SML_LIB)/basis/basis.mlb
+        $(SML_LIB)/basis/mlton.mlb
+        $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
+        $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb (* TODO: More specific path(s) for this stuff *)
+    in
+        ann "warnUnused true"
+        in
+            local
+                ../../compiler/src/util/pprint.sml
+                ../../compiler/src/util/option_ext.sml
+                ../../compiler/src/util/vector_ext.sml
+
+                ../../compiler/src/util/pos.sml
+                ../../compiler/src/util/name.sml
+
+                env.sml
+                dump.sml
+                value.sml
+                primops.sml
+
+                parser.grm.sig
+                parser.grm.sml
+                ../../compiler/src/pass/lexer.lex.sml
+
+                interpreter.sml
+            in
+                main.sml
+            end
+        end
+    end
 end
