@@ -15,7 +15,8 @@ end = struct
                    | PrimArg of envs * expr vector * int * string * value list
                    | Stmt of envs * stmt vector * expr * int
                    | Def of envs * expr * expr option
-                   | Match of envs * (* HACK: *) envs ref * expr vector * expr * int * value
+                   | Match of envs * (* HACK: *) envs ref * expr vector * int * value
+                   | Commit of envs * (* HACK: *) envs ref * expr
 
     fun lookup dump { lex = lenv, dyn = denv } =
         fn Value.Lex name => Env.lookup lenv name
@@ -112,7 +113,6 @@ end = struct
             end
          | Def (envs, pat, (* TODO: *) guard) :: cont =>
             let val i = 0
-                val pats = Vector.fromList [pat]
                 val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                 (* HACK: Look at `cont` and create a 'sub-block' as the `body`: *)
                 val Stmt (_, stmts, expr, stmtIndex) :: _ = cont
@@ -120,22 +120,22 @@ end = struct
                 val body = Value.Block (Pos.def, stmts, expr)
                 val tup = wrap (Value.Tuple (Vector.fromList [value]))
                 val seq = wrap (Value.Slice (tup, i))
-                val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
+                val cont = Commit (envs, envDeltas, body) :: cont
             in match dump cont envs envDeltas pat seq
             end
-         | Match (envs, envDeltas, pats, body, i, seq) :: cont =>
+         | Match (envs, envDeltas, pats, i, seq) :: cont =>
             let val i = i + 1
             in if i < Vector.length pats
                then let val SOME (Value.Slice (vs, _)) = force seq
                         val seq = wrap (Value.Slice (vs, i))
-                        val cont = Match (envs, envDeltas, pats, body, i, seq) :: cont
+                        val cont = Match (envs, envDeltas, pats, i, seq) :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) seq
                     end
-               else (* TODO: The `define` needs a `cont` ctor of its own when nested patterns are
-                             implemented: *)
-                    ( define envs (!envDeltas)
-                    ; eval dump cont envs body )
+               else continue value dump cont
             end
+         | Commit (envs, envDeltas, body) :: cont =>
+           ( define envs (!envDeltas)
+           ; eval dump cont envs body )
          | [] =>
            (case Dump.pop dump
             of SOME (cont', dump') => continue value dump' cont'
@@ -150,7 +150,9 @@ end = struct
                then let val envs = declareParams { lex = lenv, dyn = denv } pats
                         val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                         val argSlice = wrap (Value.Slice (args, i))
-                        val cont = Match (envs, envDeltas, pats, body, i, argSlice) :: cont
+                        val cont = Match (envs, envDeltas, pats, i, argSlice)
+                                   :: Commit (envs, envDeltas, body)
+                                   :: cont
                     in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
                     end
                else raise Fail "unimplemented"
