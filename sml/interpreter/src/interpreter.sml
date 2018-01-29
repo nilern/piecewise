@@ -17,9 +17,9 @@ end = struct
 
     datatype frame = Callee of envs * expr vector
                    | Arg of envs * expr VectorSlice.slice * callable * value VectorExt.builder
-                   | Stmt of envs * stmt vector * expr * int
+                   | Stmt of envs * stmt VectorSlice.slice * expr
                    | Def of envs * expr * expr option
-                   | Match of envs * (* HACK: *) envs ref * expr vector * int
+                   | Match of envs * (* HACK: *) envs ref * expr VectorSlice.slice
                    | OuterMatch of value
                    | Commit of envs * (* HACK: *) envs ref
                    | Body of envs * expr
@@ -55,14 +55,13 @@ end = struct
             eval dump (Callee (envs, args) :: cont) envs callee
          | Value.PrimCall (_, opcode, args) => evalArgs dump cont envs (Opcode opcode) args
          | Value.Block (_, stmts, expr) =>
-            let val i = 0
-            in if i < Vector.length stmts
-               then let val envs = declare envs stmts
-                        val cont = Stmt (envs, stmts, expr, i) :: cont
-                    in exec dump cont envs (Vector.sub (stmts, i))
-                    end
-               else eval dump cont envs expr
-            end
+            (case VectorExt.uncons stmts
+             of SOME (stmt, remStmts) =>
+                 let val envs = declare envs stmts
+                     val cont = Stmt (envs, remStmts, expr) :: cont
+                 in exec dump cont envs stmt
+                 end
+              | NONE => eval dump cont envs expr)
          | Value.Var (_, var) => continue (lookup dump envs var) dump cont
          | Value.Const (_, v) => continue v dump cont
 
@@ -92,31 +91,29 @@ end = struct
                   in eval dump cont envs argExpr
                   end
                | NONE => applyAny dump cont (#dyn envs) callee (#done argsBuilder ()))
-         | Stmt (envs, stmts, expr, i) :: cont =>
-            let val i = i + 1
-            in if i < Vector.length stmts
-               then let val cont = Stmt (envs, stmts, expr, i) :: cont
-                    in exec dump cont envs (Vector.sub (stmts, i))
-                    end
-               else eval dump cont envs expr
-            end
+         | Stmt (envs, stmts, expr) :: cont =>
+            (case VectorSliceExt.uncons stmts
+             of SOME (stmt, remStmts) =>
+                 let val cont = Stmt (envs, remStmts, expr) :: cont
+                 in exec dump cont envs stmt
+                 end
+              | NONE => eval dump cont envs expr)
          | Def (envs, pat, (* TODO: *) guard) :: cont =>
             let val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                 val seq = wrap (Value.Slice (wrap (Value.Tuple #[value]), 0))
                 val cont = Commit (envs, envDeltas) :: cont
             in match dump cont envs envDeltas pat seq
             end
-         | Match (envs, envDeltas, pats, i) :: cont =>
-            let val i = i + 1
-            in if i < Vector.length pats
-               then let val cont = Match (envs, envDeltas, pats, i) :: cont
-                    in match dump cont envs envDeltas (Vector.sub (pats, i)) value
-                    end
-               else continue value dump cont
-            end
+         | Match (envs, envDeltas, pats) :: cont =>
+            (case VectorSliceExt.uncons pats
+             of SOME (pat, remPats) =>
+                 let val cont = Match (envs, envDeltas, remPats) :: cont
+                 in match dump cont envs envDeltas pat value
+                 end
+              | NONE => continue value dump cont)
          | OuterMatch argSeq :: cont => continue argSeq dump cont
          | Commit (envs, envDeltas) :: cont =>
-            (* TODO: Check that value is an empty seq *)
+            (* TODO: Check that `value` is an empty seq *)
             ( define envs (!envDeltas)
             ; continue value dump cont )
          | Body (envs, body) :: cont => eval dump cont envs body
@@ -134,16 +131,16 @@ end = struct
         case force callee
         of SOME (Value.Closure (methods, lenv)) =>
             let val Value.Method (pats, _, body) = Vector.sub (methods, 0)
-                val i = 0
-            in if i < Vector.length pats
-               then let val envs = declareParams { lex = lenv, dyn = denv } pats
-                        val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
-                        val argSlice = wrap (Value.Slice (args, i))
-                        val cont = Match (envs, envDeltas, pats, i)
-                                   :: Commit (envs, envDeltas) :: Body (envs, body) :: cont
-                    in match dump cont envs envDeltas (Vector.sub (pats, i)) argSlice
-                    end
-               else raise Fail "unimplemented"
+            in case VectorExt.uncons pats
+               of SOME (pat, remPats) =>
+                   let val envs = declareParams { lex = lenv, dyn = denv } pats
+                       val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+                       val argSlice = wrap (Value.Slice (args, 0))
+                       val cont = Match (envs, envDeltas, remPats)
+                                  :: Commit (envs, envDeltas) :: Body (envs, body) :: cont
+                   in match dump cont envs envDeltas pat argSlice
+                   end
+                | NONE => raise Fail "unimplemented"
             end
 
     and primApply dump cont denv opcode argv = continue (Prim.applyPure opcode argv) dump cont
