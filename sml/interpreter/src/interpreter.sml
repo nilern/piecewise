@@ -156,9 +156,13 @@ end = struct
          | Value.PrimCall (_, opcode, innerPats) =>
             (case Prim.unApply opcode argSeq (Vector.length innerPats)
              of SOME (innerArgSeq, outerArgSeq) =>
-                 let val cont = OuterMatch outerArgSeq :: cont
-                 in match dump cont envs envDeltas (Vector.sub (innerPats, 0)) innerArgSeq
-                 end
+                 (case VectorExt.uncons innerPats
+                  of SOME (pat, remPats) =>
+                      let val cont = Match (envs, envDeltas, remPats)
+                                     :: OuterMatch outerArgSeq :: cont
+                      in match dump cont envs envDeltas pat innerArgSeq
+                      end
+                   | NONE => raise Fail "unimplemented")
               | NONE => raise Fail "unimplemented")
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
