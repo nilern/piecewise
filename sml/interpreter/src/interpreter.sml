@@ -148,19 +148,18 @@ end = struct
     and match dump cont envs envDeltas pattern argSeq =
         case pattern
         of Value.Var (_, var) =>
-            let val SOME (Value.Slice (args, i)) = force argSeq
-                val SOME (Value.Tuple argv) = force args
-                val arg = Vector.sub (argv, i) (* TODO: Check that i < vvs.length *)
-                val argSeq = wrap (Value.Slice (args, i + 1))
-            in envDeltas := insert (!envDeltas) var arg
-             ; continue argSeq dump cont
-            end
-         | Value.PrimCall (_, opcode, params) =>
-            let val paramCount = Vector.length params
-                val SOME (innerArgSeq, outerArgSeq) = Prim.unApply opcode argSeq paramCount
-                val cont = OuterMatch outerArgSeq :: cont
-            in match dump cont envs envDeltas (Vector.sub (params, 0)) innerArgSeq
-            end
+            (case Prim.slicePopFront argSeq
+             of SOME (arg, remArgs) =>
+                 ( envDeltas := insert (!envDeltas) var arg
+                 ; continue remArgs dump cont )
+              | NONE => raise Fail "unimplemented")
+         | Value.PrimCall (_, opcode, innerPats) =>
+            (case Prim.unApply opcode argSeq (Vector.length innerPats)
+             of SOME (innerArgSeq, outerArgSeq) =>
+                 let val cont = OuterMatch outerArgSeq :: cont
+                 in match dump cont envs envDeltas (Vector.sub (innerPats, 0)) innerArgSeq
+                 end
+              | NONE => raise Fail "unimplemented")
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
 end

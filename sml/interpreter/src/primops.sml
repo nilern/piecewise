@@ -11,6 +11,8 @@ structure Primops :> sig
        Raise `Uninitialized` if an the value of an uninitialized part of the sequence
        would be required. *)
     val unApply : string -> Value.value -> int -> (Value.value * Value.value) option
+
+    val slicePopFront : Value.value -> (Value.value * Value.value) option
 end = struct
     val forceExn = Value.forceExn
     val wrap = Value.wrap
@@ -38,4 +40,15 @@ end = struct
                       | _ => raise Fail "__rest: arg types")
                  | _ => raise Fail "__rest: arg types"
            else raise Fail "__rest: argc"
+
+    fun slicePopFront value =
+        case forceExn value
+        of Value.Slice (base, i) =>
+            (case forceExn base
+             of Value.Tuple vs =>
+                 if i < Vector.length vs
+                 then SOME (Vector.sub (vs, i), wrap (Value.Slice (base, i + 1)))
+                 else NONE
+              | _ => raise Fail "slicePopFront: arg types")
+         | _ => raise Fail "slicePopFront: arg types"
 end
