@@ -43,8 +43,10 @@ end = struct
                 end
         in
             loop lexer
-            (* handle *)
         end
+        handle
+            Interpreter.Panic exn =>
+                print ("Panic: " ^ (PPrint.pretty 80 (Value.valueToDoc exn)))
 end
 
 val _ = Parser.parse ()

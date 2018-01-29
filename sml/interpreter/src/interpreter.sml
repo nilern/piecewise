@@ -1,4 +1,6 @@
 structure Interpreter :> sig
+    exception Panic of Value.value
+
     val interpret : Value.expr -> Value.value
 end = struct
     structure Prim = Primops
@@ -9,6 +11,9 @@ end = struct
 
     val wrap = Value.wrap
     val force = Value.force
+    val forceExn = Value.forceExn
+
+    exception Panic of Value.value
 
     type envs = { lex: value Env.t, dyn: value Env.t }
 
@@ -111,7 +116,9 @@ end = struct
                  in match dump cont envs envDeltas pat value
                  end
               | NONE => continue value dump cont)
-         | OuterMatch argSeq :: cont => continue argSeq dump cont
+         | OuterMatch argSeq :: cont =>
+            (* TODO: Check that `value` is an empty seq *)
+            continue argSeq dump cont
          | Commit (envs, envDeltas) :: cont =>
             (* TODO: Check that `value` is an empty seq *)
             ( define envs (!envDeltas)
@@ -143,17 +150,24 @@ end = struct
                 | NONE => raise Fail "unimplemented"
             end
 
-    and primApply dump cont denv opcode argv = continue (Prim.applyPure opcode argv) dump cont
+    and primApply dump cont denv opcode argv =
+        case opcode
+        of "panic" =>
+           (case argv
+            of #[exn] => raise Panic exn
+             | _ => raise Fail "__panic: argc")
+         | _ => continue (Prim.applyPure opcode argv) dump cont
 
     and match dump cont envs envDeltas pattern argSeq =
+        (* MAYBE: Make it possible to resume the match when Argc is signaled? *)
         case pattern
-        of Value.Var (_, var) =>
+        of Value.Var (pos, var) =>
             (case Prim.slicePopFront argSeq
              of SOME (arg, remArgs) =>
                  ( envDeltas := insert (!envDeltas) var arg
                  ; continue remArgs dump cont )
-              | NONE => raise Fail "unimplemented")
-         | Value.PrimCall (_, opcode, innerPats) =>
+              | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
+         | Value.PrimCall (pos, opcode, innerPats) =>
             (case Prim.unApply opcode argSeq (Vector.length innerPats)
              of SOME (innerArgSeq, outerArgSeq) =>
                  (case VectorExt.uncons innerPats
@@ -163,7 +177,18 @@ end = struct
                       in match dump cont envs envDeltas pat innerArgSeq
                       end
                    | NONE => raise Fail "unimplemented")
-              | NONE => raise Fail "unimplemented")
+              | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
+
+    and signal dump cont envs tag pos =
+        let val handler = lookup dump envs (Value.Dyn "handleException")
+            val exn = wrap (Value.Tuple #[tag,
+                                          wrap (Value.String (#file pos)),
+                                          wrap (Value.Int (#index pos)),
+                                          wrap (Value.Int (#line pos)),
+                                          wrap (Value.Int (#col pos))])
+            val args = wrap (Value.Tuple #[exn])
+        in apply dump cont (#dyn envs) handler args
+        end
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
 end
