@@ -190,6 +190,8 @@ end = struct
          | Expr expr => exprToDoc expr
 
     and methodToDoc =
-        fn Method (pats, NONE, body) =>
-            (PP.punctuate PP.space (Vector.map exprToDoc pats)) <+> PP.text "=>" <+> exprToDoc body
+        fn (Method (pats, guard, body)) =>
+            (PP.punctuate PP.space (Vector.map exprToDoc pats))
+            <+> OptionExt.toDoc (fn expr => exprToDoc expr ^^ PP.space) guard ^^ (PP.text "=>")
+            <+> exprToDoc body
 end

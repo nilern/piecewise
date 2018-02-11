@@ -20,10 +20,11 @@ end = struct
     fun applyPure opcode args =
         case opcode
         of "iAdd" =>
-            case Vector.map forceExn args
-            of #[Value.Int a, Value.Int b] => Value.wrap (Value.Int (a + b))
-             | #[_, _] => raise Fail "__iAdd: arg types"
-             | _ => raise Fail "__iAdd: argc"
+            (case Vector.map forceExn args
+             of #[Value.Int a, Value.Int b] => Value.wrap (Value.Int (a + b))
+              | #[_, _] => raise Fail "__iAdd: arg types"
+              | _ => raise Fail "__iAdd: argc")
+         | _ => raise Fail ("tried to apply unknown opcode __" ^ opcode)
 
     fun unApply opcode argSeq patternCount =
         case opcode
@@ -40,6 +41,7 @@ end = struct
                       | _ => raise Fail "__rest: arg types")
                  | _ => raise Fail "__rest: arg types"
            else raise Fail "__rest: argc"
+        | _ => raise Fail ("tried to unapply unknown opcode __" ^ opcode)
 
     fun slicePopFront value =
         case forceExn value

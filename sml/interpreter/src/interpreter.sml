@@ -54,11 +54,11 @@ end = struct
         ; Env.define denv dDelta Value.initialize )
 
     fun eval dump cont envs =
-        fn Value.Fn (_, methods) =>
-            continue (wrap (Value.Closure (methods, #lex envs))) dump cont
+        fn Value.Fn (pos, methods) =>
+            continue pos (wrap (Value.Closure (methods, #lex envs))) dump cont
          | Value.Call (_, callee, args) =>
             eval dump (Callee (envs, args) :: cont) envs callee
-         | Value.PrimCall (_, opcode, args) => evalArgs dump cont envs (Opcode opcode) args
+         | Value.PrimCall (pos, opcode, args) => evalArgs pos dump cont envs (Opcode opcode) args
          | Value.Block (_, stmts, expr) =>
             (case VectorExt.uncons stmts
              of SOME (stmt, remStmts) =>
@@ -67,17 +67,17 @@ end = struct
                  in exec dump cont envs stmt
                  end
               | NONE => eval dump cont envs expr)
-         | Value.Var (_, var) => continue (lookup dump envs var) dump cont
-         | Value.Const (_, v) => continue v dump cont
+         | Value.Var (pos, var) => continue pos (lookup dump envs var) dump cont
+         | Value.Const (pos, v) => continue pos v dump cont
 
-    and evalArgs dump cont envs callee argExprs =
+    and evalArgs pos dump cont envs callee argExprs =
         case VectorExt.uncons argExprs
         of SOME (argExpr, remArgExprs) =>
             let val argsBuilder = VectorExt.builder (Vector.length argExprs)
                 val cont = Arg (envs, remArgExprs, callee, argsBuilder) :: cont
             in eval dump cont envs argExpr
             end
-         | NONE => applyAny dump cont (#dyn envs) callee #[]
+         | NONE => applyAny pos dump cont envs callee #[]
 
     and exec dump cont envs =
         fn Value.Def (pat, guard, expr) =>
@@ -86,8 +86,8 @@ end = struct
             end
          | Value.Expr expr => eval dump cont envs expr
 
-    and continue value dump =
-        fn Callee (envs, argExprs) :: cont => evalArgs dump cont envs (Value value) argExprs
+    and continue pos value dump =
+        fn Callee (envs, argExprs) :: cont => evalArgs pos dump cont envs (Value value) argExprs
          | Arg (envs, argExprs, callee, argsBuilder) :: cont =>
             ( #update argsBuilder (#2 (VectorSlice.base argExprs) - 1, value)
             ; case VectorSliceExt.uncons argExprs
@@ -95,7 +95,7 @@ end = struct
                   let val cont = Arg (envs, remArgExprs, callee, argsBuilder) :: cont
                   in eval dump cont envs argExpr
                   end
-               | NONE => applyAny dump cont (#dyn envs) callee (#done argsBuilder ()))
+               | NONE => applyAny pos dump cont envs callee (#done argsBuilder ()))
          | Stmt (envs, stmts, expr) :: cont =>
             (case VectorSliceExt.uncons stmts
              of SOME (stmt, remStmts) =>
@@ -115,32 +115,32 @@ end = struct
                  let val cont = Match (envs, envDeltas, remPats) :: cont
                  in match dump cont envs envDeltas pat value
                  end
-              | NONE => continue value dump cont)
+              | NONE => continue pos value dump cont)
          | OuterMatch argSeq :: cont =>
             (* TODO: Check that `value` is an empty seq *)
-            continue argSeq dump cont
+            continue pos argSeq dump cont
          | Commit (envs, envDeltas) :: cont =>
             (* TODO: Check that `value` is an empty seq *)
             ( define envs (!envDeltas)
-            ; continue value dump cont )
+            ; continue pos value dump cont )
          | Body (envs, body) :: cont => eval dump cont envs body
          | [] =>
             (case Dump.pop dump
-             of SOME (cont', dump') => continue value dump' cont'
+             of SOME (cont', dump') => continue pos value dump' cont'
               | NONE => value)
 
-    and applyAny dump cont denv callee args =
+    and applyAny pos dump cont envs callee args =
         case callee
-        of Value f => apply dump cont denv f (wrap (Value.Tuple args))
-         | Opcode opcode => primApply dump cont denv opcode args
+        of Value f => apply pos dump cont envs f (wrap (Value.Tuple args))
+         | Opcode opcode => primApply pos dump cont envs opcode args
 
-    and apply dump cont denv callee args =
-        case force callee
-        of SOME (Value.Closure (methods, lenv)) =>
+    and apply pos dump cont envs callee args =
+        case forceExn callee
+        of Value.Closure (methods, lenv) =>
             let val Value.Method (pats, _, body) = Vector.sub (methods, 0)
             in case VectorExt.uncons pats
                of SOME (pat, remPats) =>
-                   let val envs = declareParams { lex = lenv, dyn = denv } pats
+                   let val envs = declareParams { lex = lenv, dyn = #dyn envs } pats
                        val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                        val argSlice = wrap (Value.Slice (args, 0))
                        val cont = Match (envs, envDeltas, remPats)
@@ -149,24 +149,21 @@ end = struct
                    end
                 | NONE => raise Fail "unimplemented"
             end
+         | calleeContent => signal dump cont envs (wrap (Value.String "InApplicable")) pos
 
-    and primApply dump cont denv opcode argv =
+    and primApply pos dump cont envs opcode argv =
         case opcode
         of "panic" =>
            (case argv
             of #[exn] => raise Panic exn
              | _ => raise Fail "__panic: argc")
-         | _ => continue (Prim.applyPure opcode argv) dump cont
+         | _ => continue pos (Prim.applyPure opcode argv) dump cont
 
     and match dump cont envs envDeltas pattern argSeq =
         (* MAYBE: Make it possible to resume the match when Argc is signaled? *)
         case pattern
-        of Value.Var (pos, var) =>
-            (case Prim.slicePopFront argSeq
-             of SOME (arg, remArgs) =>
-                 ( envDeltas := insert (!envDeltas) var arg
-                 ; continue remArgs dump cont )
-              | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
+        of Value.Fn _ => raise Fail "Illegal pattern (function literal)"
+         | Value.Call (pos, callee, innerPats) => raise Fail "unimplemented"
          | Value.PrimCall (pos, opcode, innerPats) =>
             (case Prim.unApply opcode argSeq (Vector.length innerPats)
              of SOME (innerArgSeq, outerArgSeq) =>
@@ -178,6 +175,14 @@ end = struct
                       end
                    | NONE => raise Fail "unimplemented")
               | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
+         | Value.Block _ => raise Fail "Illegal pattern (block)"
+         | Value.Var (pos, var) =>
+            (case Prim.slicePopFront argSeq
+             of SOME (arg, remArgs) =>
+                 ( envDeltas := insert (!envDeltas) var arg
+                 ; continue pos remArgs dump cont )
+              | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
+         | Value.Const (pos, c) => raise Fail "unimplemented"
 
     and signal dump cont envs tag pos =
         let val handler = lookup dump envs (Value.Dyn "handleException")
@@ -187,7 +192,7 @@ end = struct
                                           wrap (Value.Int (#line pos)),
                                           wrap (Value.Int (#col pos))])
             val args = wrap (Value.Tuple #[exn])
-        in apply dump cont (#dyn envs) handler args
+        in apply pos dump cont envs handler args
         end
 
     fun interpret expr = eval Dump.empty [] { lex = Env.empty, dyn = Env.empty } expr
