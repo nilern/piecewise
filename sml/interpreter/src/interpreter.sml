@@ -10,7 +10,6 @@ end = struct
     type stmt = Value.stmt
 
     val wrap = Value.wrap
-    val force = Value.force
     val forceExn = Value.forceExn
 
     exception Panic of Value.value
@@ -103,7 +102,7 @@ end = struct
                  in exec dump cont envs stmt
                  end
               | NONE => eval dump cont envs expr)
-         | Def (envs, pat, (* TODO: *) guard) :: cont =>
+         | Def (envs, pat, (* TODO: *) _) :: cont =>
             let val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
                 val seq = wrap (Value.Slice (wrap (Value.Tuple #[value]), 0))
                 val cont = Commit (envs, envDeltas) :: cont
@@ -132,7 +131,7 @@ end = struct
     and applyAny pos dump cont envs callee args =
         case callee
         of Value f => apply pos dump cont envs f (wrap (Value.Tuple args))
-         | Opcode opcode => primApply pos dump cont envs opcode args
+         | Opcode opcode => primApply pos dump cont opcode args
 
     and apply pos dump cont envs callee args =
         case forceExn callee
@@ -149,9 +148,9 @@ end = struct
                    end
                 | NONE => raise Fail "unimplemented"
             end
-         | calleeContent => signal dump cont envs (wrap (Value.String "InApplicable")) pos
+         | _ => signal dump cont envs (wrap (Value.String "InApplicable")) pos
 
-    and primApply pos dump cont envs opcode argv =
+    and primApply pos dump cont opcode argv =
         case opcode
         of "panic" =>
            (case argv
@@ -163,7 +162,7 @@ end = struct
         (* MAYBE: Make it possible to resume the match when Argc is signaled? *)
         case pattern
         of Value.Fn _ => raise Fail "Illegal pattern (function literal)"
-         | Value.Call (pos, callee, innerPats) => raise Fail "unimplemented"
+         | Value.Call _ => raise Fail "unimplemented"
          | Value.PrimCall (pos, opcode, innerPats) =>
             (case Prim.unApply opcode argSeq (Vector.length innerPats)
              of SOME (innerArgSeq, outerArgSeq) =>
@@ -182,7 +181,7 @@ end = struct
                  ( envDeltas := insert (!envDeltas) var arg
                  ; continue pos remArgs dump cont )
               | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
-         | Value.Const (pos, c) => raise Fail "unimplemented"
+         | Value.Const _ => raise Fail "unimplemented"
 
     and signal dump cont envs tag pos =
         let val handler = lookup dump envs (Value.Dyn "handleException")

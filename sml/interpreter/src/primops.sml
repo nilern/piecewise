@@ -31,7 +31,7 @@ end = struct
         of "rest" =>
            if patternCount = 1
            then case forceExn argSeq
-                of Value.Slice (args, i) =>
+                of Value.Slice (args, _) =>
                     (case forceExn args
                      of Value.Tuple argv =>
                          let val innerArgs = wrap (Value.Tuple (Vector.fromList [argSeq]))
