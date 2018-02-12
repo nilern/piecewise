@@ -8,8 +8,17 @@ use std::fmt::{self, Debug, Formatter};
 
 use pcws_gc::{GSize, Object, ObjectRef};
 
-use super::{Allocator, Reifier, Viewer, DynamicDebug};
+use super::{Allocator, DynamicDebug};
 use values::Type;
+
+// ================================================================================================
+
+#[derive(Debug, Clone, Copy)]
+pub enum Sizing {
+    Static,
+    DynamicRefs,
+    DynamicBlob
+}
 
 // ================================================================================================
 
@@ -26,19 +35,21 @@ pub trait Unbox {
 pub trait HeapValueSub: Sized {
     /// The constant portion (or minimum number) of `ValueRef` fields on instances of `self`.
     const UNIFORM_REF_LEN: usize;
+
+    /// The sizing of instances.
+    const SIZING: Sizing;
+
+    /// Get the index of the type in `types`. Create the dynamic type and put it in `types` if
+    /// necessary.
+    fn type_index(types: &mut Allocator) -> usize;
 }
 
-pub trait UniformHeapValue: HeapValueSub {
-    fn new_typ<A: Allocator>(allocator: &mut A) -> Option<ValueRefT<Type>> {
-        Type::new::<A, Self>(allocator, false, false)
-    }
-}
+pub trait UniformHeapValue: HeapValueSub {}
 
-/// A subtype of `DynHeapValue`.
-pub trait DynHeapValueSub: HeapValueSub {}
-
-pub trait RefTailed: DynHeapValueSub {
-    type TailItem;
+/// A dynamically sized `HeapValue` whose tail contains `ValueRef`:s.
+pub trait RefTailed: HeapValueSub {
+    /// The type of tail elements.
+    type TailItem: Into<ValueRef>;
 
     /// Get the tail slice.
     fn tail(&self) -> &[Self::TailItem] {
@@ -47,13 +58,11 @@ pub trait RefTailed: DynHeapValueSub {
                                   transmute::<_, &DynHeapValue>(self).dyn_len)
         }
     }
-
-    fn new_typ<A: Allocator>(allocator: &mut A) -> Option<ValueRefT<Type>> {
-        Type::new::<A, Self>(allocator, true, true)
-    }
 }
 
-pub trait BlobTailed: DynHeapValueSub {
+/// A dynamically sized `HeapValue` whose tail does not contain `ValueRef`:s.
+pub trait BlobTailed: HeapValueSub {
+    /// The type of tail elements.
     type TailItem;
 
     /// Get the tail slice.
@@ -62,10 +71,6 @@ pub trait BlobTailed: DynHeapValueSub {
             slice::from_raw_parts((self as *const Self).offset(1) as *const Self::TailItem,
                                   transmute::<_, &DynHeapValue>(self).dyn_len)
         }
-    }
-
-    fn new_typ<A: Allocator>(allocator: &mut A) -> Option<ValueRefT<Type>> {
-        Type::new::<A, Self>(allocator, true, false)
     }
 }
 
@@ -144,7 +149,7 @@ impl Object for HeapValue {
 }
 
 impl DynamicDebug for HeapValue {
-    fn fmt<T: Viewer>(&self, f: &mut Formatter, types: &T) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         let self_ref =
             ValueRef::from(unsafe { Shared::new_unchecked((self as *const HeapValue) as _) });
         let mut dbg = f.debug_struct("HeapValue");
@@ -175,7 +180,7 @@ pub struct DynHeapValue {
 }
 
 impl DynamicDebug for DynHeapValue {
-    fn fmt<R: Viewer>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("DynHeapValue")
          .field("base", &self.base.fmt_wrap(types))
          .field("dyn_len", &self.dyn_len)
@@ -209,11 +214,24 @@ impl Iterator for ObjRefs {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ValueRef(usize);
 
+enum ValueView {
+    Int(isize),
+    Float(f64),
+    Char(char),
+    Bool(bool),
+    HeapValue(Shared<HeapValue>)
+}
+
 impl ValueRef {
     const SHIFT: usize = 3;
     const TAG_MASK: usize = (1 << Self::SHIFT) - 1;
     const PTR_BIT: usize = 0b001;
     const POINTY_BITS: usize = 0b011;
+
+    const INT_TAG  : usize = 0b000;
+    const FLOAT_TAG: usize = 0b010;
+    const CHAR_TAG : usize = 0b100;
+    const BOOL_TAG : usize = 0b110;
 
     /// The null reference.
     pub const NULL: ValueRef = ValueRef(0b001);
@@ -241,11 +259,23 @@ impl ValueRef {
     }
 
     /// Is `self` an instance of `T`?
-    pub fn is_instance<T, R: Reifier<T>>(self, types: &R) -> bool {
+    pub fn is_instance<T: HeapValueSub>(self, types: &mut Allocator) -> bool {
         if let Some(sptr) = self.ptr() {
-            unsafe { sptr.as_ref() }.typ == types.reify()
+            unsafe { sptr.as_ref() }.typ == types.reify::<T>()
         } else {
             false
+        }
+    }
+
+    fn view(self) -> ValueView {
+        unsafe {
+            match self.0 & Self::TAG_MASK {
+                Self::INT_TAG   => ValueView::Int((self.0 >> Self::SHIFT) as isize),
+                Self::FLOAT_TAG => ValueView::Float(transmute(self.0 & !Self::TAG_MASK)),
+                Self::CHAR_TAG  => ValueView::Char(transmute((self.0 >> Self::SHIFT) as u32)),
+                Self::BOOL_TAG  => ValueView::Bool(transmute((self.0 >> Self::SHIFT) as u8)),
+                _ => ValueView::HeapValue(self.ptr().unwrap())
+            }
         }
     }
 }
@@ -275,8 +305,14 @@ impl ObjectRef for ValueRef {
 }
 
 impl DynamicDebug for ValueRef {
-    fn fmt<R: Viewer>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
-        types.view(*self).fmt(f, types)
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        match self.view() {
+            ValueView::Int(n)   => n.fmt(f),
+            ValueView::Float(n) => n.fmt(f),
+            ValueView::Char(c)  => c.fmt(f),
+            ValueView::Bool(b)  => b.fmt(f),
+            ValueView::HeapValue(ptr) => types.fmt_value(ptr, f)
+        }
     }
 }
 
@@ -304,26 +340,30 @@ impl<T> Hash for ValueRefT<T> {
 
 impl From<isize> for ValueRefT<isize> {
     fn from(n: isize) -> ValueRefT<isize> {
-        ValueRefT(ValueRef((n as usize) << ValueRef::SHIFT), PhantomData::default())
+        ValueRefT(ValueRef((n as usize) << ValueRef::SHIFT | ValueRef::INT_TAG),
+                  PhantomData::default())
     }
 }
 
 impl From<f64> for ValueRefT<f64> {
     fn from(n: f64) -> ValueRefT<f64> {
-        ValueRefT(ValueRef((unsafe { transmute::<_, usize>(n) } & !ValueRef::TAG_MASK) | 0b010),
+        ValueRefT(ValueRef((unsafe { transmute::<_, usize>(n) } & !ValueRef::TAG_MASK)
+                           | ValueRef::FLOAT_TAG),
                   PhantomData::default())
     }
 }
 
 impl From<char> for ValueRefT<char> {
     fn from(c: char) -> ValueRefT<char> {
-        ValueRefT(ValueRef((c as usize) << ValueRef::SHIFT | 0b100), PhantomData::default())
+        ValueRefT(ValueRef((c as usize) << ValueRef::SHIFT | ValueRef::CHAR_TAG),
+                  PhantomData::default())
     }
 }
 
 impl From<bool> for ValueRefT<bool> {
     fn from(b: bool) -> ValueRefT<bool> {
-        ValueRefT(ValueRef((b as usize) << ValueRef::SHIFT | 0b110), PhantomData::default())
+        ValueRefT(ValueRef((b as usize) << ValueRef::SHIFT | ValueRef::BOOL_TAG),
+                  PhantomData::default())
     }
 }
 
@@ -384,7 +424,7 @@ impl<T: HeapValueSub> AsMut<ValueRef> for ValueRefT<T> {
 }
 
 impl<T: HeapValueSub + DynamicDebug> DynamicDebug for ValueRefT<T> {
-    fn fmt<R: Viewer>(&self, f: &mut Formatter, types: &R) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         self.deref().fmt(f, types)
     }
 }
