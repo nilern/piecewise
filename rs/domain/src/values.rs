@@ -1,18 +1,16 @@
-use std::mem::transmute;
 use std::str;
 use std::fmt::{self, Formatter};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicIsize;
-use std::sync::atomic::Ordering::SeqCst;
 
 use pcws_gc::{GSize, start_init};
 
 use super::{Allocator, DynamicDebug};
 use object_model::{HeapValueSub, UniformHeapValue, RefTailed, BlobTailed, Sizing,
-                   HeapValue, DynHeapValue, ValueRef, ValueRefT};
+                   HeapValue, ValueRef, ValueRefT};
 
 // ================================================================================================
 
+#[macro_export]
 macro_rules! count_vrefs {
     () => { 0 };
     ( ValueRef $(, $Ts:ty)* ) => { 1 + count_vrefs!($($Ts),*) };
@@ -20,25 +18,30 @@ macro_rules! count_vrefs {
     ( $T:ty $(, $Ts:ty)* ) => { count_vrefs!($($Ts),*) };
 }
 
+#[macro_export]
 macro_rules! heap_struct_base {
     { pub struct $name:ident : $base:ty { $($field_names:ident : $field_types:ty),* }
-      const SIZING: Sizing = $sizing:expr; } => {
+      const SIZING: $crate::object_model::Sizing = $sizing:expr; } => {
         #[repr(C)]
         pub struct $name {
             base: $base,
             $($field_names : $field_types),*
         }
 
-        impl HeapValueSub for $name {
+        impl $crate::object_model::HeapValueSub for $name {
             const UNIFORM_REF_LEN: usize = count_vrefs!($($field_types),*);
-            const SIZING: Sizing = $sizing;
+            const SIZING: $crate::object_model::Sizing = $sizing;
 
-            fn type_index(allocator: &mut Allocator) -> usize {
+            fn type_index(allocator: &mut $crate::Allocator) -> usize {
+                use std::sync::atomic::AtomicIsize;
+                use std::sync::atomic::Ordering::SeqCst;
+
                 static INDEX: AtomicIsize = AtomicIsize::new(-1);
 
-                unsafe fn fmt_fn(value: &HeapValue, f: &mut Formatter, types: &Allocator)
-                    -> Result<(), fmt::Error>
+                unsafe fn fmt_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
+                                 types: &Allocator) -> Result<(), fmt::Error>
                 {
+                    use std::mem::transmute;
                     transmute::<_, &$name>(value).fmt(f, types)
                 }
 
@@ -46,7 +49,10 @@ macro_rules! heap_struct_base {
                 if old >= 0 {
                     old as usize // Already initialized.
                 } else {
-                    let new = allocator.register_typ::<Self>(fmt_fn);
+                    let typ = $crate::values::Type
+                                    ::new::<Self>(allocator, Self::SIZING)
+                                    .unwrap(); // FIXME: unwrap
+                    let new = allocator.register_typ(typ, fmt_fn);
                     if INDEX.compare_and_swap(old, new as isize, SeqCst) == old {
                         new // We won the race.
                     } else {
@@ -59,6 +65,7 @@ macro_rules! heap_struct_base {
     }
 }
 
+#[macro_export]
 macro_rules! heap_struct {
     {
         pub struct $name:ident : UniformHeapValue {
@@ -66,14 +73,14 @@ macro_rules! heap_struct {
         }
     } => {
         heap_struct_base! {
-            pub struct $name : HeapValue {
+            pub struct $name : $crate::object_model::HeapValue {
                 $($field_names : $field_types),*
             }
 
-            const SIZING: Sizing = Sizing::Static;
+            const SIZING: $crate::object_model::Sizing = $crate::object_model::Sizing::Static;
         }
 
-        impl UniformHeapValue for $name {}
+        impl $crate::object_model::UniformHeapValue for $name {}
     };
 
     {
@@ -82,14 +89,14 @@ macro_rules! heap_struct {
         }
     } => {
         heap_struct_base! {
-            pub struct $name : DynHeapValue {
+            pub struct $name : $crate::object_model::DynHeapValue {
                 $($field_names : $field_types),*
             }
 
-            const SIZING: Sizing = Sizing::DynamicRefs;
+            const SIZING: $crate::object_model::Sizing = $crate::object_model::Sizing::DynamicRefs;
         }
 
-        impl RefTailed for $name { type TailItem = $tail_typ; }
+        impl $crate::object_model::RefTailed for $name { type TailItem = $tail_typ; }
     };
 
     {
@@ -98,14 +105,14 @@ macro_rules! heap_struct {
         }
     } => {
         heap_struct_base! {
-            pub struct $name : DynHeapValue {
+            pub struct $name : $crate::object_model::DynHeapValue {
                 $($field_names : $field_types),*
             }
 
-            const SIZING: Sizing = Sizing::DynamicBlob;
+            const SIZING: $crate::object_model::Sizing = $crate::object_model::Sizing::DynamicBlob;
         }
 
-        impl BlobTailed for $name { type TailItem = $tail_typ; }
+        impl $crate::object_model::BlobTailed for $name { type TailItem = $tail_typ; }
     }
 }
 
@@ -123,7 +130,7 @@ heap_struct! {
 
 impl Tuple {
     pub fn new<I>(allocator: &mut Allocator, len: usize, values: I) -> Option<ValueRefT<Tuple>>
-        where I: IntoIterator<Item=ValueRef>
+        where I: Iterator<Item=ValueRef>
     {
         allocator.create_with_iter(|base| Tuple { base }, len, values)
     }
@@ -150,7 +157,7 @@ impl Symbol {
         allocator.symbol_table().get_symbol(chars)
                  .or_else(|| {
                      let bytes = chars.as_bytes();
-                     allocator.create_with_iter(|base| Symbol { base }, bytes.len(), bytes)
+                     allocator.create_with_slice(|base| Symbol { base }, bytes)
                               .map(|sym| {
                                   allocator.symbol_table().insert_symbol(sym);
                                   sym
@@ -231,18 +238,29 @@ impl DynamicDebug for Promise {
 // ================================================================================================
 
 /// A dynamic type.
-heap_struct! {
-    pub struct Type: UniformHeapValue {
-        gsize_with_dyn: usize,
-        ref_len_with_dyn: usize
+#[repr(C)]
+pub struct Type {
+    base: HeapValue,
+    gsize_with_dyn: usize,
+    ref_len_with_dyn: usize
+}
+
+impl HeapValueSub for Type {
+    const UNIFORM_REF_LEN: usize = 0;
+    const SIZING: Sizing = Sizing::Static;
+
+    fn type_index(_: &mut Allocator) -> usize {
+        // Since the type of types is created eagerly in the constructor of `Allocator`, its type
+        // index will always be:
+        0
     }
 }
 
+impl UniformHeapValue for Type {}
+
 impl Type {
-    pub fn new<T: HeapValueSub>(allocator: &mut Allocator, sizing: Sizing)
-        -> Option<ValueRefT<Type>>
-    {
-        allocator.create_uniform(|base| Type {
+    pub fn make<T: HeapValueSub>(base: HeapValue, sizing: Sizing) -> Type {
+        Type {
             base,
             gsize_with_dyn: usize::from(GSize::of::<T>()) << 1 | match sizing {
                 Sizing::Static => 0,
@@ -252,7 +270,13 @@ impl Type {
                 Sizing::Static | Sizing::DynamicBlob => 0,
                 Sizing::DynamicRefs => 1
             }
-        })
+        }
+    }
+
+    pub fn new<T: HeapValueSub>(allocator: &mut Allocator, sizing: Sizing)
+        -> Option<ValueRefT<Type>>
+    {
+        allocator.create_uniform(|base| Type::make::<T>(base, sizing))
     }
 
     /// The constant portion (or minimum) granule size of instances.

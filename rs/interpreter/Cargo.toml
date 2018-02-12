@@ -6,8 +6,8 @@ authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 build = "build.rs"
 
 [dependencies]
-nix = "0.9"
-intrusive-collections = "0.7"
+pcws-gc = { path = "../gc"}
+pcws-domain = { path = "../domain"}
 
 [build-dependencies]
 peg = "0.5"

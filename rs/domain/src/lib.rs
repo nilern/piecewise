@@ -8,6 +8,7 @@ pub mod object_model;
 pub mod values;
 
 use core::nonzero::NonZero;
+use std::mem::size_of;
 use std::ptr::{Unique, Shared};
 use std::slice;
 use std::fmt::{self, Debug, Formatter};
@@ -37,7 +38,14 @@ pub struct Allocator {
 
 impl Allocator {
     pub fn new(max_heap: usize) -> Allocator {
-        Allocator {
+        unsafe fn fmt_fn(value: &HeapValue, f: &mut Formatter, types: &Allocator)
+            -> Result<(), fmt::Error>
+        {
+            use std::mem::transmute;
+            transmute::<_, &Type>(value).fmt(f, types)
+        }
+
+        let mut allocator = Allocator {
             gc: Generation::new(max_heap),
 
             types: HashMap::new(),
@@ -46,7 +54,13 @@ impl Allocator {
             type_counter: 0,
 
             symbols: SymbolTable::new()
-        }
+        };
+
+        let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
+        allocator.register_typ(ValueRefT::from(start_init(type_type)), fmt_fn);
+        allocator.init_uniform(type_type, |base| Type::make::<Type>(base, Type::SIZING));
+
+        allocator
     }
 
     fn init<T, F>(&mut self, ptr: Initializable<T>, f: F) -> ValueRefT<T>
@@ -73,7 +87,7 @@ impl Allocator {
     fn init_with_iter<T, F, I, E>(&mut self, iptr: Initializable<T>, f: F, len: usize, iter: I)
         -> ValueRefT<T>
         where T: HeapValueSub, F: Fn(DynHeapValue) -> T,
-              I: IntoIterator<Item=E>, E: Copy
+              I: Iterator<Item=E>, E: Copy
     {
         self.init(iptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(DynHeapValue {
@@ -105,11 +119,18 @@ impl Allocator {
 
     pub fn create_with_iter<T, F, I, E>(&mut self, f: F, len: usize, iter: I)
         -> Option<ValueRefT<T>>
-        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, I: IntoIterator<Item=E>, E: Copy
+        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, I: Iterator<Item=E>, E: Copy
     {
+        let gsize = GSize::from_bytesize(size_of::<T>() + len*size_of::<E>());
         unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
-                                  NonZero::new_unchecked(GSize::of::<T>() + GSize::from(len))) }
+                                  NonZero::new_unchecked(gsize)) }
             .map(|iptr| self.init_with_iter(iptr, f, len, iter))
+    }
+
+    pub fn create_with_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<ValueRefT<T>>
+        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
+    {
+        self.create_with_iter(f, slice.len(), slice.iter().cloned())
     }
 
     pub fn reify<T: HeapValueSub>(&mut self) -> ValueRefT<Type> {
@@ -117,9 +138,8 @@ impl Allocator {
         self.types[&index]
     }
 
-    fn register_typ<T: HeapValueSub>(&mut self, f: UnsafeFmtFn) -> usize {
+    pub fn register_typ(&mut self, typ: ValueRefT<Type>, f: UnsafeFmtFn) -> usize {
         let index = self.type_counter;
-        let typ = Type::new::<T>(self, T::SIZING).unwrap(); // FIXME: unwrap
         self.types.insert(index, typ);
         self.type_indices.insert(typ, index);
         self.fmt_fns.insert(index, f);
@@ -127,7 +147,7 @@ impl Allocator {
         index
     }
 
-    fn deregister_typ(&mut self, index: usize) {
+    pub fn deregister_typ(&mut self, index: usize) {
         let typ = self.types[&index];
         self.type_indices.remove(&typ);
         self.types.remove(&index);

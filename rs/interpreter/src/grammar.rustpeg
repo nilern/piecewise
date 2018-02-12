@@ -1,20 +1,23 @@
 use std::str::FromStr;
 
-use object_model::{ValueRef, HeapValueRef};
-use interpreter::Allocator;
-use ast::{Method, Block};
+use pcws_domain::Allocator;
+use pcws_domain::object_model::{ValueRef, ValueRefT};
+use pcws_domain::values::Symbol;
+use ast::{Block, Def, Function, Method, Call, Lex, Const};
 
-#![arguments(factory: &mut Allocator)]
+// FIXME: unwrappy
 
-pub program -> HeapValueRef<Block> = ws? block:body ws? { block }
+#![arguments(allocator: &mut Allocator)]
 
-body -> HeapValueRef<Block> = stmts:stmt* ws? expr:expr {
-    factory.create_block(&stmts, expr).unwrap()
+pub program -> ValueRefT<Block> = ws? block:body ws? { block }
+
+body -> ValueRefT<Block> = stmts:stmt* ws? expr:expr {
+    Block::new(allocator, &stmts, expr).unwrap()
 }
 
 stmt -> ValueRef
     = pat:pattern ws? "=" ws? expr:expr ws? ";" ws? {
-          factory.create_def(pat, expr).unwrap().into()
+          Def::new(allocator, pat, expr).unwrap().into()
       }
     / expr:expr ws? ";" ws? { expr }
 
@@ -23,56 +26,58 @@ pattern -> ValueRef = expr
 expr -> ValueRef = e:infix { ValueRef::from(e) }
 
 infix -> ValueRef = #infix<call> {
-    #L el op:op6 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
-    #L el op:op7 er { ValueRef::from(factory.create_call(op, &[el, er]).unwrap()) }
+    #L el op:op6 er { Call::new(allocator, op, &[el, er]).unwrap().into() }
+    #L el op:op7 er { Call::new(allocator, op, &[el, er]).unwrap().into() }
 }
 
 op<O> = ws? op:$(O) ws? {
-    let sym = factory.create_symbol(op).unwrap();
-    ValueRef::from(factory.create_lex(sym).unwrap())
+    let sym = Symbol::new(allocator, op).unwrap();
+    Lex::new(allocator, sym).unwrap().into()
 }
 op6 -> ValueRef = op<[+\-]>
 op7 -> ValueRef = op<[*/%]>
 
 call -> ValueRef
     = callee:simple ws? args:(simple ++ (ws?)) {
-          factory.create_call(callee, &args).unwrap().into()
+          Call::new(allocator, callee, &args).unwrap().into()
       }
     / e:simple { e }
 
 simple -> ValueRef
-    = "{" ws? b:body ws? "}" { ValueRef::from(b) }
+    = "{" ws? b:body ws? "}" { b.into() }
     / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
-        ValueRef::from(factory.create_function(&methods).unwrap())
+        Function::new(allocator, &methods).unwrap().into()
     }
     / "[" ws? b:body ws? "]" {
-        let guard_value = factory.create_bool(true).into();
-        let guard = ValueRef::from(factory.create_const(guard_value).unwrap());
-        let method = factory.create_method(/* FIXME: */ guard, guard,ValueRef::from(b)).unwrap();
-        ValueRef::from(factory.create_function(&[method]).unwrap())
+        let guard_value: ValueRefT<bool> = true.into();
+        let guard = Const::new(allocator, guard_value.into()).unwrap().into();
+        let method = Method::new(allocator, /* FIXME: */ guard, guard, b.into()).unwrap();
+        Function::new(allocator, &[method]).unwrap().into()
     }
     / "(" ws? e:expr ws? ")" { e }
     / var:var { var }
-    / n:int { ValueRef::from(factory.create_const(n).unwrap()) }
+    / c:constant { c.into() }
 
-method -> HeapValueRef<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+method -> ValueRefT<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
     let guard = guard.unwrap_or_else(|| {
-        let value = factory.create_bool(true).into();
-        ValueRef::from(factory.create_const(value).unwrap())
+        let value: ValueRefT<bool> = true.into();
+        Const::new(allocator, value.into()).unwrap().into()
     });
-    factory.create_method(pattern, guard, ValueRef::from(body)).unwrap()
+    Method::new(allocator, pattern, guard, body.into()).unwrap()
 }
 
 guard -> ValueRef = "|" ws? e:expr { e }
 
 var -> ValueRef
     = cs:$([A-Za-z][A-Za-z0-9]*) {
-          let sym = factory.create_symbol(cs).unwrap();
-          factory.create_lex(sym).unwrap().into()
+          let sym = Symbol::new(allocator, cs).unwrap().into();
+          Lex::new(allocator, sym).unwrap().into()
       }
 
+constant -> ValueRefT<Const> = n:int { Const::new(allocator, n).unwrap() }
+
 int -> ValueRef = cs:$([0-9]+) {
-  ValueRef::from(factory.create_int(isize::from_str(cs).unwrap()))
+    ValueRefT::from(isize::from_str(cs).unwrap()).into()
 }
 
 ws -> () = [ \t\r\n]+
