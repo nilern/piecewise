@@ -1,5 +1,5 @@
 use std::mem::transmute;
-use std::ptr::{Unique, Shared};
+use std::ptr::{Unique, NonNull};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::hash::{Hash, Hasher};
@@ -89,7 +89,7 @@ impl HeapValue {
     /// See `ValueRef::force`.
     fn force(&self) -> Option<ValueRef> {
         let mut ptr = self as *const HeapValue;
-        let mut vref = ValueRef::from(unsafe { Shared::new_unchecked(ptr as *mut _) });
+        let mut vref = ValueRef::from(unsafe { NonNull::new_unchecked(ptr as *mut _) });
 
         loop {
             let link = unsafe { (*ptr).link };
@@ -142,16 +142,14 @@ impl Object for HeapValue {
     }
 
     fn obj_refs(&self) -> ObjRefs {
-        let ptr = self.refs_ptr();
-        let end = unsafe { ptr.offset(self.ref_len() as isize) };
-        ObjRefs { ptr, end }
+        ObjRefs::Link(unsafe { NonNull::new_unchecked(transmute(self)) })
     }
 }
 
 impl DynamicDebug for HeapValue {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         let self_ref =
-            ValueRef::from(unsafe { Shared::new_unchecked((self as *const HeapValue) as _) });
+            ValueRef::from(unsafe { NonNull::new_unchecked((self as *const HeapValue) as _) });
         let mut dbg = f.debug_struct("HeapValue");
 
         if self.link == self_ref {
@@ -188,22 +186,37 @@ impl DynamicDebug for DynHeapValue {
     }
 }
 
-/// An iterator over `Shared`:s to `ValueRef` fields of a `HeapValue`.
-pub struct ObjRefs {
-    ptr: *mut ValueRef,
-    end: *mut ValueRef
+/// An iterator over `NonNull`:s to `ValueRef` fields of a `HeapValue`.
+pub enum ObjRefs {
+    Link(NonNull<HeapValue>),
+    Type(NonNull<HeapValue>),
+    Fields(*mut ValueRef, usize)
 }
 
 impl Iterator for ObjRefs {
-    type Item = Shared<ValueRef>;
+    type Item = NonNull<ValueRef>;
 
-    fn next(&mut self) -> Option<Shared<ValueRef>> {
-        if self.ptr < self.end {
-            let old_ptr = self.ptr;
-            self.ptr = unsafe { self.ptr.offset(1) };
-            Some(unsafe { Shared::new_unchecked(old_ptr) })
-        } else {
-            None
+    fn next(&mut self) -> Option<NonNull<ValueRef>> {
+        use self::ObjRefs::*;
+    
+        unsafe {
+            match *self {
+                Link(value) => {
+                    *self = Type(value);
+                    Some(NonNull::new_unchecked(transmute(&value.as_ref().link)))
+                },
+                Type(value) => {
+                    let value = value.as_ref();
+                    *self = Fields(value.refs_ptr(), value.ref_len());
+                    Some(NonNull::new_unchecked(transmute(&value.typ)))
+                },
+                Fields(field_ptr, len) => if len > 0 {
+                    *self = Fields(field_ptr.offset(1), len - 1);
+                    Some(NonNull::new_unchecked(field_ptr))
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -219,7 +232,7 @@ enum ValueView {
     Float(f64),
     Char(char),
     Bool(bool),
-    HeapValue(Shared<HeapValue>)
+    HeapValue(NonNull<HeapValue>)
 }
 
 impl ValueRef {
@@ -280,8 +293,8 @@ impl ValueRef {
     }
 }
 
-impl From<Shared<HeapValue>> for ValueRef {
-    fn from(sptr: Shared<HeapValue>) -> ValueRef {
+impl From<NonNull<HeapValue>> for ValueRef {
+    fn from(sptr: NonNull<HeapValue>) -> ValueRef {
         ValueRef(sptr.as_ptr() as usize | Self::PTR_BIT)
     }
 }
@@ -293,9 +306,9 @@ impl<T> From<ValueRefT<T>> for ValueRef {
 impl ObjectRef for ValueRef {
     type Obj = HeapValue;
 
-    fn ptr(self) -> Option<Shared<HeapValue>> {
+    fn ptr(self) -> Option<NonNull<HeapValue>> {
         if self.is_ptr() {
-            Shared::new((self.0 & !Self::TAG_MASK) as _)
+            NonNull::new((self.0 & !Self::TAG_MASK) as _)
         } else {
             None
         }

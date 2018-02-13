@@ -1,4 +1,4 @@
-#![feature(nonzero, unique, shared, const_atomic_isize_new)]
+#![feature(nonzero, unique, ptr_internals, const_atomic_isize_new)]
 
 extern crate core;
 
@@ -9,7 +9,7 @@ pub mod values;
 
 use core::nonzero::NonZero;
 use std::mem::size_of;
-use std::ptr::{Unique, Shared};
+use std::ptr::{Unique, NonNull};
 use std::slice;
 use std::fmt::{self, Debug, Formatter};
 use std::collections::HashMap;
@@ -154,7 +154,7 @@ impl Allocator {
         self.fmt_fns.remove(&index);
     }
 
-    pub fn fmt_value(&self, vref: Shared<HeapValue>, f: &mut Formatter) -> Result<(), fmt::Error> {
+    pub fn fmt_value(&self, vref: NonNull<HeapValue>, f: &mut Formatter) -> Result<(), fmt::Error> {
         unsafe {
             let vref = vref.as_ref();
             self.fmt_fns[&self.type_indices[&vref.typ]](vref, f, self)
