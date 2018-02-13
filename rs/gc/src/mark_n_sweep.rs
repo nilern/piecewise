@@ -1,6 +1,6 @@
 use core::nonzero::NonZero;
 use std::mem::transmute;
-use std::ptr::{self, Unique, Shared};
+use std::ptr::{self, Unique, NonNull};
 use std::cell::Cell;
 use intrusive_collections::{LinkedList, LinkedListLink, UnsafeRef, IntrusivePointer};
 
@@ -25,7 +25,7 @@ pub struct Generation<ORef: ObjectRef> {
     large_objs: LinkedList<LargeObjRopeAdapter>,
 
     current_mark: u8,
-    mark_stack: Vec<Shared<ORef::Obj>>
+    mark_stack: Vec<NonNull<ORef::Obj>>
 }
 
 impl<ORef, Obj> Generation<ORef> where ORef: ObjectRef<Obj=Obj>, Obj: Object<ORef=ORef> {

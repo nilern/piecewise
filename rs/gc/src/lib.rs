@@ -1,4 +1,4 @@
-#![feature(nonzero, unique, shared)]
+#![feature(nonzero, unique, ptr_internals)]
 
 extern crate core;
 extern crate nix;
@@ -12,7 +12,7 @@ mod arena;
 mod block;
 mod mark_n_sweep;
 
-use std::ptr::Shared;
+use std::ptr::NonNull;
 
 pub use layout::GSize;
 pub use util::{Uninitialized, Initializable, start_init};
@@ -23,7 +23,7 @@ pub trait Object {
     /// The `ObjectRef` pointing to and contained in fields of `Self`.
     type ORef: ObjectRef;
     /// Iterator over pointers to `ValueRef` fields of `Self`.
-    type RefIter: Iterator<Item=Shared<Self::ORef>>;
+    type RefIter: Iterator<Item=NonNull<Self::ORef>>;
 
     /// Allocated size of `self` in granules.
     fn gsize(&self) -> GSize;
@@ -38,7 +38,7 @@ pub trait ObjectRef: Copy {
     type Obj: Object;
 
     /// Get a pointer to the contained `Object` if one exists.
-    fn ptr(self) -> Option<Shared<Self::Obj>>;
+    fn ptr(self) -> Option<NonNull<Self::Obj>>;
 
     /// Does `self` contain a pointer to a value containing `Self` fields.
     fn is_pointy(self) -> bool;

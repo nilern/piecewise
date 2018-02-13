@@ -3,7 +3,7 @@ use std::mem::transmute;
 use std::ptr::{self, Unique};
 use std::cell::Cell;
 use std::ops::Index;
-use std::ptr::Shared;
+use std::ptr::NonNull;
 use intrusive_collections::{LinkedListLink, RBTreeLink, KeyAdapter, UnsafeRef};
 
 use util::{Uninitialized, Initializable, Foam, Span, AllocSat};
@@ -17,16 +17,16 @@ pub enum Descriptor {
 }
 
 impl Descriptor {
-    pub fn of<Obj>(obj: *const Obj) -> Shared<Descriptor> {
+    pub fn of<Obj>(obj: *const Obj) -> NonNull<Descriptor> {
         unsafe {
             let addr: usize = transmute(obj);
             let block_index = (addr & Arena::MASK) >> Block::SHIFT;
             let arena_addr = addr & !Arena::MASK;
-            Shared::new_unchecked((arena_addr | block_index << DESCR_SHIFT) as _)
+            NonNull::new_unchecked((arena_addr | block_index << DESCR_SHIFT) as _)
         }
     }
 
-    pub fn mark_of<Obj>(&self, obj: Shared<Obj>) -> u8 {
+    pub fn mark_of<Obj>(&self, obj: NonNull<Obj>) -> u8 {
         match self {
             &Descriptor::MSBlock(ref sd) => unsafe {
                 let obj_addr: usize = transmute(obj.as_ptr());
@@ -37,7 +37,7 @@ impl Descriptor {
         }
     }
 
-    pub fn set_mark_of<Obj>(&mut self, obj: Shared<Obj>, mark: u8, len: GSize) {
+    pub fn set_mark_of<Obj>(&mut self, obj: NonNull<Obj>, mark: u8, len: GSize) {
         match self {
             &mut Descriptor::MSBlock(ref mut sd) => unsafe {
                 let obj_addr: usize = transmute(obj.as_ptr());
