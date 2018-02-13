@@ -1,83 +1,62 @@
 use std::str::FromStr;
 
-use pcws_domain::Allocator;
-use pcws_domain::object_model::{ValueRef, ValueRefT};
-use pcws_domain::values::Symbol;
-use ast::{Block, Def, Function, Method, Call, Lex, Const};
+use cst::{Pos, Expr, Pattern, Stmt, Method, Const};
 
-// FIXME: unwrappy
+pub program -> Expr = ws? block:body ws? { block }
 
-#![arguments(allocator: &mut Allocator)]
-
-pub program -> ValueRefT<Block> = ws? block:body ws? { block }
-
-body -> ValueRefT<Block> = stmts:stmt* ws? expr:expr {
-    Block::new(allocator, &stmts, expr).unwrap()
+body -> Expr = stmts:stmt* ws? expr:expr {
+    Expr::Block(Pos::default(), stmts, Box::new(expr))
 }
 
-stmt -> ValueRef
-    = pat:pattern ws? "=" ws? expr:expr ws? ";" ws? {
-          Def::new(allocator, pat, expr).unwrap().into()
-      }
-    / expr:expr ws? ";" ws? { expr }
+stmt -> Stmt
+    = pat:pattern ws? "=" ws? expr:expr ws? ";" ws? { Stmt::Def(pat, expr) }
+    / expr:expr ws? ";" ws? { Stmt::Expr(expr) }
 
-pattern -> ValueRef = expr
+pattern -> Pattern = lex:lex { Pattern::Lex(Pos::default(), lex) }
 
-expr -> ValueRef = e:infix { ValueRef::from(e) }
+expr -> Expr = infix
 
-infix -> ValueRef = #infix<call> {
-    #L el op:op6 er { Call::new(allocator, op, &[el, er]).unwrap().into() }
-    #L el op:op7 er { Call::new(allocator, op, &[el, er]).unwrap().into() }
+infix -> Expr = #infix<call> {
+    #L el op:op6 er { Expr::Call(Pos::default(), Box::new(op), vec![el, er]) }
+    #L el op:op7 er { Expr::Call(Pos::default(), Box::new(op), vec![el, er]) }
 }
 
-op<O> = ws? op:$(O) ws? {
-    let sym = Symbol::new(allocator, op).unwrap();
-    Lex::new(allocator, sym).unwrap().into()
-}
-op6 -> ValueRef = op<[+\-]>
-op7 -> ValueRef = op<[*/%]>
+op<O> = ws? op:$(O) ws? { Expr::Lex(Pos::default(), op.to_string()) }
+op6 -> Expr = op<[+\-]>
+op7 -> Expr = op<[*/%]>
 
-call -> ValueRef
+call -> Expr
     = callee:simple ws? args:(simple ++ (ws?)) {
-          Call::new(allocator, callee, &args).unwrap().into()
-      }
+        Expr::Call(Pos::default(), Box::new(callee), args)
+    }
     / e:simple { e }
 
-simple -> ValueRef
-    = "{" ws? b:body ws? "}" { b.into() }
+simple -> Expr
+    = "{" ws? b:body ws? "}" { b }
     / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
-        Function::new(allocator, &methods).unwrap().into()
+        Expr::Function(Pos::default(), methods)
     }
-    / "[" ws? b:body ws? "]" {
-        let guard_value: ValueRefT<bool> = true.into();
-        let guard = Const::new(allocator, guard_value.into()).unwrap().into();
-        let method = Method::new(allocator, /* FIXME: */ guard, guard, b.into()).unwrap();
-        Function::new(allocator, &[method]).unwrap().into()
+    / "[" ws? body:body ws? "]" {
+        let guard = Expr::Const(Pos::default(), Const::Bool(true));
+        let method = Method { params: Vec::new(), guard, body };
+        Expr::Function(Pos::default(), vec![method])
     }
     / "(" ws? e:expr ws? ")" { e }
-    / var:var { var }
-    / c:constant { c.into() }
+    / name:lex { Expr::Lex(Pos::default(), name) }
+    / c:constant { Expr::Const(Pos::default(), c) }
 
-method -> ValueRefT<Method> = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
-    let guard = guard.unwrap_or_else(|| {
-        let value: ValueRefT<bool> = true.into();
-        Const::new(allocator, value.into()).unwrap().into()
-    });
-    Method::new(allocator, pattern, guard, body.into()).unwrap()
+method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+    let guard = guard.unwrap_or_else(|| Expr::Const(Pos::default(), Const::Bool(true)));
+    Method { params: vec![pattern], guard, body }
 }
 
-guard -> ValueRef = "|" ws? e:expr { e }
+guard -> Expr = "|" ws? e:expr { e }
 
-var -> ValueRef
-    = cs:$([A-Za-z][A-Za-z0-9]*) {
-          let sym = Symbol::new(allocator, cs).unwrap().into();
-          Lex::new(allocator, sym).unwrap().into()
-      }
+lex -> String
+    = cs:$([A-Za-z][A-Za-z0-9]*) { cs.to_string() }
 
-constant -> ValueRefT<Const> = n:int { Const::new(allocator, n).unwrap() }
+constant -> Const = n:int { Const::Int(n) }
 
-int -> ValueRef = cs:$([0-9]+) {
-    ValueRefT::from(isize::from_str(cs).unwrap()).into()
-}
+int -> isize = cs:$([0-9]+) { isize::from_str(cs).unwrap() }
 
 ws -> () = [ \t\r\n]+
