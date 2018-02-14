@@ -1,5 +1,21 @@
 use std::rc::Rc;
 use std::collections::HashMap;
+use std::marker::PhantomData;
+
+// ================================================================================================
+
+#[derive(Debug)]
+pub struct Program<S> {
+    pub cst: Expr,
+    pub ids: IdTable,
+    state: PhantomData<S>
+}
+
+impl<S> Program<S> {
+    pub fn new(cst: Expr, ids: IdTable) -> Program<S> {
+        Program { cst, ids, state: PhantomData }
+    }
+}
 
 // ================================================================================================
 
@@ -76,15 +92,17 @@ impl IdFactory {
         }
     }
 
-    pub fn create(&mut self, name: &str) -> Id {
+    pub fn get(&mut self, name: &str) -> Id {
         self.name_ids.get(name).map(|&id| id)
-                     .unwrap_or_else(|| {
-                         let id = Id(self.counter);
-                         self.counter += 1;
-                         self.id_names.insert(id, name.to_string());
-                         self.name_ids.insert(name.to_string(), id);
-                         id
-                     })
+                     .unwrap_or_else(|| self.fresh(name))
+    }
+
+    pub fn fresh(&mut self, name: &str) -> Id {
+        let id = Id(self.counter);
+        self.counter += 1;
+        self.id_names.insert(id, name.to_string());
+        self.name_ids.insert(name.to_string(), id);
+        id
     }
 
     pub fn build(self) -> IdTable { IdTable { names: self.id_names } }

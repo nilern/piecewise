@@ -14,8 +14,8 @@ mod frontend;
 use std::io::{self, Read};
 
 use pcws_domain::{Allocator, DynamicDebug};
-use cst::IdFactory;
-use frontend::Inject;
+use cst::{Program, IdFactory};
+use frontend::Parsed;
 
 fn main() {
     let mut src = String::new();
@@ -26,10 +26,13 @@ fn main() {
 
     match parser::program(&src, &mut id_factory) {
         Ok(cst) => {
-            let ids = id_factory.build();
-            println!("{:?}\nwhere {:?}", cst, ids);
+            let program: Program<Parsed> = Program::new(cst, id_factory.build());
+            println!("{:?}", program);
 
-            let ast = cst.inject(&ids, &mut allocator).unwrap(); // FIXME: unwrap
+            let program = program.alphatize();
+            println!("{:?}", program);
+            
+            let ast = program.inject(&mut allocator) .unwrap(); // FIXME: unwrap
             println!("{:?}", ast.fmt_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err)

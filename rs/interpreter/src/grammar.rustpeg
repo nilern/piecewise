@@ -23,7 +23,7 @@ infix -> Expr = #infix<call> {
     #L el op:op7 er { Expr::Call(Pos::default(), Box::new(op), vec![el, er]) }
 }
 
-op<O> = ws? op:$(O) ws? { Expr::Lex(Pos::default(), id_factory.create(op)) }
+op<O> = ws? op:$(O) ws? { Expr::Lex(Pos::default(), id_factory.get(op)) }
 op6 -> Expr = op<[+\-]>
 op7 -> Expr = op<[*/%]>
 
@@ -55,7 +55,7 @@ method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
 guard -> Expr = "|" ws? e:expr { e }
 
 lex -> Id
-    = cs:$([A-Za-z][A-Za-z0-9]*) { id_factory.create(cs) }
+    = cs:$([A-Za-z][A-Za-z0-9]*) { id_factory.get(cs) }
 
 constant -> Const = n:int { Const::Int(n) }
 
