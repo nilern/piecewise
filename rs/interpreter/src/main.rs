@@ -31,7 +31,7 @@ fn main() {
 
             let program = program.alphatize();
             println!("{:?}", program);
-            
+
             let ast = program.inject(&mut allocator) .unwrap(); // FIXME: unwrap
             println!("{:?}", ast.fmt_wrap(&allocator));
         },

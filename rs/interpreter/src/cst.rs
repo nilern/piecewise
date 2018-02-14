@@ -21,8 +21,9 @@ impl<S> Program<S> {
 
 #[derive(Debug)]
 pub enum Expr {
-    Function(Pos, Vec<Method>),
+    Function(Pos, Vec<Id>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
+    Match(Pos, Vec<Case>, Box<Case>),
     Call(Pos, Box<Expr>, Vec<Expr>),
     Lex(Pos, Id),
     Dyn(Pos, String),
@@ -44,8 +45,8 @@ pub enum Stmt {
 }
 
 #[derive(Debug)]
-pub struct Method {
-    pub params: Vec<Pattern>,
+pub struct Case {
+    pub patterns: Vec<Pattern>,
     pub guard: Expr,
     pub body: Expr
 }
@@ -139,6 +140,7 @@ impl Positioned for Expr {
 
         match *self {
             Function(ref pos, ..) => pos,
+            Match(ref pos, ..) => pos,
             Block(ref pos, ..) => pos,
             Call(ref pos, ..) => pos,
             Lex(ref pos, ..) => pos,
@@ -170,9 +172,9 @@ impl Positioned for Stmt {
     }
 }
 
-impl Positioned for Method {
+impl Positioned for Case {
     fn pos(&self) -> &Pos {
-        self.params.get(0).map(Pattern::pos)
+        self.patterns.get(0).map(Pattern::pos)
             .unwrap_or_else(|| self.guard.pos())
     }
 }

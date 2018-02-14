@@ -19,21 +19,11 @@ pub enum Alphatized {}
 
 impl Program<Parsed> {
     pub fn alphatize(mut self) -> Program<Alphatized> {
-        let mut ctx = AlphaCtx {
-            old_ids: self.ids,
-            id_factory: IdFactory::new(),
-            env: Rc::new(AlphaEnv::TopLevel)
-        };
-        self.cst.alphatize(&mut ctx);
-        Program::new(self.cst, ctx.id_factory.build())
+        let mut id_factory = IdFactory::new();
+        let env = Rc::new(AlphaEnv::TopLevel);
+        self.cst.alphatize(&self.ids, &mut id_factory, &env);
+        Program::new(self.cst, id_factory.build())
     }
-}
-
-#[derive(Debug)]
-struct AlphaCtx {
-    old_ids: IdTable,
-    id_factory: IdFactory,
-    env: Rc<AlphaEnv>
 }
 
 #[derive(Debug)]
@@ -62,82 +52,114 @@ impl AlphaEnv {
 type AlphaBindings = HashMap<Id, Id>;
 
 trait Alphatize {
-    fn alphatize(&mut self, ctx: &mut AlphaCtx);
+    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>);
 }
 
 impl Alphatize for cst::Expr {
-    fn alphatize(&mut self, ctx: &mut AlphaCtx) {
+    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
         use cst::Expr::*;
 
-        fn pattern_definiends(pattern: &cst::Pattern, ctx: &mut AlphaCtx,
-                              bindings: &mut AlphaBindings)
-        {
-            match *pattern {
-                cst::Pattern::Call(_, _, ref args) =>
-                    for arg in args { pattern_definiends(arg, ctx, bindings) },
-                cst::Pattern::Lex(_, id) => {
-                    let name = ctx.old_ids.get_name(id).unwrap();
-                    bindings.insert(id, ctx.id_factory.fresh(name));
-                },
-                cst::Pattern::Dyn(..) | cst::Pattern::Const(..) => {}
-            }
-        }
-
-        fn stmt_definiends(stmt: &cst::Stmt, ctx: &mut AlphaCtx, bindings: &mut AlphaBindings) {
-            match *stmt {
-                cst::Stmt::Def(ref pattern, _) => pattern_definiends(pattern, ctx, bindings),
-                cst::Stmt::Expr(_) => {}
-            }
-        }
-
         match *self {
+            Function(_, ref params, ref mut body) => {
+                let mut bindings = HashMap::new();
+                for param in params {
+                    let name = old_ids.get_name(*param).unwrap();
+                    bindings.insert(*param, id_factory.fresh(name));
+                }
+                let env = Rc::new(AlphaEnv::push(env.clone(), bindings));
+
+                body.alphatize(old_ids, id_factory, &env);
+            },
             Block(_, ref mut stmts, ref mut expr) => {
                 let mut bindings = HashMap::new();
                 for stmt in stmts.iter() {
-                    stmt_definiends(stmt, ctx, &mut bindings)
+                    stmt_definiends(stmt, old_ids, id_factory, &mut bindings)
                 }
-                ctx.env = Rc::new(AlphaEnv::push(ctx.env.clone(), bindings));
+                let env = Rc::new(AlphaEnv::push(env.clone(), bindings));
 
-                for stmt in stmts { stmt.alphatize(ctx) }
-                expr.alphatize(ctx);
+                for stmt in stmts { stmt.alphatize(old_ids, id_factory, &env) }
+                expr.alphatize(old_ids, id_factory, &env);
+            },
+            Match(_, ref mut cases, ref mut default_case) => {
+                for case in cases { case.alphatize(old_ids, id_factory, env) }
+                default_case.alphatize(old_ids, id_factory, env);
             },
             Call(_, ref mut callee, ref mut args) => {
-                callee.alphatize(ctx);
-                for arg in args { arg.alphatize(ctx) }
+                callee.alphatize(old_ids, id_factory, env);
+                for arg in args { arg.alphatize(old_ids, id_factory, env) }
             },
             Lex(_, ref mut name) =>
-                *name = ctx.env.get(*name).unwrap(),
+                *name = env.get(*name).unwrap(),
             Dyn(..) | Const(..) => {}
-            _ => unimplemented!()
         }
     }
 }
 
 impl Alphatize for cst::Pattern {
-    fn alphatize(&mut self, ctx: &mut AlphaCtx) {
+    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
         use cst::Pattern::*;
 
         match *self {
             Call(_, ref mut callee, ref mut args) => {
-                callee.alphatize(ctx);
-                for arg in args { arg.alphatize(ctx) }
+                callee.alphatize(old_ids, id_factory, env);
+                for arg in args { arg.alphatize(old_ids, id_factory, env) }
             },
             Lex(_, ref mut name) =>
-                *name = ctx.env.get(*name).unwrap(),
+                *name = env.get(*name).unwrap(),
             Dyn(..) | Const(..) => {}
         }
     }
 }
 
 impl Alphatize for cst::Stmt {
-    fn alphatize(&mut self, ctx: &mut AlphaCtx) {
+    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
         match *self {
             cst::Stmt::Def(ref mut pattern, ref mut expr) => {
-                pattern.alphatize(ctx);
-                expr.alphatize(ctx);
+                pattern.alphatize(old_ids, id_factory, env);
+                expr.alphatize(old_ids, id_factory, env);
             },
-            cst::Stmt::Expr(ref mut expr) => expr.alphatize(ctx)
+            cst::Stmt::Expr(ref mut expr) => expr.alphatize(old_ids, id_factory, env)
         }
+    }
+}
+
+impl Alphatize for cst::Case {
+    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
+        let &mut cst::Case { ref mut patterns, ref mut guard, ref mut body } = self;
+
+        let mut bindings = HashMap::new();
+        for pattern in patterns.iter() {
+            pattern_definiends(pattern, old_ids, id_factory, &mut bindings);
+        }
+        let env = Rc::new(AlphaEnv::push(env.clone(), bindings));
+
+        for pattern in patterns { pattern.alphatize(old_ids, id_factory, &env) }
+        guard.alphatize(old_ids, id_factory, &env);
+        body.alphatize(old_ids, id_factory, &env);
+    }
+}
+
+fn pattern_definiends(pattern: &cst::Pattern, old_ids: &IdTable, id_factory: &mut IdFactory,
+                      bindings: &mut AlphaBindings)
+{
+    match *pattern {
+        cst::Pattern::Call(_, _, ref args) =>
+            for arg in args { pattern_definiends(arg, old_ids, id_factory, bindings) },
+        cst::Pattern::Lex(_, id) => {
+            let name = old_ids.get_name(id).unwrap();
+            bindings.insert(id, id_factory.fresh(name));
+        },
+        cst::Pattern::Dyn(..) | cst::Pattern::Const(..) => {}
+    }
+}
+
+fn stmt_definiends(stmt: &cst::Stmt, old_ids: &IdTable, id_factory: &mut IdFactory,
+                   bindings: &mut AlphaBindings)
+{
+    match *stmt {
+        cst::Stmt::Def(ref pattern, _) =>
+            pattern_definiends(pattern, old_ids, id_factory, bindings),
+        cst::Stmt::Expr(_) => {}
     }
 }
 
@@ -168,13 +190,7 @@ impl Inject for cst::Expr {
         use cst::Expr::*;
 
         match self {
-            Function(_, methods) =>
-                methods.into_iter()
-                       .map(|expr| expr.inject(ids, allocator))
-                       .collect::<Option<Vec<_>>>()
-                       .and_then(|methods|
-                          ast::Function::new(allocator, &methods).map(From::from)
-                       ),
+            Function(..) => unimplemented!(),
             Block(_, stmts, expr) =>
                 stmts.into_iter()
                      .map(|stmt| stmt.inject(ids, allocator))
@@ -185,6 +201,7 @@ impl Inject for cst::Expr {
                                  ast::Block::new(allocator, &stmts, expr).map(From::from)
                              )
                      ),
+            Match(..) => unimplemented!(),
             Call(_, callee, args) =>
                 callee.inject(ids, allocator)
                       .and_then(|callee|
@@ -256,7 +273,7 @@ impl Inject for cst::Stmt {
     }
 }
 
-impl Inject for cst::Method {
+impl Inject for cst::Case {
     type Target = ValueRefT<ast::Method>;
 
     fn inject(self, _: &IdTable, _: &mut Allocator) -> Option<ValueRefT<ast::Method>> {

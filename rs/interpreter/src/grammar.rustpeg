@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cst::{Id, IdFactory, Pos, Expr, Pattern, Stmt, Method, Const};
+use cst::{Id, IdFactory, Pos, Expr, Pattern, Stmt, Case, Const};
 
 #![arguments(id_factory: &mut IdFactory)]
 
@@ -36,20 +36,30 @@ call -> Expr
 simple -> Expr
     = "{" ws? b:body ws? "}" { b }
     / "{" ws? methods:(method ++ (ws? ";" ws?)) ws? "}" {
-        Expr::Function(Pos::default(), methods)
+        let closure = id_factory.fresh("self");
+        let args = id_factory.fresh("args");
+        Expr::Function(Pos::default(), vec![], // FIXME
+            Box::new(Expr::Match(Pos::default(),
+                methods,
+                Box::new(Case {
+                    patterns: Vec::new(), // FIXME
+                    guard: Expr::Const(Pos::default(), Const::Bool(true)),
+                    body: Expr::Call(Pos::default(),
+                                     Box::new(Expr::Lex(Pos::default(), closure)),
+                                     vec![Expr::Lex(Pos::default(), closure),
+                                          Expr::Lex(Pos::default(), args)])
+                }))))
     }
     / "[" ws? body:body ws? "]" {
-        let guard = Expr::Const(Pos::default(), Const::Bool(true));
-        let method = Method { params: Vec::new(), guard, body };
-        Expr::Function(Pos::default(), vec![method])
+        Expr::Function(Pos::default(), vec![], /* FIXME */ Box::new(body))
     }
     / "(" ws? e:expr ws? ")" { e }
     / name:lex { Expr::Lex(Pos::default(), name) }
     / c:constant { Expr::Const(Pos::default(), c) }
 
-method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
+method -> Case = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
     let guard = guard.unwrap_or_else(|| Expr::Const(Pos::default(), Const::Bool(true)));
-    Method { params: vec![pattern], guard, body }
+    Case { patterns: vec![pattern], guard, body }
 }
 
 guard -> Expr = "|" ws? e:expr { e }
