@@ -1,6 +1,8 @@
 use std::str::FromStr;
 
-use cst::{Pos, Expr, Pattern, Stmt, Method, Const};
+use cst::{Id, IdFactory, Pos, Expr, Pattern, Stmt, Method, Const};
+
+#![arguments(id_factory: &mut IdFactory)]
 
 pub program -> Expr = ws? block:body ws? { block }
 
@@ -21,7 +23,7 @@ infix -> Expr = #infix<call> {
     #L el op:op7 er { Expr::Call(Pos::default(), Box::new(op), vec![el, er]) }
 }
 
-op<O> = ws? op:$(O) ws? { Expr::Lex(Pos::default(), op.to_string()) }
+op<O> = ws? op:$(O) ws? { Expr::Lex(Pos::default(), id_factory.create(op)) }
 op6 -> Expr = op<[+\-]>
 op7 -> Expr = op<[*/%]>
 
@@ -52,8 +54,8 @@ method -> Method = pattern:pattern ws? guard:guard? ws? "=>" ws? body:body {
 
 guard -> Expr = "|" ws? e:expr { e }
 
-lex -> String
-    = cs:$([A-Za-z][A-Za-z0-9]*) { cs.to_string() }
+lex -> Id
+    = cs:$([A-Za-z][A-Za-z0-9]*) { id_factory.create(cs) }
 
 constant -> Const = n:int { Const::Int(n) }
 

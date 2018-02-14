@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::collections::HashMap;
 
 // ================================================================================================
 
@@ -7,7 +8,7 @@ pub enum Expr {
     Function(Pos, Vec<Method>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
     Call(Pos, Box<Expr>, Vec<Expr>),
-    Lex(Pos, String),
+    Lex(Pos, Id),
     Dyn(Pos, String),
     Const(Pos, Const)
 }
@@ -15,7 +16,7 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum Pattern {
     Call(Pos, Expr, Vec<Pattern>),
-    Lex(Pos, String),
+    Lex(Pos, Id),
     Dyn(Pos, String),
     Const(Pos, Const)
 }
@@ -41,6 +42,52 @@ pub enum Const {
     Bool(bool),
     String(String),
     Symbol(String)
+}
+
+// ================================================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Id(usize);
+
+#[derive(Debug)]
+pub struct IdTable {
+    names: HashMap<Id, String>
+}
+
+impl IdTable {
+    pub fn get_name(&self, id: Id) -> Option<&str> {
+        self.names.get(&id).map(AsRef::as_ref)
+    }
+}
+
+#[derive(Debug)]
+pub struct IdFactory {
+    counter: usize,
+    id_names: HashMap<Id, String>,
+    name_ids: HashMap<String, Id>
+}
+
+impl IdFactory {
+    pub fn new() -> IdFactory {
+        IdFactory {
+            counter: 0,
+            id_names: HashMap::new(),
+            name_ids: HashMap::new()
+        }
+    }
+
+    pub fn create(&mut self, name: &str) -> Id {
+        self.name_ids.get(name).map(|&id| id)
+                     .unwrap_or_else(|| {
+                         let id = Id(self.counter);
+                         self.counter += 1;
+                         self.id_names.insert(id, name.to_string());
+                         self.name_ids.insert(name.to_string(), id);
+                         id
+                     })
+    }
+
+    pub fn build(self) -> IdTable { IdTable { names: self.id_names } }
 }
 
 // ================================================================================================
@@ -71,7 +118,7 @@ pub trait Positioned {
 impl Positioned for Expr {
     fn pos(&self) -> &Pos {
         use self::Expr::*;
-    
+
         match *self {
             Function(ref pos, ..) => pos,
             Block(ref pos, ..) => pos,
@@ -86,7 +133,7 @@ impl Positioned for Expr {
 impl Positioned for Pattern {
     fn pos(&self) -> &Pos {
         use self::Pattern::*;
-    
+
         match *self {
             Call(ref pos, ..) => pos,
             Lex(ref pos, ..) => pos,
