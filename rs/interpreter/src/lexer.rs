@@ -200,41 +200,35 @@ impl<'input> StreamOnce for Lexer<'input> {
         } else if self.chars.input.is_empty() {
             Err(StringStreamError::Eoi)
         } else {
-            let delimiter = choice!(
+            let special_operator =
+                (char('='), optional(char('>'))).map(|(_, arrowhead)| if arrowhead.is_some() {
+                    Token::DArrow
+                } else {
+                    Token::Eq
+                })
+                .or(char('|').map(|_| Token::Bar));
+
+            let mut parser = (position(), choice!(
                 char('(').map(|_| Token::Delimiter(Left, Paren)),
                 char(')').map(|_| Token::Delimiter(Right, Paren)),
                 char('[').map(|_| Token::Delimiter(Left, Bracket)),
                 char(']').map(|_| Token::Delimiter(Right, Bracket)),
                 char('{').map(|_| Token::Delimiter(Left, Brace)),
-                char('}').map(|_| Token::Delimiter(Right, Brace))
-            );
-            let separator = choice!(
+                char('}').map(|_| Token::Delimiter(Right, Brace)),
+
                 char(',').map(|_| Token::Separator(Comma)),
-                char(';').map(|_| Token::Separator(Semicolon))
-            );
-            let special_operator = choice!(
-                char('=').and(optional(char('>'))).map(|(_, arrowhead)| if arrowhead.is_some() {
-                    Token::DArrow
-                } else {
-                    Token::Eq
-                }),
-                char('|').map(|_| Token::Bar)
-            );
+                char(';').map(|_| Token::Separator(Semicolon)),
 
-            let int_parser = many1(digit());
-            let string_parser = between(char('"'), char('"'), many1(none_of("\"".chars())));
-
-            let dyn_parser = char('$').with(many(alpha_num()));
-            let lex_parser = letter().and(many(alpha_num()));
-
-            let mut parser = position().and(choice!(
-                delimiter,
-                separator,
                 special_operator,
-                int_parser.map(Token::int),
-                string_parser.map(Token::string),
-                dyn_parser.map(Token::dyn),
-                lex_parser.map(|(c, mut cs): (_, String)| { cs.insert(0, c); Token::lex(cs) })
+                many1(digit()).map(Token::int),
+                between(char('"'), char('"'), many1(none_of("\"".chars())))
+                    .map(Token::string),
+                char('$').with(many(alpha_num())).map(Token::dyn),
+                (letter(), many(alpha_num()))
+                    .map(|(c, mut cs): (_, String)| {
+                        cs.insert(0, c);
+                        Token::lex(cs)
+                    })
             ).skip(spaces()));
 
             match parser.parse_stream_consumed(&mut self.chars) {
