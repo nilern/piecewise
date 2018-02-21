@@ -197,6 +197,8 @@ impl<'input> StreamOnce for Lexer<'input> {
         if let Some((_, token)) = self.buffer.get(self.token_index).map(Clone::clone) {
             self.token_index += 1;
             Ok(token)
+        } else if self.chars.input.is_empty() {
+            Err(StringStreamError::Eoi)
         } else {
             let delimiter = choice!(
                 char('(').map(|_| Token::Delimiter(Left, Paren)),
