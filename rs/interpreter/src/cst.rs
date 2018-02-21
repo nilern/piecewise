@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::fmt::{self, Display};
 
 // ================================================================================================
 
@@ -51,7 +52,7 @@ pub struct Case {
     pub body: Expr
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Const {
     Int(isize),
     Float(f64),
@@ -59,6 +60,22 @@ pub enum Const {
     Bool(bool),
     String(String),
     Symbol(String)
+}
+
+impl Display for Const {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::Const::*;
+
+        match self {
+            &Int(n) => n.fmt(f),
+            &Float(n) => n.fmt(f),
+            &Char(c) => write!(f, "'{}'", c),
+            &Bool(true) => "True".fmt(f),
+            &Bool(false) => "False".fmt(f),
+            &String(ref s) => write!(f, "\"{}\"", s),
+            &Symbol(ref s) => write!(f, ":{}", s)
+        }
+    }
 }
 
 // ================================================================================================
@@ -111,7 +128,7 @@ impl IdFactory {
 
 // ================================================================================================
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pos {
     pub file: Rc<String>,
     pub index: usize,

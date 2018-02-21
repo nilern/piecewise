@@ -5,23 +5,27 @@ extern crate core;
 extern crate pcws_gc;
 #[macro_use]
 extern crate pcws_domain;
+#[macro_use]
+extern crate combine;
 
 mod cst;
-mod parser { include!(concat!(env!("OUT_DIR"), "/grammar.rs")); }
+mod lexer;
 mod ast;
 mod frontend;
 
 use std::io::{self, Read};
 
-use pcws_domain::{Allocator, DynamicDebug};
-use cst::{Program, IdFactory};
-use frontend::Parsed;
+use lexer::Lexer;
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
-    let mut allocator = Allocator::new(4*1024*1024);
+    for tok in Lexer::new(&src) {
+        println!("{:?}", tok);
+    }
+
+    /* let mut allocator = Allocator::new(4*1024*1024);
     let mut id_factory = IdFactory::new();
 
     match parser::program(&src, &mut id_factory) {
@@ -36,5 +40,5 @@ fn main() {
             println!("{:?}", ast.fmt_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err)
-    }
+    } */
 }
