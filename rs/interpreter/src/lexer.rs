@@ -1,60 +1,32 @@
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 
-use combine::{StreamOnce, Positioned, Parser, ParseError,
-              position, optional, many, many1, none_of, between};
+use combine::{StreamOnce, Positioned, Parser,
+              position, value, optional, many, many1, none_of, between};
 use combine::char::{char, digit, letter, alpha_num, spaces};
 use combine::error::{StringStreamError, FastResult};
 use combine::stream::state::{State, Positioner};
-use combine::stream::easy::Errors;
 use combine::stream::{Resetable, StreamErrorFor};
 
 use cst::{Pos, Const};
 
 // ================================================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Delimiter { Paren, Bracket, Brace }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Side { Left, Right }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Separator { Comma, Semicolon }
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Var { Lex(String), Dyn(String) }
-
-impl Display for Var {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &Var::Lex(ref name) => name.fmt(f),
-            &Var::Dyn(ref name) => write!(f, "${}", name)
-        }
-    }
-}
-
-// #[derive(Debug, Clone, Copy, PartialEq)]
-// pub enum Precedence { Zero, One, Two, Three, Four, Five, Six, Seven }
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Delimiter(Side, Delimiter),
-    Separator(Separator),
+    LParen, RParen, LBracket, RBracket, LBrace, RBrace,
+    Comma, Semicolon,
     Eq,
     DArrow,
     Bar,
 
-    Var(Var),
-    // Op(Var, Precedence),
+    Lex(String),
+    Dyn(String),
+    // Op(String, Precedence),
     Const(Const)
 }
 
 impl Token {
-    fn dyn(name: String) -> Token { Token::Var(Var::Dyn(name)) }
-
-    fn lex(name: String) -> Token { Token::Var(Var::Lex(name)) }
-
     fn int(digits: String) -> Token { Token::Const(Const::Int(digits.parse().unwrap())) }
 
     fn string(chars: String) -> Token { Token::Const(Const::String(chars)) }
@@ -63,26 +35,24 @@ impl Token {
 impl Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::Token::*;
-        use self::Delimiter::*;
-        use self::Side::*;
-        use self::Separator::*;
 
         match self {
-            &Delimiter(Left, Paren) => write!(f, "("),
-            &Delimiter(Right, Paren) => write!(f, ")"),
-            &Delimiter(Left, Bracket) => write!(f, "["),
-            &Delimiter(Right, Bracket) => write!(f, "]"),
-            &Delimiter(Left, Brace) => write!(f, "{{"),
-            &Delimiter(Right, Brace) => write!(f, "}}"),
+            &LParen => write!(f, "("),
+            &RParen => write!(f, ")"),
+            &LBracket => write!(f, "["),
+            &RBracket => write!(f, "]"),
+            &LBrace => write!(f, "{{"),
+            &RBrace => write!(f, "}}"),
 
-            &Separator(Comma) => write!(f, ","),
-            &Separator(Semicolon) => write!(f, ";"),
+            &Comma => write!(f, ","),
+            &Semicolon => write!(f, ";"),
 
             &Eq => write!(f, "="),
             &DArrow => write!(f, "=>"),
             &Bar => write!(f, "|"),
 
-            &Var(ref var) => var.fmt(f),
+            &Lex(ref name) => name.fmt(f),
+            &Dyn(ref name) => write!(f, "${}", name),
             // &Op(ref var, _) => var.fmt(f),
             &Const(ref c) => c.fmt(f)
         }
@@ -91,36 +61,12 @@ impl Display for Token {
 
 pub struct TryFromTokenError;
 
-impl TryFrom<Token> for Var {
+impl TryFrom<Token> for Const {
     type Error = TryFromTokenError;
 
-    fn try_from(token: Token) -> Result<Var, TryFromTokenError> {
-        if let Token::Var(v) = token {
-            Ok(v)
-        } else {
-            Err(TryFromTokenError)
-        }
-    }
-}
-
-impl TryFrom<Token> for isize {
-    type Error = TryFromTokenError;
-
-    fn try_from(token: Token) -> Result<isize, TryFromTokenError> {
-        if let Token::Const(Const::Int(n)) = token {
-            Ok(n)
-        } else {
-            Err(TryFromTokenError)
-        }
-    }
-}
-
-impl TryFrom<Token> for String {
-    type Error = TryFromTokenError;
-
-    fn try_from(token: Token) -> Result<String, TryFromTokenError> {
-        if let Token::Const(Const::String(s)) = token {
-            Ok(s)
+    fn try_from(token: Token) -> Result<Const, TryFromTokenError> {
+        if let Token::Const(c) = token {
+            Ok(c)
         } else {
             Err(TryFromTokenError)
         }
@@ -190,45 +136,38 @@ impl<'input> StreamOnce for Lexer<'input> {
     type Error = StringStreamError;
 
     fn uncons(&mut self) -> Result<Self::Item, StreamErrorFor<Self>> {
-        use self::Side::*;
-        use self::Delimiter::*;
-        use self::Separator::*;
-
         if let Some((_, token)) = self.buffer.get(self.token_index).map(Clone::clone) {
             self.token_index += 1;
             Ok(token)
         } else if self.chars.input.is_empty() {
             Err(StringStreamError::Eoi)
         } else {
-            let special_operator =
+            let mut parser = (position(), choice!(
+                char('(').with(value(Token::LParen)),
+                char(')').with(value(Token::RParen)),
+                char('[').with(value(Token::LBracket)),
+                char(']').with(value(Token::RBracket)),
+                char('{').with(value(Token::LBrace)),
+                char('}').with(value(Token::RBrace)),
+
+                char(',').with(value(Token::Comma)),
+                char(';').with(value(Token::Semicolon)),
+
                 (char('='), optional(char('>'))).map(|(_, arrowhead)| if arrowhead.is_some() {
                     Token::DArrow
                 } else {
                     Token::Eq
                 })
-                .or(char('|').map(|_| Token::Bar));
+                .or(char('|').map(|_| Token::Bar)),
 
-            let mut parser = (position(), choice!(
-                char('(').map(|_| Token::Delimiter(Left, Paren)),
-                char(')').map(|_| Token::Delimiter(Right, Paren)),
-                char('[').map(|_| Token::Delimiter(Left, Bracket)),
-                char(']').map(|_| Token::Delimiter(Right, Bracket)),
-                char('{').map(|_| Token::Delimiter(Left, Brace)),
-                char('}').map(|_| Token::Delimiter(Right, Brace)),
-
-                char(',').map(|_| Token::Separator(Comma)),
-                char(';').map(|_| Token::Separator(Semicolon)),
-
-                special_operator,
                 many1(digit()).map(Token::int),
-                between(char('"'), char('"'), many1(none_of("\"".chars())))
-                    .map(Token::string),
-                char('$').with(many(alpha_num())).map(Token::dyn),
-                (letter(), many(alpha_num()))
-                    .map(|(c, mut cs): (_, String)| {
-                        cs.insert(0, c);
-                        Token::lex(cs)
-                    })
+                between(char('"'), char('"'), many1(none_of("\"".chars()))).map(Token::string),
+
+                char('$').with(many(alpha_num())).map(Token::Dyn),
+                (letter(), many(alpha_num())).map(|(c, mut cs): (_, String)| {
+                    cs.insert(0, c);
+                    Token::Lex(cs)
+                })
             ).skip(spaces()));
 
             match parser.parse_stream_consumed(&mut self.chars) {
@@ -265,31 +204,3 @@ impl<'input> Positioned for Lexer<'input> {
         }
     }
 }
-
-// impl Precedence {
-//     fn of(chars: &str) -> LexResult<Precedence> {
-//         use self::Precedence::*;
-//
-//         if chars == "=" || chars == "=>" { // HACK
-//             return Ok(Zero);
-//         }
-//
-//         // TODO: actually think about this instead of blindly copying Scala
-//         match chars.chars().next() {
-//             Some('|') => Ok(One),
-//             Some('^') => Ok(Two),
-//             Some('&') => Ok(Three),
-//             Some('=') | Some('!') => Ok(Four),
-//             Some('<') | Some('>') => Ok(Five),
-//             Some('+') | Some('-') => Ok(Six),
-//             Some('*') | Some('/') | Some('%') => Ok(Seven),
-//             Some(c) => Err(LexicalError::UnprecedentedOp(c)),
-//             None => Err(LexicalError::EmptyTok)
-//         }
-//     }
-// }
-//
-// fn is_terminator(c: char) -> bool {
-//     c.is_whitespace() || CHAR_TOKENS.contains(c) || TOKEN_DELIMS.contains(c)
-// }
-//

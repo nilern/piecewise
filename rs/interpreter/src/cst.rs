@@ -151,7 +151,7 @@ impl IdFactory {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pos {
-    pub file: Rc<String>,
+    pub file: Rc<String>, // OPTIMIZE: Handle this some other way so that Pos: Copy
     pub index: usize,
     pub line: usize,
     pub col: usize
