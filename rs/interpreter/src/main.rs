@@ -1,4 +1,4 @@
-#![feature(nonzero, unique, const_atomic_isize_new)]
+#![feature(try_from, nonzero, unique, const_atomic_isize_new)]
 
 extern crate core;
 
@@ -10,20 +10,32 @@ extern crate combine;
 
 mod cst;
 mod lexer;
+mod parser;
 mod ast;
 mod frontend;
 
 use std::io::{self, Read};
+use std::cell::RefCell;
+use combine::Parser;
 
+use cst::IdFactory;
 use lexer::Lexer;
+use parser::program;
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
-    for tok in Lexer::new(&src) {
-        println!("{:?}", tok);
+    let id_factory = RefCell::new(IdFactory::new());
+
+    for token in Lexer::new(&src) {
+        println!("{:?}", token);
+        if token.is_err() {
+            break;
+        }
     }
+
+    println!("{:?}", program(&id_factory).parse(Lexer::new(&src)));
 
     /* let mut allocator = Allocator::new(4*1024*1024);
     let mut id_factory = IdFactory::new();

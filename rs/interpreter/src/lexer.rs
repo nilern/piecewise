@@ -1,8 +1,10 @@
+use std::convert::TryFrom;
 use std::fmt::{self, Display};
 
-use combine::{StreamOnce, Positioned, Parser, ParseError, optional, many, many1, none_of, between};
+use combine::{StreamOnce, Positioned, Parser, ParseError,
+              position, optional, many, many1, none_of, between};
 use combine::char::{char, digit, letter, alpha_num, spaces};
-use combine::error::StringStreamError;
+use combine::error::{StringStreamError, FastResult};
 use combine::stream::state::{State, Positioner};
 use combine::stream::easy::Errors;
 use combine::stream::{Resetable, StreamErrorFor};
@@ -87,6 +89,44 @@ impl Display for Token {
     }
 }
 
+pub struct TryFromTokenError;
+
+impl TryFrom<Token> for Var {
+    type Error = TryFromTokenError;
+
+    fn try_from(token: Token) -> Result<Var, TryFromTokenError> {
+        if let Token::Var(v) = token {
+            Ok(v)
+        } else {
+            Err(TryFromTokenError)
+        }
+    }
+}
+
+impl TryFrom<Token> for isize {
+    type Error = TryFromTokenError;
+
+    fn try_from(token: Token) -> Result<isize, TryFromTokenError> {
+        if let Token::Const(Const::Int(n)) = token {
+            Ok(n)
+        } else {
+            Err(TryFromTokenError)
+        }
+    }
+}
+
+impl TryFrom<Token> for String {
+    type Error = TryFromTokenError;
+
+    fn try_from(token: Token) -> Result<String, TryFromTokenError> {
+        if let Token::Const(Const::String(s)) = token {
+            Ok(s)
+        } else {
+            Err(TryFromTokenError)
+        }
+    }
+}
+
 // ================================================================================================
 
 impl Positioner<char> for Pos {
@@ -116,7 +156,7 @@ impl Resetable for Pos {
 #[derive(Debug)]
 pub struct Lexer<'input> {
     chars: State<&'input str, Pos>,
-    buffer: Vec<Token>,
+    buffer: Vec<(Pos, Token)>,
     token_index: usize
 }
 
@@ -124,7 +164,11 @@ impl<'input> Lexer<'input> {
     /// Create a new lexer for lexing the given input string.
     pub fn new(input: &'input str) -> Self {
         Lexer {
-            chars: State::with_positioner(input, Pos::default()),
+            chars: {
+                let mut chars = State::with_positioner(input, Pos::default());
+                spaces().parse_stream(&mut chars).unwrap();
+                chars
+            },
             buffer: Vec::new(),
             token_index: 0
         }
@@ -132,23 +176,25 @@ impl<'input> Lexer<'input> {
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Token;
+    type Item = Result<Token, StreamErrorFor<Self>>;
 
-    fn next(&mut self) -> Option<Token> { self.uncons().ok() }
+    fn next(&mut self) -> Option<Result<Token, StreamErrorFor<Self>>> {
+        Some(self.uncons())
+    }
 }
 
 impl<'input> StreamOnce for Lexer<'input> {
     type Item = Token;
     type Range = Token; // TODO: &'input [Token]
     type Position = Pos;
-    type Error = Errors<Self::Item, Self::Range, Self::Position>;
+    type Error = StringStreamError;
 
     fn uncons(&mut self) -> Result<Self::Item, StreamErrorFor<Self>> {
         use self::Side::*;
         use self::Delimiter::*;
         use self::Separator::*;
 
-        if let Some(token) = self.buffer.get(self.token_index).map(Clone::clone) {
+        if let Some((_, token)) = self.buffer.get(self.token_index).map(Clone::clone) {
             self.token_index += 1;
             Ok(token)
         } else {
@@ -179,7 +225,7 @@ impl<'input> StreamOnce for Lexer<'input> {
             let dyn_parser = char('$').with(many(alpha_num()));
             let lex_parser = letter().and(many(alpha_num()));
 
-            let mut parser = spaces().with(choice!(
+            let mut parser = position().and(choice!(
                 delimiter,
                 separator,
                 special_operator,
@@ -187,17 +233,17 @@ impl<'input> StreamOnce for Lexer<'input> {
                 string_parser.map(Token::string),
                 dyn_parser.map(Token::dyn),
                 lex_parser.map(|(c, mut cs): (_, String)| { cs.insert(0, c); Token::lex(cs) })
-            ));
+            ).skip(spaces()));
 
-            match parser.parse_stream_consumed(&mut self.chars).into() {
-                Ok((token, _)) => {
-                    self.buffer.push(token.clone());
+            match parser.parse_stream_consumed(&mut self.chars) {
+                FastResult::ConsumedOk((pos, token)) => {
+                    self.buffer.push((pos, token.clone()));
                     self.token_index += 1;
                     Ok(token)
                 },
-                Err(err) => Err(<StringStreamError as ParseError<_, _, Pos>>::into_other(
-                    err.into_inner().error
-                ))
+                FastResult::EmptyOk(_) => unreachable!(),
+                FastResult::ConsumedErr(err) => Err(err),
+                FastResult::EmptyErr(err) => Err(err.error)
             }
         }
     }
@@ -209,13 +255,19 @@ impl<'input> Resetable for Lexer<'input> {
     fn checkpoint(&self) -> Self::Checkpoint { self.token_index }
 
     fn reset(&mut self, checkpoint: Self::Checkpoint) {
-        assert!(checkpoint < self.buffer.len());
+        assert!(checkpoint <= self.buffer.len());
         self.token_index = checkpoint
     }
 }
 
 impl<'input> Positioned for Lexer<'input> {
-    fn position(&self) -> Self::Position { self.chars.position() }
+    fn position(&self) -> Self::Position {
+        if self.token_index < self.buffer.len() {
+            self.buffer[self.token_index].0.clone()
+        } else {
+            self.chars.position()
+        }
+    }
 }
 
 // impl Precedence {

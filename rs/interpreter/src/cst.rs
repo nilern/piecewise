@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::rc::Rc;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -37,6 +38,26 @@ pub enum Pattern {
     Lex(Pos, Id),
     Dyn(Pos, String),
     Const(Pos, Const)
+}
+
+#[derive(Debug)]
+pub struct IllegalPattern;
+
+impl TryFrom<Expr> for Pattern {
+    type Error = IllegalPattern;
+
+    fn try_from(expr: Expr) -> Result<Pattern, IllegalPattern> {
+        Ok(match expr {
+            Expr::Call(pos, callee, args) =>
+                Pattern::Call(pos, *callee, args.into_iter()
+                                                .map(TryFrom::try_from)
+                                                .collect::<Result<Vec<_>, _>>()?),
+            Expr::Lex(pos, id) => Pattern::Lex(pos, id),
+            Expr::Dyn(pos, name) => Pattern::Dyn(pos, name),
+            Expr::Const(pos, c) => Pattern::Const(pos, c),
+            _ => return Err(IllegalPattern)
+        })
+    }
 }
 
 #[derive(Debug)]
