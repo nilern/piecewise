@@ -40,10 +40,12 @@ parser!{
 
 parser!{
     fn expr['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        let constant = (
-            position(), satisfy_map(|token: Token| token.try_into().ok())
-        ).map(|(pos, c)| Expr::Const(pos, c));
+        var(id_factory).or(constant())
+    }
+}
 
+parser!{
+    fn var['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
         let lex = (position(), satisfy_map(|token: Token| if let Token::Lex(name) = token {
             Some(id_factory.borrow_mut().get(&name))
         } else {
@@ -55,8 +57,13 @@ parser!{
             None
         })).map(|(pos, name)| Expr::Dyn(pos, name));
 
-        let var = lex.or(dyn);
+        lex.or(dyn)
+    }
+}
 
-        var.or(constant)
+parser!{
+    fn constant['input]()(Lexer<'input>) -> Expr {
+        (position(), satisfy_map(|token: Token| token.try_into().ok()))
+        .map(|(pos, c)| Expr::Const(pos, c))
     }
 }
