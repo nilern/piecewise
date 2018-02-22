@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::str::FromStr;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -57,43 +56,25 @@ pub enum Expr {
     Const(Pos, Const)
 }
 
-#[derive(Debug)]
-pub enum Pattern {
-    Call(Pos, Expr, Vec<Pattern>),
-    Lex(Pos, Id),
-    Dyn(Pos, String),
-    Const(Pos, Const)
-}
-
-#[derive(Debug)]
-pub struct IllegalPattern;
-
-impl TryFrom<Expr> for Pattern {
-    type Error = IllegalPattern;
-
-    fn try_from(expr: Expr) -> Result<Pattern, IllegalPattern> {
-        Ok(match expr {
-            Expr::Call(pos, callee, args) =>
-                Pattern::Call(pos, *callee, args.into_iter()
-                                                .map(TryFrom::try_from)
-                                                .collect::<Result<Vec<_>, _>>()?),
-            Expr::Lex(pos, id) => Pattern::Lex(pos, id),
-            Expr::Dyn(pos, name) => Pattern::Dyn(pos, name),
-            Expr::Const(pos, c) => Pattern::Const(pos, c),
-            _ => return Err(IllegalPattern)
-        })
+impl Expr {
+    pub fn is_pattern(&self) -> bool {
+        match self {
+            &Expr::Call(_, _, ref args) => args.iter().all(Expr::is_pattern),
+            &Expr::Lex(..) | &Expr::Dyn(..) | &Expr::Const(..) => true,
+            _ => false
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum Stmt {
-    Def(Pattern, Expr),
+    Def(Expr, Expr),
     Expr(Expr)
 }
 
 #[derive(Debug)]
 pub struct Case {
-    pub patterns: Vec<Pattern>,
+    pub patterns: Vec<Expr>,
     pub guard: Expr,
     pub body: Expr
 }
@@ -213,19 +194,6 @@ impl Positioned for Expr {
     }
 }
 
-impl Positioned for Pattern {
-    fn pos(&self) -> &Pos {
-        use self::Pattern::*;
-
-        match *self {
-            Call(ref pos, ..) => pos,
-            Lex(ref pos, ..) => pos,
-            Dyn(ref pos, ..) => pos,
-            Const(ref pos, ..) => pos
-        }
-    }
-}
-
 impl Positioned for Stmt {
     fn pos(&self) -> &Pos {
         match *self {
@@ -237,7 +205,7 @@ impl Positioned for Stmt {
 
 impl Positioned for Case {
     fn pos(&self) -> &Pos {
-        self.patterns.get(0).map(Pattern::pos)
+        self.patterns.get(0).map(Expr::pos)
             .unwrap_or_else(|| self.guard.pos())
     }
 }

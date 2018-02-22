@@ -40,7 +40,11 @@ parser!{
     fn stmt['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Stmt {
         (expr(id_factory), optional(token(Token::Eq).with(expr(id_factory))))
         .map(|(pattern, oval)| if let Some(val) = oval {
-            Stmt::Def(pattern.try_into().unwrap(), val)
+            if pattern.is_pattern() {
+                Stmt::Def(pattern.try_into().unwrap(), val)
+            } else {
+                panic!("Invalid pattern: {:?}", pattern); // HACK
+            }
         } else {
             Stmt::Expr(pattern)
         })
@@ -104,13 +108,19 @@ parser!{
     fn method['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Case {
         (many1::<Vec<_>, _>(expr(ids)), position(), optional(token(Token::Bar).with(expr(ids))),
          token(Token::DArrow).with(method_body(ids)))
-        .map(|(patterns, guard_pos, guard, body)|
+        .map(|(patterns, guard_pos, guard, body)| {
+            for pattern in patterns.iter() {
+                if !pattern.is_pattern() {
+                    panic!("Invalid pattern: {:?}", pattern); // HACK
+                }
+            }
+            
             Case {
-                patterns: patterns.into_iter().map(|pat| pat.try_into().unwrap()).collect(),
+                patterns: patterns,
                 guard: guard.unwrap_or_else(|| Expr::Const(guard_pos, Const::Bool(true))),
                 body
             }
-        )
+        })
     }
 }
 

@@ -98,22 +98,6 @@ impl Alphatize for cst::Expr {
     }
 }
 
-impl Alphatize for cst::Pattern {
-    fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
-        use pcws_syntax::cst::Pattern::*;
-
-        match *self {
-            Call(_, ref mut callee, ref mut args) => {
-                callee.alphatize(old_ids, id_factory, env);
-                for arg in args { arg.alphatize(old_ids, id_factory, env) }
-            },
-            Lex(_, ref mut name) =>
-                *name = env.get(*name).unwrap(),
-            Dyn(..) | Const(..) => {}
-        }
-    }
-}
-
 impl Alphatize for cst::Stmt {
     fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
         match *self {
@@ -142,17 +126,18 @@ impl Alphatize for cst::Case {
     }
 }
 
-fn pattern_definiends(pattern: &cst::Pattern, old_ids: &IdTable, id_factory: &mut IdFactory,
+fn pattern_definiends(pattern: &cst::Expr, old_ids: &IdTable, id_factory: &mut IdFactory,
                       bindings: &mut AlphaBindings)
 {
     match *pattern {
-        cst::Pattern::Call(_, _, ref args) =>
+        cst::Expr::Call(_, _, ref args) =>
             for arg in args { pattern_definiends(arg, old_ids, id_factory, bindings) },
-        cst::Pattern::Lex(_, id) => {
+        cst::Expr::Lex(_, id) => {
             let name = old_ids.get_name(id).unwrap();
             bindings.insert(id, id_factory.fresh(name));
         },
-        cst::Pattern::Dyn(..) | cst::Pattern::Const(..) => {}
+        cst::Expr::Dyn(..) | cst::Expr::Const(..) => {},
+        cst::Expr::Function(..) | cst::Expr::Block(..) | cst::Expr::Match(..) => unreachable!()
     }
 }
 
@@ -209,36 +194,6 @@ impl Inject for cst::Expr {
                              )
                      ),
             Match(..) => unimplemented!(),
-            Call(_, callee, args) =>
-                callee.inject(ids, allocator)
-                      .and_then(|callee|
-                          args.into_iter()
-                              .map(|arg| arg.inject(ids, allocator))
-                              .collect::<Option<Vec<_>>>()
-                              .and_then(|args|
-                                  ast::Call::new(allocator, callee, &args).map(From::from)
-                              )
-                      ),
-            Lex(_, id) =>
-                Symbol::new(allocator, ids.get_name(id).unwrap()) // FIXME: unwrap
-                       .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
-            Dyn(_, name) =>
-                Symbol::new(allocator, &name)
-                       .and_then(|name| ast::Dyn::new(allocator, name).map(From::from)),
-            Const(_, c) =>
-                c.inject(ids, allocator)
-                 .and_then(|c| ast::Const::new(allocator, c).map(From::from))
-        }
-    }
-}
-
-impl Inject for cst::Pattern {
-    type Target = ValueRef;
-
-    fn inject(self, ids: &IdTable, allocator: &mut Allocator) -> Option<ValueRef> {
-        use pcws_syntax::cst::Pattern::*;
-
-        match self {
             Call(_, callee, args) =>
                 callee.inject(ids, allocator)
                       .and_then(|callee|
