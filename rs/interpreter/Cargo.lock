@@ -39,7 +39,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "interpreter"
 version = "0.1.0"
 dependencies = [
- "combine 3.0.0-beta.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "pcws-domain 0.1.0",
  "pcws-gc 0.1.0",
  "pcws-syntax 0.1.0",

@@ -1,8 +1,14 @@
 use std::convert::TryFrom;
+use std::str::FromStr;
 use std::rc::Rc;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::fmt::{self, Display};
+use combine::Parser;
+
+use lexer::Lexer;
+use parser;
 
 // ================================================================================================
 
@@ -16,6 +22,25 @@ pub struct Program<S> {
 impl<S> Program<S> {
     pub fn new(cst: Expr, ids: IdTable) -> Program<S> {
         Program { cst, ids, state: PhantomData }
+    }
+}
+
+#[derive(Debug)]
+pub enum Parsed {}
+
+#[derive(Debug)]
+pub struct ParseError(pub String);
+
+impl FromStr for Program<Parsed> {
+    type Err = ParseError;
+
+    fn from_str(source: &str) -> Result<Self, ParseError> {
+        let id_factory = RefCell::new(IdFactory::new());
+
+        match parser::program(&id_factory).parse(Lexer::new(source)) {
+            Ok((cst, _)) => Ok(Program::new(cst, id_factory.into_inner().build())),
+            Err(err) => Err(ParseError(format!("{}", err))) // HACK
+        }
     }
 }
 

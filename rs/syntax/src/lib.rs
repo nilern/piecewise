@@ -4,5 +4,5 @@
 extern crate combine;
 
 pub mod cst;
-pub mod lexer;
-pub mod parser;
+mod lexer;
+mod parser;

@@ -4,13 +4,8 @@ use std::collections::HashMap;
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
 use pcws_domain::values::Symbol;
-use pcws_syntax::cst::{self, Program, Id, IdTable, IdFactory};
+use pcws_syntax::cst::{self, Program, Parsed, Id, IdTable, IdFactory};
 use ast;
-
-// ================================================================================================
-
-#[derive(Debug)]
-pub enum Parsed {}
 
 // ================================================================================================
 
