@@ -46,16 +46,13 @@ parser!{
 
 parser!{
     fn var['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        let lex = (position(), satisfy_map(|token: Token| if let Token::Lex(name) = token {
-            Some(id_factory.borrow_mut().get(&name))
-        } else {
-            None
-        })).map(|(pos, id)| Expr::Lex(pos, id));
-        let dyn = (position(), satisfy_map(|token: Token| if let Token::Dyn(name) = token {
-            Some(name)
-        } else {
-            None
-        })).map(|(pos, name)| Expr::Dyn(pos, name));
+        let lex = (
+            position(), satisfy_map(Token::lex_name)
+        ).map(|(pos, name)| Expr::Lex(pos, id_factory.borrow_mut().get(&name)));
+        
+        let dyn = (
+            position(), satisfy_map(Token::dyn_name)
+        ).map(|(pos, name)| Expr::Dyn(pos, name));
 
         lex.or(dyn)
     }

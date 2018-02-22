@@ -30,6 +30,14 @@ impl Token {
     fn int(digits: String) -> Token { Token::Const(Const::Int(digits.parse().unwrap())) }
 
     fn string(chars: String) -> Token { Token::Const(Const::String(chars)) }
+
+    pub fn lex_name(self) -> Option<String> {
+        if let Token::Lex(name) = self { Some(name) } else { None }
+    }
+
+    pub fn dyn_name(self) -> Option<String> {
+        if let Token::Dyn(name) = self { Some(name) } else { None }
+    }
 }
 
 impl Display for Token {
