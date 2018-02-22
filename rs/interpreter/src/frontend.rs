@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
 use pcws_domain::values::Symbol;
-use cst::{self, Program, Id, IdTable, IdFactory};
+use pcws_syntax::cst::{self, Program, Id, IdTable, IdFactory};
 use ast;
 
 // ================================================================================================
@@ -17,8 +17,16 @@ pub enum Parsed {}
 #[derive(Debug)]
 pub enum Alphatized {}
 
-impl Program<Parsed> {
-    pub fn alphatize(mut self) -> Program<Alphatized> {
+pub trait AlphatizationPass {
+    type NextIR;
+
+    fn alphatize(self) -> Self::NextIR;
+}
+
+impl AlphatizationPass for Program<Parsed> {
+    type NextIR = Program<Alphatized>;
+
+    fn alphatize(mut self) -> Program<Alphatized> {
         let mut id_factory = IdFactory::new();
         let env = Rc::new(AlphaEnv::TopLevel);
         self.cst.alphatize(&self.ids, &mut id_factory, &env);
@@ -57,7 +65,7 @@ trait Alphatize {
 
 impl Alphatize for cst::Expr {
     fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
-        use cst::Expr::*;
+        use pcws_syntax::cst::Expr::*;
 
         match *self {
             Function(_, ref params, ref mut body) => {
@@ -97,7 +105,7 @@ impl Alphatize for cst::Expr {
 
 impl Alphatize for cst::Pattern {
     fn alphatize(&mut self, old_ids: &IdTable, id_factory: &mut IdFactory, env: &Rc<AlphaEnv>) {
-        use cst::Pattern::*;
+        use pcws_syntax::cst::Pattern::*;
 
         match *self {
             Call(_, ref mut callee, ref mut args) => {
@@ -165,8 +173,12 @@ fn stmt_definiends(stmt: &cst::Stmt, old_ids: &IdTable, id_factory: &mut IdFacto
 
 // ================================================================================================
 
-impl Program<Alphatized> {
-    pub fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
+pub trait InjectionPass {
+    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef>;
+}
+
+impl InjectionPass for Program<Alphatized> {
+    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         self.cst.inject(&self.ids, allocator)
     }
 }
@@ -187,7 +199,7 @@ impl Inject for cst::Expr {
     type Target = ValueRef;
 
     fn inject(self, ids: &IdTable, allocator: &mut Allocator) -> Option<ValueRef> {
-        use cst::Expr::*;
+        use pcws_syntax::cst::Expr::*;
 
         match self {
             Function(..) => unimplemented!(),
@@ -229,7 +241,7 @@ impl Inject for cst::Pattern {
     type Target = ValueRef;
 
     fn inject(self, ids: &IdTable, allocator: &mut Allocator) -> Option<ValueRef> {
-        use cst::Pattern::*;
+        use pcws_syntax::cst::Pattern::*;
 
         match self {
             Call(_, callee, args) =>

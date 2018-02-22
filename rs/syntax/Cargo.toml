@@ -1,10 +1,7 @@
 [package]
-name = "interpreter"
+name = "pcws-syntax"
 version = "0.1.0"
 authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 
 [dependencies]
-pcws-gc = { path = "../gc"}
-pcws-domain = { path = "../domain"}
-pcws-syntax = { path = "../syntax"}
 combine = "3.0.0-beta.1"

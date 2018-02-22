@@ -1,16 +1,13 @@
 #![feature(try_from, nonzero, unique, const_atomic_isize_new)]
 
 extern crate core;
+extern crate combine;
 
 extern crate pcws_gc;
 #[macro_use]
 extern crate pcws_domain;
-#[macro_use]
-extern crate combine;
+extern crate pcws_syntax;
 
-mod cst;
-mod lexer;
-mod parser;
 mod ast;
 mod frontend;
 
@@ -19,10 +16,10 @@ use std::cell::RefCell;
 use combine::Parser;
 
 use pcws_domain::{Allocator, DynamicDebug};
-use cst::{Program, IdFactory};
-use lexer::Lexer;
-use parser::program;
-use frontend::Parsed;
+use pcws_syntax::cst::{Program, IdFactory};
+use pcws_syntax::lexer::Lexer;
+use pcws_syntax::parser::program;
+use frontend::{Parsed, AlphatizationPass, InjectionPass};
 
 fn main() {
     let mut src = String::new();
