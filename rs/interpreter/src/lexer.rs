@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 
-use combine::{StreamOnce, Positioned, Parser,
+use combine::{self, StreamOnce, Positioned, Parser,
               position, value, optional, many, many1, none_of, between};
 use combine::char::{char, digit, letter, alpha_num, spaces};
 use combine::error::{StringStreamError, FastResult};
@@ -79,6 +79,10 @@ impl TryFrom<Token> for Const {
             Err(TryFromTokenError)
         }
     }
+}
+
+impl From<Token> for combine::error::Info<Token, Token> {
+    fn from(token: Token) -> Self { combine::error::Info::Token(token) }
 }
 
 // ================================================================================================

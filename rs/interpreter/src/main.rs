@@ -28,10 +28,13 @@ fn main() {
 
     let id_factory = RefCell::new(IdFactory::new());
 
-    for token in Lexer::new(&src) {
-        println!("{:?}", token);
-        if token.is_err() {
-            break;
+    for tok_res in Lexer::new(&src) {
+        match tok_res {
+            Ok(token) => print!("'{}', ", token),
+            Err(_) => {
+                println!("{:?}", tok_res);
+                break;
+            }
         }
     }
 
