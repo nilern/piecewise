@@ -18,15 +18,15 @@ use std::io::{self, Read};
 use std::cell::RefCell;
 use combine::Parser;
 
-use cst::IdFactory;
+use pcws_domain::{Allocator, DynamicDebug};
+use cst::{Program, IdFactory};
 use lexer::Lexer;
 use parser::program;
+use frontend::Parsed;
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
-
-    let id_factory = RefCell::new(IdFactory::new());
 
     for tok_res in Lexer::new(&src) {
         match tok_res {
@@ -38,22 +38,20 @@ fn main() {
         }
     }
 
-    println!("{:?}", program(&id_factory).parse(Lexer::new(&src)));
+    let id_factory = RefCell::new(IdFactory::new());
 
-    /* let mut allocator = Allocator::new(4*1024*1024);
-    let mut id_factory = IdFactory::new();
-
-    match parser::program(&src, &mut id_factory) {
-        Ok(cst) => {
-            let program: Program<Parsed> = Program::new(cst, id_factory.build());
+    match program(&id_factory).parse(Lexer::new(&src)) {
+        Ok((cst, _)) => {
+            let program: Program<Parsed> = Program::new(cst, id_factory.into_inner().build());
             println!("{:?}", program);
 
             let program = program.alphatize();
             println!("{:?}", program);
 
-            let ast = program.inject(&mut allocator) .unwrap(); // FIXME: unwrap
+            let mut allocator = Allocator::new(4*1024*1024);
+            let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
             println!("{:?}", ast.fmt_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err)
-    } */
+    }
 }

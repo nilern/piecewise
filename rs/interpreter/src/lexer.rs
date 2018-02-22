@@ -177,7 +177,7 @@ impl<'input> StreamOnce for Lexer<'input> {
 
                 char('$').with(many(alpha_num())).map(Token::Dyn),
                 (letter(), many(alpha_num())).map(|(c, mut cs): (_, String)| {
-                    cs.insert(0, c);
+                    cs.insert(0, c); // OPTIMIZE
                     Token::Lex(cs)
                 })
             ).skip(spaces()));
