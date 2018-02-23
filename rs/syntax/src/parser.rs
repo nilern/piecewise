@@ -4,7 +4,7 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Case, Const, IdFactory};
+use cst::{Stmt, Expr, Case, Const, Def, Use, IdFactory};
 
 parser!{
     pub fn program['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
@@ -73,18 +73,19 @@ parser!{
                  between(token(Token::LBrace), token(Token::RBrace),
                          sep_by1(method(ids), token(Token::Semicolon))))
             ).map(|(pos, methods)| {
-                let closure = ids.borrow_mut().fresh("self");
-                let args = ids.borrow_mut().fresh("args");
-                Expr::Function(pos.clone(), /* FIXME: */ Vec::new(),
+                let closure = Def::new("self");
+                let args = Def::new("args");
+                Expr::Function(pos.clone(), vec![closure.clone(), args.clone()],
                     Box::new(Expr::Match(pos.clone(),
                         methods,
                         Box::new(Case {
                             patterns: Vec::new(), // FIXME
                             guard: Expr::Const(pos.clone(), Const::Bool(true)),
                             body: Expr::Call(pos.clone(),
-                                             Box::new(Expr::Lex(pos.clone(), closure)),
-                                             vec![Expr::Lex(pos.clone(), closure),
-                                                  Expr::Lex(pos, args)])
+                                             Box::new(Expr::Lex(pos.clone(),
+                                                                Use::new(closure.clone()))),
+                                             vec![Expr::Lex(pos.clone(), Use::new(closure)),
+                                                  Expr::Lex(pos, Use::new(args))])
                         })
                     ))
                 )
@@ -142,10 +143,10 @@ parser!{
 }
 
 parser!{
-    fn var['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
+    fn var['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
         let lex = (
             position(), satisfy_map(Token::lex_name)
-        ).map(|(pos, name)| Expr::Lex(pos, id_factory.borrow_mut().get(&name)));
+        ).map(|(pos, name)| Expr::Lex(pos, ids.borrow_mut().usage(&name)));
 
         let dyn = (
             position(), satisfy_map(Token::dyn_name)

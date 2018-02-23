@@ -1,8 +1,9 @@
+use std::ptr::NonNull;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::fmt::{self, Display};
 use combine::Parser;
@@ -15,13 +16,12 @@ use parser;
 #[derive(Debug)]
 pub struct Program<S> {
     pub cst: Expr,
-    pub ids: IdTable,
     state: PhantomData<S>
 }
 
 impl<S> Program<S> {
-    pub fn new(cst: Expr, ids: IdTable) -> Program<S> {
-        Program { cst, ids, state: PhantomData }
+    pub fn new(cst: Expr) -> Program<S> {
+        Program { cst, state: PhantomData }
     }
 }
 
@@ -38,7 +38,7 @@ impl FromStr for Program<Parsed> {
         let id_factory = RefCell::new(IdFactory::new());
 
         match parser::program(&id_factory).parse(Lexer::new(source)) {
-            Ok((cst, _)) => Ok(Program::new(cst, id_factory.into_inner().build())),
+            Ok((cst, _)) => Ok(Program::new(cst)),
             Err(err) => Err(ParseError(format!("{}", err))) // HACK
         }
     }
@@ -46,13 +46,39 @@ impl FromStr for Program<Parsed> {
 
 // ================================================================================================
 
+pub type DefRef = Rc<RefCell<Def>>;
+
+#[derive(Debug, Clone)]
+pub struct Def {
+    pub name: String,
+    pub uses: HashSet<NonNull<Use>>
+}
+
+impl Def {
+    pub fn new<S: Into<String>>(name: S) -> DefRef {
+        Rc::new(RefCell::new(Def {
+            name: name.into(),
+            uses: HashSet::new()
+        }))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Use {
+    pub def: DefRef
+}
+
+impl Use {
+    pub fn new(def: DefRef) -> Use { Use { def } }
+}
+
 #[derive(Debug)]
 pub enum Expr {
-    Function(Pos, Vec<Id>, Box<Expr>),
+    Function(Pos, Vec<DefRef>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
     Match(Pos, Vec<Case>, Box<Case>),
     Call(Pos, Box<Expr>, Vec<Expr>),
-    Lex(Pos, Id),
+    Lex(Pos, Use),
     Dyn(Pos, String),
     Const(Pos, Const)
 }
@@ -60,7 +86,7 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum Pattern {
     Call(Pos, Expr, Vec<Pattern>),
-    Lex(Pos, Id),
+    Lex(Pos, DefRef),
     Dyn(Pos, String),
     Const(Pos, Const)
 }
@@ -77,7 +103,7 @@ impl TryFrom<Expr> for Pattern {
                 Pattern::Call(pos, *callee, args.into_iter()
                                                 .map(TryFrom::try_from)
                                                 .collect::<Result<Vec<_>, _>>()?),
-            Expr::Lex(pos, id) => Pattern::Lex(pos, id),
+            Expr::Lex(pos, usage) => Pattern::Lex(pos, usage.def),
             Expr::Dyn(pos, name) => Pattern::Dyn(pos, name),
             Expr::Const(pos, c) => Pattern::Const(pos, c),
             _ => return Err(IllegalPattern)
@@ -126,50 +152,27 @@ impl Display for Const {
 
 // ================================================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(usize);
-
-#[derive(Debug)]
-pub struct IdTable {
-    names: HashMap<Id, String>
-}
-
-impl IdTable {
-    pub fn get_name(&self, id: Id) -> Option<&str> {
-        self.names.get(&id).map(AsRef::as_ref)
-    }
-}
-
 #[derive(Debug)]
 pub struct IdFactory {
-    counter: usize,
-    id_names: HashMap<Id, String>,
-    name_ids: HashMap<String, Id>
+    defs: HashMap<String, DefRef>
 }
 
 impl IdFactory {
     pub fn new() -> IdFactory {
-        IdFactory {
-            counter: 0,
-            id_names: HashMap::new(),
-            name_ids: HashMap::new()
-        }
+        IdFactory { defs: HashMap::new() }
     }
 
-    pub fn get(&mut self, name: &str) -> Id {
-        self.name_ids.get(name).map(|&id| id)
-                     .unwrap_or_else(|| self.fresh(name))
+    pub fn usage(&mut self, name: &str) -> Use {
+        Use::new(self.defs.get(name).map(Clone::clone).unwrap_or_else(|| {
+            let def = Def::new(name.to_string());
+            self.insert(name, def.clone());
+            def
+        }))
     }
 
-    pub fn fresh(&mut self, name: &str) -> Id {
-        let id = Id(self.counter);
-        self.counter += 1;
-        self.id_names.insert(id, name.to_string());
-        self.name_ids.insert(name.to_string(), id);
-        id
+    pub fn insert<S: Into<String>>(&mut self, name: S, def: DefRef) {
+        self.defs.insert(name.into(), def);
     }
-
-    pub fn build(self) -> IdTable { IdTable { names: self.id_names } }
 }
 
 // ================================================================================================
