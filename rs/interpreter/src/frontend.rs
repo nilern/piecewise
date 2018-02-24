@@ -94,6 +94,9 @@ impl Alphatize for cst::Expr {
                 callee.alphatize(env);
                 for arg in args { arg.alphatize(env) }
             },
+            PrimCall(_, _, ref mut args) => {
+                for arg in args { arg.alphatize(env) }
+            },
 
             // Update Use:
             Lex(_, ref mut usage) => {
@@ -115,6 +118,9 @@ impl Alphatize for cst::Pattern {
         match *self {
             Call(_, ref mut callee, ref mut args) => {
                 callee.alphatize(env);
+                for arg in args { arg.alphatize(env) }
+            },
+            PrimCall(_, _, ref mut args) => {
                 for arg in args { arg.alphatize(env) }
             },
             Lex(..) | Dyn(..) | Const(..) => {}
@@ -153,6 +159,8 @@ impl Alphatize for cst::Case {
 fn pattern_definiends(pattern: &mut cst::Pattern, bindings: &mut AlphaBindings) {
     match *pattern {
         cst::Pattern::Call(_, _, ref mut args) =>
+            for arg in args.iter_mut() { pattern_definiends(arg, bindings) },
+        cst::Pattern::PrimCall(_, _, ref mut args) =>
             for arg in args.iter_mut() { pattern_definiends(arg, bindings) },
 
         cst::Pattern::Lex(_, ref mut def) => {
@@ -226,6 +234,7 @@ impl Inject for cst::Expr {
                                   ast::Call::new(allocator, callee, &args).map(From::from)
                               )
                       ),
+            PrimCall(..) => unimplemented!(),
             Lex(_, usage) =>
                 Symbol::new(allocator, &usage.def.borrow().name)
                        .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
@@ -256,6 +265,7 @@ impl Inject for cst::Pattern {
                                   ast::Call::new(allocator, callee, &args).map(From::from)
                               )
                       ),
+            PrimCall(..) => unimplemented!(),
             Lex(_, def) =>
                 Symbol::new(allocator, &def.borrow().name)
                        .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),

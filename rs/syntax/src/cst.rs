@@ -74,12 +74,22 @@ impl Use {
     pub fn new(def: DefRef) -> Use { Use { def } }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum PrimOp {}
+
+impl Display for PrimOp {
+    fn fmt(&self, _: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum Expr {
     Function(Pos, Vec<DefRef>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
     Match(Pos, Box<Expr>, Vec<Case>, Box<Case>),
     Call(Pos, Box<Expr>, Vec<Expr>),
+    PrimCall(Pos, PrimOp, Vec<Expr>),
     Lex(Pos, Use),
     Dyn(Pos, String),
     Const(Pos, Const)
@@ -88,6 +98,7 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum Pattern {
     Call(Pos, Expr, Vec<Pattern>),
+    PrimCall(Pos, PrimOp, Vec<Pattern>),
     Lex(Pos, DefRef),
     Dyn(Pos, String),
     Const(Pos, Const)
@@ -105,6 +116,10 @@ impl TryFrom<Expr> for Pattern {
                 Pattern::Call(pos, *callee, args.into_iter()
                                                 .map(TryFrom::try_from)
                                                 .collect::<Result<Vec<_>, _>>()?),
+            Expr::PrimCall(pos, op, args) =>
+                Pattern::PrimCall(pos, op, args.into_iter()
+                                               .map(TryFrom::try_from)
+                                               .collect::<Result<Vec<_>, _>>()?),
             Expr::Lex(pos, usage) => Pattern::Lex(pos, usage.def),
             Expr::Dyn(pos, name) => Pattern::Dyn(pos, name),
             Expr::Const(pos, c) => Pattern::Const(pos, c),
@@ -211,6 +226,7 @@ impl Positioned for Expr {
             Match(ref pos, ..) => pos,
             Block(ref pos, ..) => pos,
             Call(ref pos, ..) => pos,
+            PrimCall(ref pos, ..) => pos,
             Lex(ref pos, ..) => pos,
             Dyn(ref pos, ..) => pos,
             Const(ref pos, ..) => pos
@@ -224,6 +240,7 @@ impl Positioned for Pattern {
 
         match *self {
             Call(ref pos, ..) => pos,
+            PrimCall(ref pos, ..) => pos,
             Lex(ref pos, ..) => pos,
             Dyn(ref pos, ..) => pos,
             Const(ref pos, ..) => pos
@@ -321,6 +338,13 @@ impl Expr {
                                           .chain(args.iter().map(|arg| arg.pretty(allocator))),
                                      " "))
                          .append(")"),
+            &PrimCall(_, op, ref args) =>
+                allocator.text("(")
+                         .append(allocator.intersperse(
+                                     iter::once(allocator.as_string(op))
+                                          .chain(args.iter().map(|arg| arg.pretty(allocator))),
+                                     " "))
+                         .append(")"),
             &Lex(_, ref usage) => allocator.as_string(usage),
             &Dyn(_, ref name) => allocator.text("$").append(name.as_ref()),
             &Const(_, ref c) => allocator.as_string(c)
@@ -337,6 +361,13 @@ impl Pattern {
                 allocator.text("(")
                          .append(allocator.intersperse(
                                      iter::once(callee.pretty(allocator))
+                                          .chain(args.iter().map(|arg| arg.pretty(allocator))),
+                                     " "))
+                         .append(")"),
+            &PrimCall(_, op, ref args) =>
+                allocator.text("(")
+                         .append(allocator.intersperse(
+                                     iter::once(allocator.as_string(op))
                                           .chain(args.iter().map(|arg| arg.pretty(allocator))),
                                      " "))
                          .append(")"),
