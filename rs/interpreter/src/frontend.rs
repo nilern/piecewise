@@ -85,7 +85,8 @@ impl Alphatize for cst::Expr {
             },
 
             // Just recurse to subexprs:
-            Match(_, ref mut cases, ref mut default_case) => {
+            Match(_, ref mut matchee, ref mut cases, ref mut default_case) => {
+                matchee.alphatize(env);
                 for case in cases { case.alphatize(env) }
                 default_case.alphatize(env);
             },

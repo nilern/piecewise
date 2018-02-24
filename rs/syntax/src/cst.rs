@@ -78,7 +78,7 @@ impl Use {
 pub enum Expr {
     Function(Pos, Vec<DefRef>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
-    Match(Pos, Vec<Case>, Box<Case>),
+    Match(Pos, Box<Expr>, Vec<Case>, Box<Case>),
     Call(Pos, Box<Expr>, Vec<Expr>),
     Lex(Pos, Use),
     Dyn(Pos, String),
@@ -301,8 +301,8 @@ impl Expr {
                                           .nest(2))
                          .append(allocator.newline())
                          .append("}"),
-            &Match(_, ref cases, ref default) =>
-                allocator.text("@match {")
+            &Match(_, ref matchee, ref cases, ref default) =>
+                allocator.text("@match ").append(matchee.pretty(allocator)).append(" {")
                          .append(allocator.newline()
                                           .append(allocator.intersperse(
                                                       cases.iter()

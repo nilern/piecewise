@@ -76,7 +76,9 @@ parser!{
                 let closure = Def::new("self");
                 let args = Def::new("args");
                 Expr::Function(pos.clone(), vec![closure.clone(), args.clone()],
-                    Box::new(Expr::Match(pos.clone(),
+                    Box::new(Expr::Match(
+                        pos.clone(),
+                        Box::new(Expr::Lex(pos.clone(), Use::new(args.clone()))),
                         methods,
                         Box::new(Case {
                             patterns: Vec::new(), // FIXME
@@ -84,8 +86,7 @@ parser!{
                             body: Expr::Call(pos.clone(),
                                              Box::new(Expr::Lex(pos.clone(),
                                                                 Use::new(closure.clone()))),
-                                             vec![Expr::Lex(pos.clone(), Use::new(closure)),
-                                                  Expr::Lex(pos, Use::new(args))])
+                                             vec![Expr::Lex(pos, Use::new(args))])
                         })
                     ))
                 )
