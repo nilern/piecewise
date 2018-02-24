@@ -23,10 +23,10 @@ fn main() {
 
     match Program::<Parsed>::from_str(&src) {
         Ok(program) => {
-            println!("{:?}", program);
+            println!("{}", program);
 
             let program = program.alphatize();
-            println!("{:?}", program);
+            println!("{}", program);
 
             let mut allocator = Allocator::new(4*1024*1024);
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap

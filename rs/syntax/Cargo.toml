@@ -5,3 +5,4 @@ authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 
 [dependencies]
 combine = "3.0.0-beta.1"
+pretty = "0.3.3"

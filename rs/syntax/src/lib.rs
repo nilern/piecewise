@@ -2,6 +2,7 @@
 
 #[macro_use]
 extern crate combine;
+extern crate pretty;
 
 pub mod cst;
 mod lexer;

@@ -5,8 +5,10 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::fmt::{self, Display};
+use std::fmt::{self, Display, Formatter};
+use std::iter;
 use combine::Parser;
+use pretty::{self, Doc, DocAllocator, DocBuilder};
 
 use lexer::Lexer;
 use parser;
@@ -142,8 +144,8 @@ impl Display for Const {
             &Int(n) => n.fmt(f),
             &Float(n) => n.fmt(f),
             &Char(c) => write!(f, "'{}'", c),
-            &Bool(true) => "True".fmt(f),
-            &Bool(false) => "False".fmt(f),
+            &Bool(true) => "__true".fmt(f),
+            &Bool(false) => "__false".fmt(f),
             &String(ref s) => write!(f, "\"{}\"", s),
             &Symbol(ref s) => write!(f, ":{}", s)
         }
@@ -242,5 +244,129 @@ impl Positioned for Case {
     fn pos(&self) -> &Pos {
         self.patterns.get(0).map(Pattern::pos)
             .unwrap_or_else(|| self.guard.pos())
+    }
+}
+
+// ================================================================================================
+
+impl<S> Display for Program<S> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        let allocator = pretty::Arena::new();
+        <DocBuilder<_> as Into<Doc<_>>>::into(self.cst.pretty(&allocator))
+                                        .render_fmt(80, f)
+    }
+}
+
+impl Display for Def {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}@{:p}", self.name, self)
+    }
+}
+
+impl Display for Use {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}@{:p}", self.def.borrow().name, &*self.def.borrow())
+    }
+}
+
+impl Expr {
+    pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
+        use self::Expr::*;
+
+        fn pretty_block<'a, A>(stmts: &'a [Stmt], expr: &'a Expr, allocator: &'a A)
+            -> DocBuilder<'a, A> where A: DocAllocator<'a>
+        {
+            allocator.intersperse(stmts.iter()
+                                       .map(|stmt| stmt.pretty(allocator))
+                                       .chain(iter::once(expr.pretty(allocator))),
+                                  allocator.text(";").append(allocator.newline()))
+        }
+
+        match self {
+            &Function(_, ref params, ref body) =>
+                allocator.text("@fn (")
+                         .append(allocator.intersperse(
+                                    params.iter().map(|param| allocator.as_string(param.borrow())),
+                                    " "))
+                         .append(") {")
+                         .append(allocator.newline()
+                                          .append(body.pretty(allocator))
+                                          .nest(2))
+                         .append(allocator.newline())
+                         .append("}"),
+            &Block(_, ref stmts, ref expr) =>
+                allocator.text("{")
+                         .append(allocator.newline()
+                                          .append(pretty_block(stmts, expr, allocator))
+                                          .nest(2))
+                         .append(allocator.newline())
+                         .append("}"),
+            &Match(_, ref cases, ref default) =>
+                allocator.text("@match {")
+                         .append(allocator.newline()
+                                          .append(allocator.intersperse(
+                                                      cases.iter()
+                                                           .map(|case| case.pretty(allocator))
+                                                           .chain(iter::once(
+                                                                      default.pretty(allocator))),
+                                                      allocator.text(";")
+                                                               .append(allocator.newline())))
+                                          .nest(2))
+                         .append(allocator.newline())
+                         .append("}"),
+            &Call(_, ref callee, ref args) =>
+                allocator.text("(")
+                         .append(allocator.intersperse(
+                                     iter::once(callee.pretty(allocator))
+                                          .chain(args.iter().map(|arg| arg.pretty(allocator))),
+                                     " "))
+                         .append(")"),
+            &Lex(_, ref usage) => allocator.as_string(usage),
+            &Dyn(_, ref name) => allocator.text("$").append(name.as_ref()),
+            &Const(_, ref c) => allocator.as_string(c)
+        }
+    }
+}
+
+impl Pattern {
+    pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
+        use self::Pattern::*;
+
+        match self {
+            &Call(_, ref callee, ref args) =>
+                allocator.text("(")
+                         .append(allocator.intersperse(
+                                     iter::once(callee.pretty(allocator))
+                                          .chain(args.iter().map(|arg| arg.pretty(allocator))),
+                                     " "))
+                         .append(")"),
+            &Lex(_, ref def) => allocator.as_string(def.borrow()),
+            &Dyn(_, ref name) => allocator.text("$").append(allocator.text(name.as_ref())),
+            &Const(_, ref c) => allocator.as_string(c)
+        }
+    }
+}
+
+impl Stmt {
+    pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
+        match self {
+            &Stmt::Def(ref pat, ref val) =>
+                pat.pretty(allocator).append(" = ").append(val.pretty(allocator)),
+            &Stmt::Expr(ref expr) => expr.pretty(allocator)
+        }
+    }
+}
+
+impl Case {
+    pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
+        let &Case { ref patterns, ref guard, ref body } = self;
+
+        allocator.text("(")
+                 .append(allocator.intersperse(patterns.iter().map(|pat| pat.pretty(allocator)),
+                                               " "))
+                 .append(") | ")
+                 .append(guard.pretty(allocator))
+                 .append(" => ")
+                 .append(body.pretty(allocator))
     }
 }
