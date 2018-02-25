@@ -4,7 +4,7 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, Use, IdFactory, Pos};
+use cst::{Stmt, Expr, Case, PrimOp, Const, Def, Use, IdFactory, Pos};
 
 #[derive(Debug)]
 struct CstFactory {
@@ -54,22 +54,12 @@ impl CstFactory {
     }
 
     fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
-        fn actual_call(factory: &CstFactory, callee: Expr, args: Vec<Expr>) -> Expr {
-            let args = vec![callee.clone(),
-                            Expr::Const(factory.pos(), Const::Int(0)),
-                            Expr::PrimCall(factory.pos(), PrimOp::Tuple, args)];
-            Expr::Call(factory.pos(), Box::new(callee), args)
-        }
-
-        if callee.is_trivial() {
-            actual_call(self, callee, args)
-        } else {
-            let f = Def::new("f");
-            let f_use = Expr::Lex(self.pos(), Use::new(f.clone()));
-            Expr::Block(self.pos(),
-                        vec![Stmt::Def(Pattern::Lex(self.pos(), f), callee)],
-                        Box::new(actual_call(self, f_use, args)))
-        }
+        let apply = Expr::Lex(self.pos(), Use::new(Def::new("apply")));
+        let arg_tup = Expr::PrimCall(self.pos(), PrimOp::Tuple, args);
+        let args = vec![apply.clone(),
+                        Expr::Const(self.pos(), Const::Int(0)),
+                        Expr::PrimCall(self.pos(), PrimOp::Tuple, vec![callee, arg_tup])];
+        Expr::Call(self.pos(), Box::new(apply), args)
     }
 }
 
