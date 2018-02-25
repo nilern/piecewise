@@ -75,15 +75,25 @@ impl Use {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum PrimOp {}
+pub enum PrimOp {
+    Tuple,
+
+    IAdd
+}
 
 impl Display for PrimOp {
-    fn fmt(&self, _: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        Ok(())
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::PrimOp::*;
+
+        match *self {
+            Tuple => "__tuple".fmt(f),
+
+            IAdd => "__iAdd".fmt(f)
+        }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Function(Pos, Vec<DefRef>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
@@ -95,7 +105,7 @@ pub enum Expr {
     Const(Pos, Const)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Pattern {
     Call(Pos, Expr, Vec<Pattern>),
     PrimCall(Pos, PrimOp, Vec<Pattern>),
@@ -128,13 +138,13 @@ impl TryFrom<Expr> for Pattern {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Def(Pattern, Expr),
     Expr(Expr)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Case {
     pub patterns: Vec<Pattern>,
     pub guard: Expr,

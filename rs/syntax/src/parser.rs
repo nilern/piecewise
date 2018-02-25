@@ -4,7 +4,7 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Case, Const, Def, Use, IdFactory};
+use cst::{Stmt, Expr, Case, Pattern, PrimOp, Const, Def, Use, IdFactory};
 
 parser!{
     pub fn program['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
@@ -57,7 +57,15 @@ parser!{
     fn call['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
         (position(), simple(ids), many::<Vec<_>, _>(simple(ids))).map(|(pos, callee, args)|
             if !args.is_empty() {
-                Expr::Call(pos, Box::new(callee), args)
+                let f = Def::new("f");
+                let args = vec![Expr::Lex(pos.clone(), Use::new(f.clone())),
+                                Expr::Const(pos.clone(), Const::Int(0)),
+                                Expr::PrimCall(pos.clone(), PrimOp::Tuple, args)];
+                Expr::Block(pos.clone(),
+                            vec![Stmt::Def(Pattern::Lex(pos.clone(), f.clone()), callee)],
+                            Box::new(Expr::Call(pos.clone(),
+                                                Box::new(Expr::Lex(pos, Use::new(f))),
+                                                args)))
             } else {
                 callee
             }
@@ -74,8 +82,9 @@ parser!{
                          sep_by1(method(ids), token(Token::Semicolon))))
             ).map(|(pos, methods)| {
                 let closure = Def::new("self");
+                let method_i = Def::new("m");
                 let args = Def::new("args");
-                Expr::Function(pos.clone(), vec![closure.clone(), args.clone()],
+                Expr::Function(pos.clone(), vec![closure.clone(), method_i.clone(), args.clone()],
                     Box::new(Expr::Match(
                         pos.clone(),
                         Box::new(Expr::Lex(pos.clone(), Use::new(args.clone()))),
@@ -86,7 +95,12 @@ parser!{
                             body: Expr::Call(pos.clone(),
                                              Box::new(Expr::Lex(pos.clone(),
                                                                 Use::new(closure.clone()))),
-                                             vec![Expr::Lex(pos, Use::new(args))])
+                                             vec![Expr::PrimCall(pos.clone(), PrimOp::IAdd,
+                                                                 vec![Expr::Lex(pos.clone(),
+                                                                          Use::new(method_i)),
+                                                                      Expr::Const(pos.clone(),
+                                                                                  Const::Int(1))]),
+                                                  Expr::Lex(pos, Use::new(args))])
                         })
                     ))
                 )
@@ -104,7 +118,7 @@ parser!{
 
 parser!{
     fn method['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Case {
-        (many1::<Vec<_>, _>(expr(ids)), position(), optional(token(Token::Bar).with(expr(ids))),
+        (many1::<Vec<_>, _>(simple(ids)), position(), optional(token(Token::Bar).with(expr(ids))),
          token(Token::DArrow).with(method_body(ids)))
         .map(|(patterns, guard_pos, guard, body)|
             Case {
