@@ -105,6 +105,15 @@ pub enum Expr {
     Const(Pos, Const)
 }
 
+impl Expr {
+    pub fn is_trivial(&self) -> bool {
+        match *self {
+            Expr::Lex(..) | Expr::Dyn(..) | Expr::Const(..) => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Pattern {
     Call(Pos, Expr, Vec<Pattern>),

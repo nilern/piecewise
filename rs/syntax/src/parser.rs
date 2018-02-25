@@ -4,7 +4,76 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Case, Pattern, PrimOp, Const, Def, Use, IdFactory};
+use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, Use, IdFactory, Pos};
+
+#[derive(Debug)]
+struct CstFactory {
+    pos: Pos
+}
+
+impl CstFactory {
+    fn new(pos: Pos) -> CstFactory {
+        CstFactory { pos }
+    }
+
+    fn pos(&self) -> Pos { self.pos.clone() }
+
+    fn function(&self, methods: Vec<Case>) -> Expr {
+        let closure = Def::new("self");
+        let method_i = Def::new("m");
+        let args = Def::new("args");
+        Expr::Function(self.pos(), vec![closure.clone(), method_i.clone(), args.clone()],
+            Box::new(Expr::Match(
+                self.pos(),
+                Box::new(Expr::Lex(self.pos(), Use::new(args.clone()))),
+                methods,
+                Box::new(Case {
+                    patterns: Vec::new(), // FIXME
+                    guard: Expr::Const(self.pos(), Const::Bool(true)),
+                    body: Expr::Call(self.pos(),
+                                     Box::new(Expr::Lex(self.pos(),
+                                                        Use::new(closure.clone()))),
+                                     vec![Expr::Lex(self.pos(), Use::new(closure.clone())),
+                                          Expr::PrimCall(self.pos(), PrimOp::IAdd,
+                                                         vec![Expr::Lex(self.pos(),
+                                                                  Use::new(method_i)),
+                                                              Expr::Const(self.pos(),
+                                                                          Const::Int(1))]),
+                                          Expr::Lex(self.pos(), Use::new(args))])
+                })
+            ))
+        )
+    }
+
+    fn block(&self, stmts: Vec<Stmt>, expr: Expr) -> Expr {
+        if stmts.is_empty() {
+            expr
+        } else {
+            Expr::Block(self.pos(), stmts, Box::new(expr))
+        }
+    }
+
+    fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
+        fn actual_call(factory: &CstFactory, callee: Expr, args: Vec<Expr>) -> Expr {
+            let args = vec![callee.clone(),
+                            Expr::Const(factory.pos(), Const::Int(0)),
+                            Expr::PrimCall(factory.pos(), PrimOp::Tuple, args)];
+            Expr::Call(factory.pos(), Box::new(callee), args)
+        }
+
+        if callee.is_trivial() {
+            actual_call(self, callee, args)
+        } else {
+            let f = Def::new("f");
+            let f_use = Expr::Lex(self.pos(), Use::new(f.clone()));
+            Expr::Block(self.pos(),
+                        vec![Stmt::Def(Pattern::Lex(self.pos(), f), callee)],
+                        Box::new(actual_call(self, f_use, args)))
+        }
+    }
+}
+
+// ================================================================================================
 
 parser!{
     pub fn program['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
@@ -17,7 +86,7 @@ parser!{
         (position(), body_parts(ids))
         .map(|(pos, (mut stmts, expr))| {
             stmts.reverse();
-            Expr::Block(pos, stmts, Box::new(expr))
+            CstFactory::new(pos).block(stmts, expr)
         })
     }
 }
@@ -57,15 +126,7 @@ parser!{
     fn call['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
         (position(), simple(ids), many::<Vec<_>, _>(simple(ids))).map(|(pos, callee, args)|
             if !args.is_empty() {
-                let f = Def::new("f");
-                let args = vec![Expr::Lex(pos.clone(), Use::new(f.clone())),
-                                Expr::Const(pos.clone(), Const::Int(0)),
-                                Expr::PrimCall(pos.clone(), PrimOp::Tuple, args)];
-                Expr::Block(pos.clone(),
-                            vec![Stmt::Def(Pattern::Lex(pos.clone(), f.clone()), callee)],
-                            Box::new(Expr::Call(pos.clone(),
-                                                Box::new(Expr::Lex(pos, Use::new(f))),
-                                                args)))
+                CstFactory::new(pos).call(callee, args)
             } else {
                 callee
             }
@@ -80,31 +141,7 @@ parser!{
                 (position(),
                  between(token(Token::LBrace), token(Token::RBrace),
                          sep_by1(method(ids), token(Token::Semicolon))))
-            ).map(|(pos, methods)| {
-                let closure = Def::new("self");
-                let method_i = Def::new("m");
-                let args = Def::new("args");
-                Expr::Function(pos.clone(), vec![closure.clone(), method_i.clone(), args.clone()],
-                    Box::new(Expr::Match(
-                        pos.clone(),
-                        Box::new(Expr::Lex(pos.clone(), Use::new(args.clone()))),
-                        methods,
-                        Box::new(Case {
-                            patterns: Vec::new(), // FIXME
-                            guard: Expr::Const(pos.clone(), Const::Bool(true)),
-                            body: Expr::Call(pos.clone(),
-                                             Box::new(Expr::Lex(pos.clone(),
-                                                                Use::new(closure.clone()))),
-                                             vec![Expr::PrimCall(pos.clone(), PrimOp::IAdd,
-                                                                 vec![Expr::Lex(pos.clone(),
-                                                                          Use::new(method_i)),
-                                                                      Expr::Const(pos.clone(),
-                                                                                  Const::Int(1))]),
-                                                  Expr::Lex(pos, Use::new(args))])
-                        })
-                    ))
-                )
-            }),
+            ).map(|(pos, methods)| CstFactory::new(pos).function(methods)),
             between(token(Token::LBrace), token(Token::RBrace), body(ids)),
             (position(),
              between(token(Token::LBracket), token(Token::RBracket), body(ids)))
@@ -136,7 +173,7 @@ parser!{
         (position(), method_body_parts(ids))
         .map(|(pos, (mut stmts, expr))| {
             stmts.reverse();
-            Expr::Block(pos, stmts, Box::new(expr))
+            CstFactory::new(pos).block(stmts, expr)
         })
     }
 }
