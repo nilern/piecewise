@@ -8,16 +8,18 @@ extern crate pcws_domain;
 extern crate pcws_syntax;
 
 mod ast;
-mod frontend;
+mod binding;
 mod inject;
+mod patterns;
 
 use std::io::{self, Read};
 use std::str::FromStr;
 
 use pcws_domain::{Allocator, DynamicDebug};
 use pcws_syntax::cst::{Program, Parsed};
-use frontend::{AlphatizationPass, BindingReificationPass};
+use binding::{AlphatizationPass, BindingReificationPass};
 use inject::InjectionPass;
+use patterns::PatternMatchingPass;
 
 fn main() {
     let mut src = String::new();
@@ -31,6 +33,9 @@ fn main() {
             println!("{}", program);
 
             let program = program.reify_bindings();
+            println!("{}", program);
+
+            let program = program.expand_patterns();
             println!("{}", program);
 
             let mut allocator = Allocator::new(4*1024*1024);

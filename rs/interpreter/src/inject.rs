@@ -4,7 +4,7 @@ use pcws_domain::values::Symbol;
 use pcws_syntax::cst::{self, Program};
 
 use ast;
-use frontend::BindingsReified;
+use patterns::PatternsExpanded;
 
 // ================================================================================================
 
@@ -12,7 +12,7 @@ pub trait InjectionPass {
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef>;
 }
 
-impl InjectionPass for Program<BindingsReified> {
+impl InjectionPass for Program<PatternsExpanded> {
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         self.cst.inject(allocator)
     }
