@@ -1,12 +1,37 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::iter;
 
-use pcws_domain::Allocator;
-use pcws_domain::object_model::{ValueRef, ValueRefT};
-use pcws_domain::values::Symbol;
-use pcws_syntax::cst::{self, Program, Parsed, Use, DefRef};
-use ast;
+use pcws_syntax::cst::{self, Program, Parsed, Expr, Stmt, Pattern, Case, Def, Use, DefRef, PrimOp,
+                       Pos, Positioned};
+
+// ================================================================================================
+
+type EnvBindings<Var> = HashMap<String, Var>;
+
+#[derive(Debug)]
+enum Env<Var> {
+    TopLevel,
+    Nested {
+        bindings: EnvBindings<Var>,
+        parent: Rc<Env<Var>>
+    }
+}
+
+impl<V> Env<V> {
+    fn push(parent: Rc<Env<V>>, bindings: EnvBindings<V>) -> Env<V> {
+        Env::Nested { bindings, parent }
+    }
+
+    fn get(&self, name: &str) -> Option<&V> {
+        match *self {
+            Env::Nested { ref bindings, ref parent } =>
+                bindings.get(name).or_else(|| parent.get(name)),
+            Env::TopLevel => None
+        }
+    }
+}
 
 // ================================================================================================
 
@@ -23,44 +48,22 @@ impl AlphatizationPass for Program<Parsed> {
     type NextIR = Program<Alphatized>;
 
     fn alphatize(mut self) -> Program<Alphatized> {
-        let env = Rc::new(AlphaEnv::TopLevel);
+        let env = Rc::new(Env::TopLevel);
         self.cst.alphatize(&env);
         Program::new(self.cst)
     }
 }
 
-type AlphaBindings = HashMap<String, DefRef>;
-
-#[derive(Debug)]
-enum AlphaEnv {
-    TopLevel,
-    Nested {
-        bindings: AlphaBindings,
-        parent: Rc<AlphaEnv>
-    }
-}
-
-impl AlphaEnv {
-    fn push(parent: Rc<AlphaEnv>, bindings: HashMap<String, DefRef>) -> AlphaEnv {
-        AlphaEnv::Nested { bindings, parent }
-    }
-
-    fn get(&self, name: &str) -> Option<DefRef> {
-        match *self {
-            AlphaEnv::Nested { ref bindings, ref parent } =>
-                bindings.get(name).map(Clone::clone).or_else(|| parent.get(name)),
-            AlphaEnv::TopLevel => None
-        }
-    }
-}
+type AlphaBindings = EnvBindings<DefRef>;
+type AlphaEnv = Env<DefRef>;
 
 trait Alphatize {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>);
 }
 
-impl Alphatize for cst::Expr {
+impl Alphatize for Expr {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>) {
-        use pcws_syntax::cst::Expr::*;
+        use self::Expr::*;
 
         match *self {
             // Binding Exprs:
@@ -101,7 +104,7 @@ impl Alphatize for cst::Expr {
             // Update Use:
             Lex(_, ref mut usage) => {
                 let def = env.get(&usage.def.borrow().name).unwrap(); // FIXME: unwrap
-                *usage = Use::new(def);
+                *usage = Use::new(def.clone());
             },
 
             // These don't contain defs or uses at all:
@@ -110,9 +113,9 @@ impl Alphatize for cst::Expr {
     }
 }
 
-impl Alphatize for cst::Pattern {
+impl Alphatize for Pattern {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>) {
-        use pcws_syntax::cst::Pattern::*;
+        use self::Pattern::*;
 
         // Here we only need to do the expressions, i.e. only the Call callees.
         match *self {
@@ -128,21 +131,24 @@ impl Alphatize for cst::Pattern {
     }
 }
 
-impl Alphatize for cst::Stmt {
+impl Alphatize for Stmt {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>) {
         match *self {
-            cst::Stmt::Def(ref mut pattern, ref mut expr) => {
+            Stmt::Def(ref mut pattern, ref mut expr) => {
                 pattern.alphatize(env);
                 expr.alphatize(env);
             },
-            cst::Stmt::Expr(ref mut expr) => expr.alphatize(env)
+            Stmt::Expr(ref mut expr) => expr.alphatize(env)
         }
     }
 }
 
-impl Alphatize for cst::Case {
+impl Alphatize for Case {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>) {
-        let &mut cst::Case { ref mut patterns, ref mut guard, ref mut body } = self;
+        let &mut Case { ref mut patterns, ref mut commit, ref mut guard, ref mut body } =
+            self;
+
+        for pattern in patterns.iter_mut() { pattern.alphatize(&env) }
 
         let mut bindings = HashMap::new();
         for pattern in patterns.iter_mut() {
@@ -150,172 +156,292 @@ impl Alphatize for cst::Case {
         }
         let env = Rc::new(AlphaEnv::push(env.clone(), bindings));
 
-        for pattern in patterns { pattern.alphatize(&env) }
+        for stmt in commit { stmt.alphatize(&env) }
         guard.alphatize(&env);
         body.alphatize(&env);
     }
 }
 
-fn pattern_definiends(pattern: &mut cst::Pattern, bindings: &mut AlphaBindings) {
+fn pattern_definiends(pattern: &mut Pattern, bindings: &mut AlphaBindings) {
     match *pattern {
-        cst::Pattern::Call(_, _, ref mut args) =>
+        Pattern::Call(_, _, ref mut args) =>
             for arg in args.iter_mut() { pattern_definiends(arg, bindings) },
-        cst::Pattern::PrimCall(_, _, ref mut args) =>
+        Pattern::PrimCall(_, _, ref mut args) =>
             for arg in args.iter_mut() { pattern_definiends(arg, bindings) },
 
-        cst::Pattern::Lex(_, ref mut def) => {
+        Pattern::Lex(_, ref mut def) => {
             let new_def = Rc::new(RefCell::new(def.borrow().clone()));
             *def = new_def.clone();
             let name = new_def.borrow().name.clone();
             bindings.insert(name, new_def);
         },
 
-        cst::Pattern::Dyn(..) | cst::Pattern::Const(..) => {}
+        Pattern::Dyn(..) | Pattern::Const(..) => {}
     }
 }
 
-fn stmt_definiends(stmt: &mut cst::Stmt, bindings: &mut AlphaBindings) {
+fn stmt_definiends(stmt: &mut Stmt, bindings: &mut AlphaBindings) {
     match *stmt {
-        cst::Stmt::Def(ref mut pattern, _) =>
+        Stmt::Def(ref mut pattern, _) =>
             pattern_definiends(pattern, bindings),
-        cst::Stmt::Expr(_) => {}
+        Stmt::Expr(_) => {}
     }
 }
 
 // ================================================================================================
 
-pub trait InjectionPass {
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef>;
+pub enum BindingsReified {}
+
+pub trait BindingReificationPass {
+    fn reify_bindings(self) -> Program<BindingsReified>;
 }
 
-impl InjectionPass for Program<Alphatized> {
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        self.cst.inject(allocator)
+impl BindingReificationPass for Program<Alphatized> {
+    fn reify_bindings(self) -> Program<BindingsReified> {
+        Program::new(self.cst.reify_bindings(&None))
     }
 }
 
-/// Like `Into`, but must produce a `ValueRef(T<_>)` and is provided with an `Allocator`.
-trait Inject {
-    /// The type to convert to.
-    type Target: Into<ValueRef>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scoping { Linear, Recursive }
 
-    /// Perform the conversion.
-    fn inject(self, allocator: &mut Allocator) -> Option<Self::Target>;
+// HACK: This wouldn't need to be an Option if the toplevel block was treated specially (which is
+//       unavoidable anyway for e.g. a proper REPL experience).
+type DynEnv = Option<DefRef>;
+
+struct DeclBuilder {
+    start_pos: Pos,
+    decls: Vec<Stmt>,
+    denv_push_args: Vec<Expr>
 }
 
-// Then we implement the conversion using the obvious, although tedious, structural recursion:
+impl DeclBuilder {
+    fn new(start_pos: Pos, parent_denv: DynEnv) -> DeclBuilder {
+        let denv_push_args = vec![if let Some(parent_def) = parent_denv {
+            Expr::Lex(start_pos.clone(), Use::new(parent_def))
+        } else {
+            Expr::PrimCall(start_pos.clone(), PrimOp::DenvEmpty, Vec::new())
+        }];
 
-impl Inject for cst::Expr {
-    type Target = ValueRef;
+        DeclBuilder {
+            start_pos,
+            decls: Vec::new(),
+            denv_push_args
+        }
+    }
 
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        use pcws_syntax::cst::Expr::*;
+    fn push_lex(&mut self, pos: Pos, def: DefRef) {
+        self.decls.push(Stmt::Def(Pattern::Lex(pos.clone(), def),
+                                  Expr::PrimCall(pos, PrimOp::Promise, Vec::new())));
+    }
+
+    fn push_dyn_base(&mut self, pos: Pos, name: String, def: DefRef) {
+        // def = __promise
+        self.decls.push(Stmt::Def(Pattern::Lex(pos.clone(), def.clone()),
+                                      Expr::PrimCall(pos.clone(), PrimOp::Promise,
+                                                     Vec::new())));
+
+        // ... :name def ...
+        self.denv_push_args.push(Expr::Const(pos.clone(), cst::Const::Symbol(name)));
+        self.denv_push_args.push(Expr::Lex(pos, Use::new(def)))
+    }
+
+    fn push_dyn_lin(&mut self, pos: Pos, name: String, temp: DefRef) {
+        let def = Def::new(name.clone());
+        self.push_dyn_base(pos.clone(), name, def.clone());
+
+        // __redirect def temp
+        self.decls.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::Redirect, vec![
+            Expr::Lex(pos.clone(), Use::new(def)),
+            Expr::Lex(pos, Use::new(temp))
+        ])));
+    }
+
+    fn push_dyn_rec(&mut self, pos: Pos, name: String) {
+        let def = Def::new(name.clone());
+        self.push_dyn_base(pos, name, def);
+    }
+
+    fn into_stmts(self, denv: DefRef) -> Vec<Stmt> {
+        let mut decls = self.decls;
+        decls.push(Stmt::Def(Pattern::Lex(self.start_pos.clone(), denv),
+                             Expr::PrimCall(self.start_pos.clone(), PrimOp::Denv,
+                                            self.denv_push_args)));
+        decls
+    }
+}
+
+trait ReifyBindings {
+    // OPTIMIZE: &mut self instead
+    fn reify_bindings(self, denv: &DynEnv) -> Self;
+}
+
+trait ReifyPatternBindings {
+    // OPTIMIZE: &mut self instead
+    fn reify_bindings(self, denv: &DynEnv, scoping: Scoping, changes: &mut Vec<(Pattern, DefRef)>)
+        -> Self;
+}
+
+impl ReifyBindings for Expr {
+    fn reify_bindings(self, denv: &DynEnv) -> Expr {
+        use self::Expr::*;
+
+        // __denvGet denv :name
+        fn denv_get(pos: Pos, denv: DefRef, name: String) -> Expr {
+            Expr::PrimCall(pos.clone(), PrimOp::DenvGet, vec![
+                Expr::Lex(pos.clone(), Use::new(denv)),
+                Expr::Const(pos, cst::Const::Symbol(name))
+            ])
+        }
+
+        // __redirect dest temp
+        fn redirection(pos: Pos, dest: Expr, temp: DefRef) -> Stmt {
+            Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::Redirect, vec![
+                dest, Expr::Lex(pos, Use::new(temp))
+            ]))
+        }
 
         match self {
-            Function(..) => unimplemented!(),
-            Block(_, stmts, expr) =>
-                stmts.into_iter()
-                     .map(|stmt| stmt.inject(allocator))
-                     .collect::<Option<Vec<_>>>()
-                     .and_then(|stmts|
-                         expr.inject(allocator)
-                             .and_then(|expr|
-                                 ast::Block::new(allocator, &stmts, expr).map(From::from)
-                             )
-                     ),
-            Match(..) => unimplemented!(),
-            Call(_, callee, args) =>
-                callee.inject(allocator)
-                      .and_then(|callee|
-                          args.into_iter()
-                              .map(|arg| arg.inject(allocator))
-                              .collect::<Option<Vec<_>>>()
-                              .and_then(|args|
-                                  ast::Call::new(allocator, callee, &args).map(From::from)
-                              )
-                      ),
-            PrimCall(..) => unimplemented!(),
-            Lex(_, usage) =>
-                Symbol::new(allocator, &usage.def.borrow().name)
-                       .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
-            Dyn(_, name) =>
-                Symbol::new(allocator, &name)
-                       .and_then(|name| ast::Dyn::new(allocator, name).map(From::from)),
-            Const(_, c) =>
-                c.inject(allocator)
-                 .and_then(|c| ast::Const::new(allocator, c).map(From::from))
+            Function(pos, mut params, body) => {
+                let denv_def = Def::new("denv");
+                let denv = Some(denv_def.clone());
+                params.insert(0, denv_def);
+                return Function(pos, params, Box::new(body.reify_bindings(&denv)));
+            },
+
+            Block(pos, old_stmts, expr) => {
+                let mut decls = DeclBuilder::new(pos.clone(), denv.clone());
+                let mut stmts = Vec::new();
+
+                // The entire block is converted in its own scope:
+                let denv = Some(Def::new("denv"));
+
+                // Convert stmts and build declarations:
+                for stmt in old_stmts {
+                    let mut changes = Vec::new();
+
+                    stmts.push( stmt.reify_bindings(&denv, Scoping::Recursive, &mut changes));
+
+                    for (old_pat, temp) in changes {
+                        match old_pat {
+                            Pattern::Lex(pos, def) => {
+                                decls.push_lex(pos.clone(), def.clone());
+                                stmts.push(redirection(pos.clone(), Expr::Lex(pos, Use::new(def)),
+                                                                    temp));
+                            },
+                            Pattern::Dyn(pos, name) => {
+                                decls.push_dyn_rec(pos.clone(), name.clone());
+                                stmts.push(redirection(pos.clone(),
+                                                       denv_get(pos, denv.clone().unwrap(), name),
+                                                       temp));
+                            },
+                            _ => unreachable!()
+                        }
+                    }
+                }
+                let mut decls = decls.into_stmts(denv.clone().unwrap());
+
+                // Append the declarations and converted stmts, convert expr and build the result:
+                decls.extend(stmts);
+                return Block(pos, decls, Box::new(expr.reify_bindings(&denv)));
+            },
+
+            // OPTIMIZE: Map the subexprs in place:
+            Match(pos, matchee, cases, default_case) =>
+                return Match(pos, Box::new(matchee.reify_bindings(denv)),
+                                  cases.into_iter()
+                                       .map(|case| case.reify_bindings(denv))
+                                       .collect(),
+                                  Box::new(default_case.reify_bindings(denv))),
+            Call(pos, callee, args) =>
+                return Call(pos.clone(),
+                            Box::new(callee.reify_bindings(denv)),
+                            iter::once(Expr::Lex(pos, Use::new(denv.clone().unwrap())))
+                                 .chain(args.into_iter().map(|arg| arg.reify_bindings(denv)))
+                                 .collect()),
+            PrimCall(pos, op, args) =>
+                return PrimCall(pos, op, args.into_iter()
+                                             .map(|arg| arg.reify_bindings(denv))
+                                             .collect()),
+
+            Dyn(pos, name) => return denv_get(pos, denv.clone().unwrap(), name),
+
+            Lex(..) | Const(..) => {}
+        }
+
+        return self;
+    }
+}
+
+impl ReifyBindings for Case {
+    fn reify_bindings(self, parent_denv: &DynEnv) -> Case {
+        let pos = self.pos().clone();
+        let Case { patterns, commit, guard, body } = self;
+        assert!(commit.is_empty());
+
+        // Convert patterns in parent scope:
+        let mut changes = Vec::new();
+        let patterns =
+            patterns.into_iter()
+                    .map(|pat| pat.reify_bindings(&parent_denv, Scoping::Linear, &mut changes))
+                    .collect();
+
+        // Build commit declarations based on changes made to patterns:
+        let denv = Some(Def::new("denv"));
+        let mut decls = DeclBuilder::new(pos, parent_denv.clone());
+        for (old_pat, temp) in changes {
+            match old_pat {
+                Pattern::Dyn(pos, name) => decls.push_dyn_lin(pos, name, temp),
+                _ => unreachable!()
+            }
+        }
+        let commit = decls.into_stmts(denv.clone().unwrap());
+
+        // Convert guard and body in the scope of this case:
+        Case {
+            patterns,
+            commit,
+            guard: guard.reify_bindings(&denv),
+            body: body.reify_bindings(&denv)
         }
     }
 }
 
-impl Inject for cst::Pattern {
-    type Target = ValueRef;
-
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        use pcws_syntax::cst::Pattern::*;
-
+impl ReifyPatternBindings for Stmt {
+    fn reify_bindings(self, denv: &DynEnv, scoping: Scoping, changes: &mut Vec<(Pattern, DefRef)>)
+        -> Self
+    {
         match self {
-            Call(_, callee, args) =>
-                callee.inject(allocator)
-                      .and_then(|callee|
-                          args.into_iter()
-                              .map(|arg| arg.inject(allocator))
-                              .collect::<Option<Vec<_>>>()
-                              .and_then(|args|
-                                  ast::Call::new(allocator, callee, &args).map(From::from)
-                              )
-                      ),
-            PrimCall(..) => unimplemented!(),
-            Lex(_, def) =>
-                Symbol::new(allocator, &def.borrow().name)
-                       .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
-            Dyn(_, name) =>
-                Symbol::new(allocator, &name)
-                       .and_then(|name| ast::Dyn::new(allocator, name).map(From::from)),
-            Const(_, c) =>
-                c.inject(allocator)
-                 .and_then(|c| ast::Const::new(allocator, c).map(From::from))
+            Stmt::Def(pat, expr) => Stmt::Def(pat.reify_bindings(denv, scoping, changes),
+                                              expr.reify_bindings(denv)),
+            Stmt::Expr(expr) => Stmt::Expr(expr.reify_bindings(denv))
         }
     }
 }
 
-impl Inject for cst::Stmt {
-    type Target = ValueRef;
+impl ReifyPatternBindings for Pattern {
+    fn reify_bindings(self, denv: &DynEnv, scoping: Scoping, changes: &mut Vec<(Pattern, DefRef)>)
+        -> Pattern
+    {
+        use self::Pattern::*;
 
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        match self {
-            cst::Stmt::Def(pattern, expr) =>
-                pattern.inject(allocator)
-                       .and_then(|pattern|
-                           expr.inject(allocator)
-                               .and_then(|expr|
-                                   ast::Def::new(allocator, pattern, expr).map(From::from)
-                               )
-                       ),
-            cst::Stmt::Expr(expr) => expr.inject(allocator)
-        }
-    }
-}
+        let (pos, temp) = match self {
+            Call(pos, callee, args) =>
+                return Call(pos, callee.reify_bindings(denv),
+                                 args.into_iter()
+                                     .map(|pat| pat.reify_bindings(denv, scoping, changes))
+                                     .collect()),
+            PrimCall(pos, op, args) =>
+                return PrimCall(pos, op, args.into_iter()
+                                             .map(|pat| pat.reify_bindings(denv, scoping, changes))
+                                             .collect()),
+            Lex(..) if scoping == Scoping::Linear => return self,
+            Lex(ref pos, ref def) => (pos.clone(), Def::new(def.borrow().name.clone())),
+            Dyn(ref pos, ref name) => (pos.clone(), Def::new(name.clone())),
+            Const(..) => return self
+        };
 
-impl Inject for cst::Case {
-    type Target = ValueRefT<ast::Method>;
-
-    fn inject(self, _: &mut Allocator) -> Option<ValueRefT<ast::Method>> {
-        unimplemented!()
-    }
-}
-
-impl Inject for cst::Const {
-    type Target = ValueRef;
-
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        match self {
-            cst::Const::Int(n) => Some(ValueRefT::from(n).into()),
-            cst::Const::Float(n) => Some(ValueRefT::from(n).into()),
-            cst::Const::Char(c) => Some(ValueRefT::from(c).into()),
-            cst::Const::Bool(b) => Some(ValueRefT::from(b).into()),
-            cst::Const::String(_) => unimplemented!(),
-            cst::Const::Symbol(cs) => Symbol::new(allocator, &cs).map(From::from)
-        }
+        changes.push((self, temp.clone()));
+        Lex(pos, temp)
     }
 }

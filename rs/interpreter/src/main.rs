@@ -9,13 +9,15 @@ extern crate pcws_syntax;
 
 mod ast;
 mod frontend;
+mod inject;
 
 use std::io::{self, Read};
 use std::str::FromStr;
 
 use pcws_domain::{Allocator, DynamicDebug};
 use pcws_syntax::cst::{Program, Parsed};
-use frontend::{AlphatizationPass, InjectionPass};
+use frontend::{AlphatizationPass, BindingReificationPass};
+use inject::InjectionPass;
 
 fn main() {
     let mut src = String::new();
@@ -26,6 +28,9 @@ fn main() {
             println!("{}", program);
 
             let program = program.alphatize();
+            println!("{}", program);
+
+            let program = program.reify_bindings();
             println!("{}", program);
 
             let mut allocator = Allocator::new(4*1024*1024);

@@ -78,7 +78,14 @@ impl Use {
 pub enum PrimOp {
     Tuple,
 
-    IAdd
+    IAdd,
+
+    Promise,
+    Redirect,
+
+    DenvEmpty,
+    Denv,
+    DenvGet
 }
 
 impl Display for PrimOp {
@@ -86,10 +93,17 @@ impl Display for PrimOp {
         use self::PrimOp::*;
 
         match *self {
-            Tuple => "__tuple".fmt(f),
+            Tuple => "__tuple",
 
-            IAdd => "__iAdd".fmt(f)
-        }
+            IAdd => "__iAdd",
+
+            Promise => "__promise",
+            Redirect => "__redirect",
+
+            DenvEmpty => "__denvEmpty",
+            Denv => "__denv",
+            DenvGet => "__denvGet",
+        }.fmt(f)
     }
 }
 
@@ -156,6 +170,7 @@ pub enum Stmt {
 #[derive(Debug, Clone)]
 pub struct Case {
     pub patterns: Vec<Pattern>,
+    pub commit: Vec<Stmt>,
     pub guard: Expr,
     pub body: Expr
 }
@@ -409,14 +424,23 @@ impl Stmt {
 
 impl Case {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
-        let &Case { ref patterns, ref guard, ref body } = self;
+        let &Case { ref patterns, ref commit, ref guard, ref body } = self;
 
         allocator.text("(")
                  .append(allocator.intersperse(patterns.iter().map(|pat| pat.pretty(allocator)),
                                                " "))
-                 .append(") | ")
-                 .append(guard.pretty(allocator))
-                 .append(" => ")
-                 .append(body.pretty(allocator))
+                 .append(") => {")
+                 .append(allocator.newline()
+                                  .append(
+                                       allocator.intersperse(
+                                           commit.iter().map(|stmt| stmt.pretty(allocator))
+                                                 .chain(iter::once(
+                                                     allocator.text("@guard ")
+                                                              .append(guard.pretty(allocator))))
+                                                 .chain(iter::once(body.pretty(allocator))),
+                                           allocator.text(";").append(allocator.newline())))
+                                  .nest(2))
+                 .append(allocator.newline())
+                 .append("}")
     }
 }

@@ -29,6 +29,7 @@ impl CstFactory {
                 methods,
                 Box::new(Case {
                     patterns: Vec::new(), // FIXME
+                    commit: Vec::new(),
                     guard: Expr::Const(self.pos(), Const::Bool(true)),
                     body: Expr::Call(self.pos(),
                                      Box::new(Expr::Lex(self.pos(),
@@ -53,6 +54,7 @@ impl CstFactory {
         }
     }
 
+    // FIXME: This should not be done for patterns.
     fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
         let apply = Expr::Lex(self.pos(), Use::new(Def::new("apply")));
         let arg_tup = Expr::PrimCall(self.pos(), PrimOp::Tuple, args);
@@ -150,6 +152,7 @@ parser!{
         .map(|(patterns, guard_pos, guard, body)|
             Case {
                 patterns: patterns.into_iter().map(|pat| pat.try_into().unwrap()).collect(),
+                commit: Vec::new(),
                 guard: guard.unwrap_or_else(|| Expr::Const(guard_pos, Const::Bool(true))),
                 body
             }
