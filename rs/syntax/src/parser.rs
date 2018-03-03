@@ -4,7 +4,7 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, Use, IdFactory, Pos, Positioned};
+use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, IdFactory, Pos, Positioned};
 
 #[derive(Debug)]
 struct CstFactory {
@@ -25,18 +25,16 @@ impl CstFactory {
         Expr::Function(self.pos(), vec![closure.clone(), method_i.clone(), args.clone()],
             Box::new(Expr::Match(
                 self.pos(),
-                Box::new(Expr::Lex(self.pos(), Use::new(args.clone()))),
+                Box::new(Expr::Lex(self.pos(), args.clone())),
                 methods,
                 Box::new(Expr::Call(self.pos(),
-                                    Box::new(Expr::Lex(self.pos(),
-                                                       Use::new(closure.clone()))),
-                                    vec![Expr::Lex(self.pos(), Use::new(closure.clone())),
+                                    Box::new(Expr::Lex(self.pos(), closure.clone())),
+                                    vec![Expr::Lex(self.pos(), closure.clone()),
                                          Expr::PrimCall(self.pos(), PrimOp::IAdd,
-                                                        vec![Expr::Lex(self.pos(),
-                                                                       Use::new(method_i)),
+                                                        vec![Expr::Lex(self.pos(), method_i),
                                                              Expr::Const(self.pos(),
                                                                          Const::Int(1))]),
-                                         Expr::Lex(self.pos(), Use::new(args))])
+                                         Expr::Lex(self.pos(), args)])
                 )
             ))
         )
@@ -52,7 +50,7 @@ impl CstFactory {
 
     // FIXME: This should not be done for patterns.
     fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
-        let apply = Expr::Lex(self.pos(), Use::new(Def::new("apply")));
+        let apply = Expr::Lex(self.pos(), Def::new("apply"));
         let arg_tup = Expr::PrimCall(self.pos(), PrimOp::Tuple, args);
         let args = vec![apply.clone(),
                         Expr::Const(self.pos(), Const::Int(0)),

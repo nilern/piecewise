@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter;
 
-use pcws_syntax::cst::{self, Program, Parsed, Expr, Stmt, Pattern, Case, Def, Use, DefRef, PrimOp,
+use pcws_syntax::cst::{self, Program, Parsed, Expr, Stmt, Pattern, Case, Def, DefRef, PrimOp,
                        Pos, Positioned};
 
 // ================================================================================================
@@ -102,9 +102,9 @@ impl Alphatize for Expr {
             },
 
             // Update Use:
-            Lex(_, ref mut usage) => {
-                let def = env.get(&usage.def.borrow().name).unwrap(); // FIXME: unwrap
-                *usage = Use::new(def.clone());
+            Lex(_, ref mut def) => {
+                let new_def = env.get(&def.borrow().name).unwrap(); // FIXME: unwrap
+                *def = new_def.clone();
             },
 
             // These don't contain defs or uses at all:
@@ -216,7 +216,7 @@ struct DeclBuilder {
 impl DeclBuilder {
     fn new(start_pos: Pos, parent_denv: DynEnv) -> DeclBuilder {
         let denv_push_args = vec![if let Some(parent_def) = parent_denv {
-            Expr::Lex(start_pos.clone(), Use::new(parent_def))
+            Expr::Lex(start_pos.clone(), parent_def)
         } else {
             Expr::PrimCall(start_pos.clone(), PrimOp::DenvEmpty, Vec::new())
         }];
@@ -241,7 +241,7 @@ impl DeclBuilder {
 
         // ... :name def ...
         self.denv_push_args.push(Expr::Const(pos.clone(), cst::Const::Symbol(name)));
-        self.denv_push_args.push(Expr::Lex(pos, Use::new(def)))
+        self.denv_push_args.push(Expr::Lex(pos, def))
     }
 
     // OPTIMIZE: Don't actually need promise at all since they are 'transparent'.
@@ -251,8 +251,8 @@ impl DeclBuilder {
 
         // __redirect def temp
         self.decls.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::Redirect, vec![
-            Expr::Lex(pos.clone(), Use::new(def)),
-            Expr::Lex(pos, Use::new(temp))
+            Expr::Lex(pos.clone(), def),
+            Expr::Lex(pos, temp)
         ])));
     }
 
@@ -288,7 +288,7 @@ impl ReifyBindings for Expr {
         // __denvGet denv :name
         fn denv_get(pos: Pos, denv: DefRef, name: String) -> Expr {
             Expr::PrimCall(pos.clone(), PrimOp::DenvGet, vec![
-                Expr::Lex(pos.clone(), Use::new(denv)),
+                Expr::Lex(pos.clone(), denv),
                 Expr::Const(pos, cst::Const::Symbol(name))
             ])
         }
@@ -296,7 +296,7 @@ impl ReifyBindings for Expr {
         // __redirect dest temp
         fn redirection(pos: Pos, dest: Expr, temp: DefRef) -> Stmt {
             Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::Redirect, vec![
-                dest, Expr::Lex(pos, Use::new(temp))
+                dest, Expr::Lex(pos, temp)
             ]))
         }
 
@@ -325,8 +325,7 @@ impl ReifyBindings for Expr {
                         match old_pat {
                             Pattern::Lex(pos, def) => {
                                 decls.push_lex(pos.clone(), def.clone());
-                                stmts.push(redirection(pos.clone(), Expr::Lex(pos, Use::new(def)),
-                                                                    temp));
+                                stmts.push(redirection(pos.clone(), Expr::Lex(pos, def), temp));
                             },
                             Pattern::Dyn(pos, name) => {
                                 decls.push_dyn_rec(pos.clone(), name.clone());
@@ -355,7 +354,7 @@ impl ReifyBindings for Expr {
             Call(pos, callee, args) =>
                 return Call(pos.clone(),
                             Box::new(callee.reify_bindings(denv)),
-                            iter::once(Expr::Lex(pos, Use::new(denv.clone().unwrap())))
+                            iter::once(Expr::Lex(pos, denv.clone().unwrap()))
                                  .chain(args.into_iter().map(|arg| arg.reify_bindings(denv)))
                                  .collect()),
             PrimCall(pos, op, args) =>

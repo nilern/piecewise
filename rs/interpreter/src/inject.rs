@@ -59,8 +59,8 @@ impl Inject for cst::Expr {
                               )
                       ),
             PrimCall(..) => unimplemented!(),
-            Lex(_, usage) =>
-                Symbol::new(allocator, &usage.def.borrow().name)
+            Lex(_, def) =>
+                Symbol::new(allocator, &def.borrow().name)
                        .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
             Dyn(_, name) =>
                 Symbol::new(allocator, &name)

@@ -53,7 +53,7 @@ pub type DefRef = Rc<RefCell<Def>>;
 #[derive(Debug, Clone)]
 pub struct Def {
     pub name: String,
-    pub uses: HashSet<NonNull<Use>>
+    pub uses: HashSet<NonNull<Expr>>
 }
 
 impl Def {
@@ -63,15 +63,6 @@ impl Def {
             uses: HashSet::new()
         }))
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct Use {
-    pub def: DefRef
-}
-
-impl Use {
-    pub fn new(def: DefRef) -> Use { Use { def } }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,7 +113,7 @@ pub enum Expr {
     Match(Pos, Box<Expr>, Vec<Case>, Box<Expr>),
     Call(Pos, Box<Expr>, Vec<Expr>),
     PrimCall(Pos, PrimOp, Vec<Expr>),
-    Lex(Pos, Use),
+    Lex(Pos, DefRef),
     Dyn(Pos, String),
     Const(Pos, Const)
 }
@@ -161,7 +152,7 @@ impl TryFrom<Expr> for Pattern {
                 Pattern::PrimCall(pos, op, args.into_iter()
                                                .map(TryFrom::try_from)
                                                .collect::<Result<Vec<_>, _>>()?),
-            Expr::Lex(pos, usage) => Pattern::Lex(pos, usage.def),
+            Expr::Lex(pos, def) => Pattern::Lex(pos, def),
             Expr::Dyn(pos, name) => Pattern::Dyn(pos, name),
             Expr::Const(pos, c) => Pattern::Const(pos, c),
             _ => return Err(IllegalPattern)
@@ -221,12 +212,12 @@ impl IdFactory {
         IdFactory { defs: HashMap::new() }
     }
 
-    pub fn usage(&mut self, name: &str) -> Use {
-        Use::new(self.defs.get(name).map(Clone::clone).unwrap_or_else(|| {
+    pub fn usage(&mut self, name: &str) -> DefRef {
+        self.defs.get(name).map(Clone::clone).unwrap_or_else(|| {
             let def = Def::new(name.to_string());
             self.insert(name, def.clone());
             def
-        }))
+        })
     }
 
     pub fn insert<S: Into<String>>(&mut self, name: S, def: DefRef) {
@@ -319,12 +310,6 @@ impl Display for Def {
     }
 }
 
-impl Display for Use {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}@{:p}", self.def.borrow().name, &*self.def.borrow())
-    }
-}
-
 impl Expr {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
         use self::Expr::*;
@@ -384,7 +369,7 @@ impl Expr {
                                           .chain(args.iter().map(|arg| arg.pretty(allocator))),
                                      " "))
                          .append(")"),
-            &Lex(_, ref usage) => allocator.as_string(usage),
+            &Lex(_, ref def) => allocator.as_string(def.borrow()),
             &Dyn(_, ref name) => allocator.text("$").append(name.as_ref()),
             &Const(_, ref c) => allocator.as_string(c)
         }

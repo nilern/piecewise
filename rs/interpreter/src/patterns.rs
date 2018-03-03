@@ -1,6 +1,6 @@
 use std::iter;
 
-use pcws_syntax::cst::{self, Program, Expr, Stmt, Case, Pattern, PrimOp, Def, DefRef, Use,
+use pcws_syntax::cst::{self, Program, Expr, Stmt, Case, Pattern, PrimOp, Def, DefRef,
                        Pos, Positioned};
 
 use binding::BindingsReified;
@@ -86,7 +86,7 @@ impl ExpandPatterns for Expr {
                                                  cst::Const::Symbol(prompt_name.into()))
                                        ]))],
                         Box::new(PrimCall(pos.clone(), PrimOp::Prompt, vec![
-                            Lex(pos.clone(), Use::new(prompt)), thunk, handler
+                            Lex(pos.clone(), prompt), thunk, handler
                         ]))
                     )
                 }
@@ -134,7 +134,7 @@ fn expand_case_patterns(case: Case, matchee: &DefRef, prompt: &DefRef) -> Expr {
             // __assertP guard prompt
             stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
                 guard.expand_patterns(),
-                Expr::Lex(pos.clone(), Use::new(prompt.clone()))
+                Expr::Lex(pos.clone(), prompt.clone())
             ])));
         }
     }
@@ -165,19 +165,19 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                 stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
                     Expr::PrimCall(pos.clone(), PrimOp::Eq, vec![
                         Expr::PrimCall(pos.clone(), PrimOp::Type, vec![
-                            Expr::Lex(pos.clone(), Use::new(matchee.clone()))
+                            Expr::Lex(pos.clone(), matchee.clone())
                         ]),
-                        Expr::Lex(pos.clone(), Use::new(Def::new("Tuple"))) // HACK: Wrong `Tuple`
+                        Expr::Lex(pos.clone(), Def::new("Tuple")) // HACK: Wrong `Tuple`
                     ]),
-                    Expr::Lex(pos.clone(), Use::new(prompt.clone()))
+                    Expr::Lex(pos.clone(), prompt.clone())
                 ])));
                 // mseq = __tupleSlice matchee 0 (__tupleLen matchee);
                 stmts.push(Stmt::Def(Lex(pos.clone(), sub_matchees.clone()),
                                      Expr::PrimCall(pos.clone(), PrimOp::TupleSlice, vec![
-                                         Expr::Lex(pos.clone(), Use::new(matchee.clone())),
+                                         Expr::Lex(pos.clone(), matchee.clone()),
                                          Expr::Const(pos.clone(), cst::Const::Int(0)),
                                         Expr::PrimCall(pos.clone(), PrimOp::TupleLen, vec![
-                                            Expr::Lex(pos.clone(), Use::new(matchee.clone()))
+                                            Expr::Lex(pos.clone(), matchee.clone())
                                         ])
                                      ])));
                 expand_pattern_row(pos, args, sub_matchees, prompt, stmts);
@@ -193,15 +193,15 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                 stmts.push(
                     Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
                         Expr::Call(pos.clone(),
-                            Box::new(Expr::Lex(pos.clone(), Use::new(apply.clone()))),
+                            Box::new(Expr::Lex(pos.clone(), apply.clone())),
                             vec![
-                                Expr::Lex(pos.clone(), Use::new(denv)),
-                                Expr::Lex(pos.clone(), Use::new(apply)),
+                                Expr::Lex(pos.clone(), denv),
+                                Expr::Lex(pos.clone(), apply),
                                 Expr::Const(pos.clone(), cst::Const::Int(0)),
                                 Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                    Expr::Lex(pos.clone(), Use::new(eq)),
+                                    Expr::Lex(pos.clone(), eq),
                                     Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                        Expr::Lex(pos.clone(), Use::new(matchee.clone())),
+                                        Expr::Lex(pos.clone(), matchee.clone()),
                                         Expr::Const(pos, c)])])])]))
                 );
             },
@@ -223,8 +223,8 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                 Call(..) | Dyn(..) => unreachable!()
             };
 
-            let matchees = Expr::Lex(pos.clone(), Use::new(matchees.clone()));
-            let prompt = Expr::Lex(pos.clone(), Use::new(prompt.clone()));
+            let matchees = Expr::Lex(pos.clone(), matchees.clone());
+            let prompt = Expr::Lex(pos.clone(), prompt.clone());
 
             // matchee = __sliceGetP matchees 0 prompt;
             stmts.push(Stmt::Def(Lex(pos.clone(), matchee.clone()),
@@ -255,8 +255,8 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
             match pattern {
                 Call(pos, callee, args) => {
                     let seqs = Def::new("seqs");
-                    let denv = Expr::Lex(pos.clone(), Use::new(Def::new("denv"))); // HACK
-                    let unapply = Expr::Lex(pos.clone(), Use::new(Def::new("unapply"))); // HACK
+                    let denv = Expr::Lex(pos.clone(), Def::new("denv")); // HACK
+                    let unapply = Expr::Lex(pos.clone(), Def::new("unapply")); // HACK
 
                     // mseq' = unapply denv unapply 0 (__tuple callee (__tuple mseq prompt))
                     stmts.push(
@@ -268,8 +268,8 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                                       Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
                                           callee.expand_patterns(),
                                           Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                              Expr::Lex(pos.clone(), Use::new(matchees.clone())),
-                                              Expr::Lex(pos.clone(), Use::new(prompt.clone()))
+                                              Expr::Lex(pos.clone(), matchees.clone()),
+                                              Expr::Lex(pos.clone(), prompt.clone())
                                           ])
                                       ])
                                   ]))
@@ -280,7 +280,7 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                     stmts.push(
                         Stmt::Def(Lex(pos.clone(), sub_matchees.clone()),
                                   Expr::PrimCall(pos.clone(), PrimOp::TupleGet, vec![
-                                      Expr::Lex(pos.clone(), Use::new(seqs.clone())),
+                                      Expr::Lex(pos.clone(), seqs.clone()),
                                       Expr::Const(pos.clone(), cst::Const::Int(0))
                                   ]))
                     );
@@ -290,7 +290,7 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                     stmts.push(
                         Stmt::Def(Lex(pos.clone(), rem_matchees.clone()),
                                   Expr::PrimCall(pos.clone(), PrimOp::TupleGet, vec![
-                                      Expr::Lex(pos.clone(), Use::new(seqs)),
+                                      Expr::Lex(pos.clone(), seqs),
                                       Expr::Const(pos.clone(), cst::Const::Int(1))
                                   ]))
                     );
@@ -317,11 +317,11 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
         stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
             Expr::PrimCall(pos.clone(), PrimOp::Eq, vec![
                 Expr::PrimCall(pos.clone(), PrimOp::SliceLen, vec![
-                    Expr::Lex(pos.clone(), Use::new(matchees))
+                    Expr::Lex(pos.clone(), matchees)
                 ]),
                 Expr::Const(pos.clone(), cst::Const::Int(0))
             ]),
-            Expr::Lex(pos, Use::new(prompt.clone()))
+            Expr::Lex(pos, prompt.clone())
         ])));
     }
 
@@ -331,21 +331,21 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
         let pos = pattern.pos().clone();
         let mtup = Def::new("mtup");
         let mseq = Def::new("mseq");
-        
+
         // mtup = __tuple expr
         stmts.push(Stmt::Def(Pattern::Lex(pos.clone(), mtup.clone()),
                              Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                Expr::Lex(pos.clone(), Use::new(matchee.clone()))
+                                Expr::Lex(pos.clone(), matchee.clone())
                              ])));
 
         // mseq = __tupleSlice mtup 0 (__tupleLen mtup)
         stmts.push(
             Stmt::Def(Pattern::Lex(pos.clone(), mseq.clone()),
                       Expr::PrimCall(pos.clone(), PrimOp::TupleSlice, vec![
-                          Expr::Lex(pos.clone(), Use::new(mtup.clone())),
+                          Expr::Lex(pos.clone(), mtup.clone()),
                           Expr::Const(pos.clone(), cst::Const::Int(0)),
                           Expr::PrimCall(pos.clone(), PrimOp::TupleLen, vec![
-                              Expr::Lex(pos.clone(), Use::new(mtup))
+                              Expr::Lex(pos.clone(), mtup)
                           ])
                       ])));
 
