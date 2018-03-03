@@ -77,33 +77,41 @@ impl Use {
 #[derive(Debug, Clone, Copy)]
 pub enum PrimOp {
     Tuple,
+    TupleLen,
+    TupleGet,
+    TupleSlice,
+
+    SliceLen,
+    SliceGetP,
+    SliceSubP,
 
     IAdd,
+
+    SymbolFresh,
 
     Promise,
     Redirect,
 
+    Eq,
+    Type,
+
     DenvEmpty,
     Denv,
-    DenvGet
+    DenvGet,
+
+    Prompt,
+
+    AssertP
 }
 
 impl Display for PrimOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        use self::PrimOp::*;
-
-        match *self {
-            Tuple => "__tuple",
-
-            IAdd => "__iAdd",
-
-            Promise => "__promise",
-            Redirect => "__redirect",
-
-            DenvEmpty => "__denvEmpty",
-            Denv => "__denv",
-            DenvGet => "__denvGet",
-        }.fmt(f)
+        let mut debug_string = format!("__{:?}", self);
+        unsafe {
+            let bytes = debug_string.as_bytes_mut();
+            bytes[2] = char::from(bytes[2]).to_ascii_lowercase() as _;
+        }
+        debug_string.fmt(f)
     }
 }
 
@@ -111,7 +119,7 @@ impl Display for PrimOp {
 pub enum Expr {
     Function(Pos, Vec<DefRef>, Box<Expr>),
     Block(Pos, Vec<Stmt>, Box<Expr>),
-    Match(Pos, Box<Expr>, Vec<Case>, Box<Case>),
+    Match(Pos, Box<Expr>, Vec<Case>, Box<Expr>),
     Call(Pos, Box<Expr>, Vec<Expr>),
     PrimCall(Pos, PrimOp, Vec<Expr>),
     Lex(Pos, Use),
@@ -169,7 +177,7 @@ pub enum Stmt {
 
 #[derive(Debug, Clone)]
 pub struct Case {
-    pub patterns: Vec<Pattern>,
+    pub pattern: Pattern,
     pub commit: Vec<Stmt>,
     pub guard: Expr,
     pub body: Expr
@@ -292,10 +300,7 @@ impl Positioned for Stmt {
 }
 
 impl Positioned for Case {
-    fn pos(&self) -> &Pos {
-        self.patterns.get(0).map(Pattern::pos)
-            .unwrap_or_else(|| self.guard.pos())
-    }
+    fn pos(&self) -> &Pos { self.pattern.pos() }
 }
 
 // ================================================================================================
@@ -424,23 +429,20 @@ impl Stmt {
 
 impl Case {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
-        let &Case { ref patterns, ref commit, ref guard, ref body } = self;
+        let &Case { ref pattern, ref commit, ref guard, ref body } = self;
 
-        allocator.text("(")
-                 .append(allocator.intersperse(patterns.iter().map(|pat| pat.pretty(allocator)),
-                                               " "))
-                 .append(") => {")
-                 .append(allocator.newline()
-                                  .append(
-                                       allocator.intersperse(
-                                           commit.iter().map(|stmt| stmt.pretty(allocator))
-                                                 .chain(iter::once(
-                                                     allocator.text("@guard ")
-                                                              .append(guard.pretty(allocator))))
-                                                 .chain(iter::once(body.pretty(allocator))),
-                                           allocator.text(";").append(allocator.newline())))
-                                  .nest(2))
-                 .append(allocator.newline())
-                 .append("}")
+        pattern.pretty(allocator)
+               .append(" => {")
+               .append(allocator.newline()
+                                .append(allocator.intersperse(
+                                            commit.iter().map(|stmt| stmt.pretty(allocator))
+                                                  .chain(iter::once(
+                                                      allocator.text("@guard ")
+                                                               .append(guard.pretty(allocator))))
+                                                  .chain(iter::once(body.pretty(allocator))),
+                                            allocator.text(";").append(allocator.newline())))
+                                .nest(2))
+               .append(allocator.newline())
+               .append("}")
     }
 }

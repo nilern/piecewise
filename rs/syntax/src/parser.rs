@@ -4,7 +4,7 @@ use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by
               satisfy_map, token, position};
 
 use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Case, PrimOp, Const, Def, Use, IdFactory, Pos};
+use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, Use, IdFactory, Pos, Positioned};
 
 #[derive(Debug)]
 struct CstFactory {
@@ -27,21 +27,17 @@ impl CstFactory {
                 self.pos(),
                 Box::new(Expr::Lex(self.pos(), Use::new(args.clone()))),
                 methods,
-                Box::new(Case {
-                    patterns: Vec::new(), // FIXME
-                    commit: Vec::new(),
-                    guard: Expr::Const(self.pos(), Const::Bool(true)),
-                    body: Expr::Call(self.pos(),
-                                     Box::new(Expr::Lex(self.pos(),
-                                                        Use::new(closure.clone()))),
-                                     vec![Expr::Lex(self.pos(), Use::new(closure.clone())),
-                                          Expr::PrimCall(self.pos(), PrimOp::IAdd,
-                                                         vec![Expr::Lex(self.pos(),
-                                                                  Use::new(method_i)),
-                                                              Expr::Const(self.pos(),
-                                                                          Const::Int(1))]),
-                                          Expr::Lex(self.pos(), Use::new(args))])
-                })
+                Box::new(Expr::Call(self.pos(),
+                                    Box::new(Expr::Lex(self.pos(),
+                                                       Use::new(closure.clone()))),
+                                    vec![Expr::Lex(self.pos(), Use::new(closure.clone())),
+                                         Expr::PrimCall(self.pos(), PrimOp::IAdd,
+                                                        vec![Expr::Lex(self.pos(),
+                                                                       Use::new(method_i)),
+                                                             Expr::Const(self.pos(),
+                                                                         Const::Int(1))]),
+                                         Expr::Lex(self.pos(), Use::new(args))])
+                )
             ))
         )
     }
@@ -151,7 +147,12 @@ parser!{
          token(Token::DArrow).with(method_body(ids)))
         .map(|(patterns, guard_pos, guard, body)|
             Case {
-                patterns: patterns.into_iter().map(|pat| pat.try_into().unwrap()).collect(),
+                pattern: Pattern::PrimCall(patterns[0].pos().clone(), PrimOp::Tuple,
+                                           patterns.into_iter()
+                                                   .map(|pat|
+                                                       pat.try_into().unwrap()
+                                                   )
+                                                   .collect()),
                 commit: Vec::new(),
                 guard: guard.unwrap_or_else(|| Expr::Const(guard_pos, Const::Bool(true))),
                 body

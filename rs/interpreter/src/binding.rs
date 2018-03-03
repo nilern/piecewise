@@ -145,15 +145,13 @@ impl Alphatize for Stmt {
 
 impl Alphatize for Case {
     fn alphatize(&mut self, env: &Rc<AlphaEnv>) {
-        let &mut Case { ref mut patterns, ref mut commit, ref mut guard, ref mut body } =
+        let &mut Case { ref mut pattern, ref mut commit, ref mut guard, ref mut body } =
             self;
 
-        for pattern in patterns.iter_mut() { pattern.alphatize(&env) }
+        pattern.alphatize(&env);
 
         let mut bindings = HashMap::new();
-        for pattern in patterns.iter_mut() {
-            pattern_definiends(pattern, &mut bindings);
-        }
+        pattern_definiends(pattern, &mut bindings);
         let env = Rc::new(AlphaEnv::push(env.clone(), bindings));
 
         for stmt in commit { stmt.alphatize(&env) }
@@ -246,6 +244,7 @@ impl DeclBuilder {
         self.denv_push_args.push(Expr::Lex(pos, Use::new(def)))
     }
 
+    // OPTIMIZE: Don't actually need promise at all since they are 'transparent'.
     fn push_dyn_lin(&mut self, pos: Pos, name: String, temp: DefRef) {
         let def = Def::new(name.clone());
         self.push_dyn_base(pos.clone(), name, def.clone());
@@ -376,15 +375,12 @@ impl ReifyBindings for Expr {
 impl ReifyBindings for Case {
     fn reify_bindings(self, parent_denv: &DynEnv) -> Case {
         let pos = self.pos().clone();
-        let Case { patterns, commit, guard, body } = self;
+        let Case { pattern, commit, guard, body } = self;
         assert!(commit.is_empty());
 
         // Convert patterns in parent scope:
         let mut changes = Vec::new();
-        let patterns =
-            patterns.into_iter()
-                    .map(|pat| pat.reify_bindings(&parent_denv, Scoping::Linear, &mut changes))
-                    .collect();
+        let pattern = pattern.reify_bindings(&parent_denv, Scoping::Linear, &mut changes);
 
         // Build commit declarations based on changes made to patterns:
         let denv = Some(Def::new("denv"));
@@ -399,7 +395,7 @@ impl ReifyBindings for Case {
 
         // Convert guard and body in the scope of this case:
         Case {
-            patterns,
+            pattern,
             commit,
             guard: guard.reify_bindings(&denv),
             body: body.reify_bindings(&denv)
