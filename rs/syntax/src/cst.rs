@@ -65,6 +65,12 @@ impl Def {
     }
 }
 
+impl Display for Def {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}@{:p}", self.name, self)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum PrimOp {
     Tuple,
@@ -309,12 +315,6 @@ impl<S> Display for Program<S> {
         let allocator = pretty::Arena::new();
         <DocBuilder<_> as Into<Doc<_>>>::into(self.cst.pretty(&allocator))
                                         .render_fmt(80, f)
-    }
-}
-
-impl Display for Def {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}@{:p}", self.name, self)
     }
 }
 

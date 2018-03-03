@@ -1,6 +1,7 @@
 #![feature(try_from, nonzero, unique, const_atomic_isize_new)]
 
 extern crate core;
+extern crate pretty;
 
 extern crate pcws_gc;
 #[macro_use]
@@ -8,6 +9,7 @@ extern crate pcws_domain;
 extern crate pcws_syntax;
 
 mod ast;
+mod anf;
 mod binding;
 mod inject;
 mod patterns;
@@ -15,10 +17,10 @@ mod patterns;
 use std::io::{self, Read};
 use std::str::FromStr;
 
-use pcws_domain::{Allocator, DynamicDebug};
+// use pcws_domain::{Allocator, DynamicDebug};
 use pcws_syntax::cst::{Program, Parsed};
 use binding::{AlphatizationPass, BindingReificationPass};
-use inject::InjectionPass;
+// use inject::InjectionPass;
 use patterns::PatternMatchingPass;
 
 fn main() {
@@ -29,18 +31,29 @@ fn main() {
         Ok(program) => {
             println!("{}", program);
 
+            println!("\n---\n");
+
             let program = program.alphatize();
             println!("{}", program);
+
+            println!("\n---\n");
 
             let program = program.reify_bindings();
             println!("{}", program);
 
+            println!("\n---\n");
+
             let program = program.expand_patterns();
             println!("{}", program);
 
-            let mut allocator = Allocator::new(4*1024*1024);
-            let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
-            println!("{:?}", ast.fmt_wrap(&allocator));
+            println!("\n---\n");
+
+            let program: anf::Block = program.into();
+            println!("{}", program);
+
+            // let mut allocator = Allocator::new(4*1024*1024);
+            // let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
+            // println!("{:?}", ast.fmt_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err.0)
     }

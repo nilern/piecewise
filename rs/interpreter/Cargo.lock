@@ -42,6 +42,7 @@ dependencies = [
  "pcws-domain 0.1.0",
  "pcws-gc 0.1.0",
  "pcws-syntax 0.1.0",
+ "pretty 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

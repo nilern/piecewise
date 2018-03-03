@@ -7,3 +7,4 @@ authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 pcws-gc = { path = "../gc"}
 pcws-domain = { path = "../domain"}
 pcws-syntax = { path = "../syntax"}
+pretty = "0.3.3"
