@@ -166,6 +166,10 @@ pub enum Stmt {
     Expr(Expr)
 }
 
+impl From<Expr> for Stmt {
+    fn from(expr: Expr) -> Stmt { Stmt::Expr(expr) }
+}
+
 #[derive(Debug, Clone)]
 pub struct Case {
     pub pattern: Pattern,
@@ -182,6 +186,10 @@ pub enum Const {
     Bool(bool),
     String(String),
     Symbol(String)
+}
+
+impl From<isize> for Const {
+    fn from(n: isize) -> Const { Const::Int(n) }
 }
 
 impl Display for Const {
@@ -429,5 +437,46 @@ impl Case {
                                 .nest(2))
                .append(allocator.newline())
                .append("}")
+    }
+}
+
+// ================================================================================================
+
+#[derive(Debug)]
+pub struct CstFactory {
+    pos: Pos
+}
+
+impl CstFactory {
+    pub fn new(pos: Pos) -> CstFactory {
+        CstFactory { pos }
+    }
+
+    pub fn lex_def(&self, def: &DefRef) -> Pattern {
+        Pattern::Lex(self.pos.clone(), def.clone())
+    }
+
+    pub fn def(&self, pattern: Pattern, expr: Expr) -> Stmt {
+        Stmt::Def(pattern, expr)
+    }
+
+    pub fn block(&self, stmts: Vec<Stmt>, expr: Expr) -> Expr {
+        Expr::Block(self.pos.clone(), stmts, Box::new(expr))
+    }
+
+    pub fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
+        Expr::Call(self.pos.clone(), Box::new(callee), args)
+    }
+
+    pub fn primcall(&self, op: PrimOp, args: Vec<Expr>) -> Expr {
+        Expr::PrimCall(self.pos.clone(), op, args)
+    }
+
+    pub fn lex_use(&self, def: &DefRef) -> Expr {
+        Expr::Lex(self.pos.clone(), def.clone())
+    }
+
+    pub fn constant<V: Into<Const>>(&self, value: V) -> Expr {
+        Expr::Const(self.pos.clone(), value.into())
     }
 }

@@ -1,7 +1,7 @@
 use std::iter;
 
 use pcws_syntax::cst::{self, Program, Expr, Stmt, Case, Pattern, PrimOp, Def, DefRef,
-                       Pos, Positioned};
+                       Pos, Positioned, CstFactory};
 
 use binding::BindingsReified;
 
@@ -119,7 +119,9 @@ fn expand_stmt_patterns(stmt: Stmt, prompt: &DefRef, stmts: &mut Vec<Stmt>) {
 }
 
 fn expand_case_patterns(case: Case, matchee: &DefRef, prompt: &DefRef) -> Expr {
-    let pos = case.pos().clone();
+    use self::PrimOp::AssertP;
+
+    let csts = CstFactory::new(case.pos().clone());
     let Case { pattern, commit, guard, body } = case;
 
     let mut stmts = Vec::new();
@@ -130,20 +132,17 @@ fn expand_case_patterns(case: Case, matchee: &DefRef, prompt: &DefRef) -> Expr {
 
     match guard {
         Expr::Const(_, cst::Const::Bool(true)) => {},
-        _ => {
-            // __assertP guard prompt
-            stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
-                guard.expand_patterns(),
-                Expr::Lex(pos.clone(), prompt.clone())
-            ])));
-        }
+        _ => // __assertP guard prompt
+            stmts.push(csts.primcall(AssertP, vec![guard.expand_patterns(), csts.lex_use(prompt)])
+                           .into())
     }
 
-    Expr::Block(pos, stmts, Box::new(body.expand_patterns()))
+    csts.block(stmts, body.expand_patterns())
 }
 
 fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &mut Vec<Stmt>) {
     use self::Pattern::*;
+    use self::PrimOp::{Tuple, TupleSlice, TupleLen};
 
     fn is_tree_pattern(pattern: &Pattern) -> bool {
         match *pattern {
@@ -157,52 +156,51 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
     fn expand_tree_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef,
                            stmts: &mut Vec<Stmt>)
     {
+        use self::PrimOp::{AssertP, Type, Eq, Tuple, TupleLen, TupleSlice};
+
         match pattern {
             PrimCall(pos, PrimOp::Tuple, args) => {
                 let sub_matchees = Def::new("mseq");
 
+                let csts = CstFactory::new(pos.clone());
+
                 // __assertP (__eq (__type matchee) Tuple) prompt;
-                stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
-                    Expr::PrimCall(pos.clone(), PrimOp::Eq, vec![
-                        Expr::PrimCall(pos.clone(), PrimOp::Type, vec![
-                            Expr::Lex(pos.clone(), matchee.clone())
-                        ]),
-                        Expr::Lex(pos.clone(), Def::new("Tuple")) // HACK: Wrong `Tuple`
+                stmts.push(csts.primcall(AssertP, vec![
+                    csts.primcall(Eq, vec![
+                        csts.primcall(Type, vec![csts.lex_use(matchee)]),
+                        csts.lex_use(&Def::new("Tuple")) // HACK: Wrong `Tuple`
                     ]),
-                    Expr::Lex(pos.clone(), prompt.clone())
-                ])));
+                    csts.lex_use(prompt)
+                ]).into());
                 // mseq = __tupleSlice matchee 0 (__tupleLen matchee);
-                stmts.push(Stmt::Def(Lex(pos.clone(), sub_matchees.clone()),
-                                     Expr::PrimCall(pos.clone(), PrimOp::TupleSlice, vec![
-                                         Expr::Lex(pos.clone(), matchee.clone()),
-                                         Expr::Const(pos.clone(), cst::Const::Int(0)),
-                                        Expr::PrimCall(pos.clone(), PrimOp::TupleLen, vec![
-                                            Expr::Lex(pos.clone(), matchee.clone())
-                                        ])
-                                     ])));
+                stmts.push(csts.def(csts.lex_def(&sub_matchees),
+                                    csts.primcall(TupleSlice, vec![
+                                        csts.lex_use(matchee), csts.constant(0),
+                                        csts.primcall(TupleLen, vec![csts.lex_use(matchee)])
+                                    ])));
                 expand_pattern_row(pos, args, sub_matchees, prompt, stmts);
             },
             PrimCall(..) => unimplemented!(),
             Lex(..) => {},
             Const(pos, c) => {
-                let apply = Def::new("apply"); // HACK
-                let denv = Def::new("denv"); // HACK
-                let eq = Def::new("=="); // HACK
+                let csts = CstFactory::new(pos.clone());
+
+                let apply = csts.lex_use(&Def::new("apply")); // HACK
 
                 // __assertP (apply denv apply 0 (__tuple (==) (__tuple matchee c))) prompt
                 stmts.push(
-                    Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
-                        Expr::Call(pos.clone(),
-                            Box::new(Expr::Lex(pos.clone(), apply.clone())),
-                            vec![
-                                Expr::Lex(pos.clone(), denv),
-                                Expr::Lex(pos.clone(), apply),
-                                Expr::Const(pos.clone(), cst::Const::Int(0)),
-                                Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                    Expr::Lex(pos.clone(), eq),
-                                    Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                        Expr::Lex(pos.clone(), matchee.clone()),
-                                        Expr::Const(pos, c)])])])]))
+                    csts.primcall(AssertP, vec![
+                        csts.call(apply.clone(), vec![
+                            csts.lex_use(&Def::new("denv")), // HACK
+                            apply, csts.constant(0),
+                            csts.primcall(Tuple, vec![
+                                csts.lex_use(&Def::new("==")), // HACK
+                                csts.primcall(Tuple, vec![
+                                    csts.lex_use(matchee), csts.constant(c)
+                                ])
+                            ])
+                        ])
+                    ]).into()
                 );
             },
             Call(..) | Dyn(..) => unreachable!()
@@ -212,9 +210,13 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
     fn expand_pattern_row<I>(pos: Pos, patterns: I, matchees: DefRef, prompt: &DefRef,
                              stmts: &mut Vec<Stmt>) where I: IntoIterator<Item=Pattern>
     {
+        use self::PrimOp::{AssertP, Eq, SliceLen};
+
         fn uncons(pattern: &Pattern, matchees: &DefRef, prompt: &DefRef, stmts: &mut Vec<Stmt>)
             -> (DefRef, DefRef)
         {
+            use self::PrimOp::{SliceGetP, SliceSubP, SliceLen};
+
             let (pos, matchee) = match *pattern {
                 Const(ref pos, _) | PrimCall(ref pos, PrimOp::Tuple, _) =>
                     (pos, Def::new("mval")),
@@ -223,28 +225,25 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
                 Call(..) | Dyn(..) => unreachable!()
             };
 
-            let matchees = Expr::Lex(pos.clone(), matchees.clone());
-            let prompt = Expr::Lex(pos.clone(), prompt.clone());
+            let csts = CstFactory::new(pos.clone());
+
+            let matchees = csts.lex_use(matchees);
+            let prompt = csts.lex_use(prompt);
 
             // matchee = __sliceGetP matchees 0 prompt;
-            stmts.push(Stmt::Def(Lex(pos.clone(), matchee.clone()),
-                                 Expr::PrimCall(pos.clone(), PrimOp::SliceGetP, vec![
-                                     matchees.clone(),
-                                     Expr::Const(pos.clone(), cst::Const::Int(0)),
-                                     prompt.clone()
-                                 ])));
+            stmts.push(csts.def(csts.lex_def(&matchee),
+                                csts.primcall(SliceGetP, vec![
+                                    matchees.clone(), csts.constant(0), prompt.clone()
+                                ])));
 
             let rem_matchees = Def::new("mseq");
             // matchees' = __sliceSubP matchees 1 (__sliceLen matchees) prompt;
-            stmts.push(Stmt::Def(Lex(pos.clone(), rem_matchees.clone()),
-                                 Expr::PrimCall(pos.clone(), PrimOp::SliceSubP, vec![
-                                     matchees.clone(),
-                                     Expr::Const(pos.clone(), cst::Const::Int(1)),
-                                     Expr::PrimCall(pos.clone(), PrimOp::SliceLen, vec![
-                                        matchees
-                                     ]),
-                                     prompt
-                                 ])));
+            stmts.push(csts.def(csts.lex_def(&rem_matchees),
+                                csts.primcall(SliceSubP, vec![
+                                    matchees.clone(), csts.constant(1),
+                                    csts.primcall(SliceLen, vec![matchees]),
+                                    prompt
+                                ])));
 
             (matchee, rem_matchees)
         }
@@ -252,48 +251,41 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
         fn expand_inseparable_pattern(pattern: Pattern, matchees: &DefRef, prompt: &DefRef,
                                       stmts: &mut Vec<Stmt>) -> DefRef
         {
+            use self::PrimOp::{Tuple, TupleGet};
+
             match pattern {
                 Call(pos, callee, args) => {
+                    let csts = CstFactory::new(pos.clone());
+
                     let seqs = Def::new("seqs");
-                    let denv = Expr::Lex(pos.clone(), Def::new("denv")); // HACK
-                    let unapply = Expr::Lex(pos.clone(), Def::new("unapply")); // HACK
+                    let denv = csts.lex_use(&Def::new("denv")); // HACK
+                    let unapply = csts.lex_use(&Def::new("unapply")); // HACK
 
                     // mseq' = unapply denv unapply 0 (__tuple callee (__tuple mseq prompt))
-                    stmts.push(
-                        Stmt::Def(Lex(pos.clone(), seqs.clone()),
-                                  Expr::Call(pos.clone(), Box::new(unapply.clone()), vec![
-                                      denv,
-                                      unapply,
-                                      Expr::Const(pos.clone(), cst::Const::Int(0)),
-                                      Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                          callee.expand_patterns(),
-                                          Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                              Expr::Lex(pos.clone(), matchees.clone()),
-                                              Expr::Lex(pos.clone(), prompt.clone())
-                                          ])
-                                      ])
-                                  ]))
-                    );
+                    stmts.push(csts.def(csts.lex_def(&seqs),
+                                        csts.call(unapply.clone(), vec![
+                                            denv, unapply, csts.constant(0),
+                                            csts.primcall(Tuple, vec![
+                                                callee.expand_patterns(),
+                                                csts.primcall(Tuple, vec![
+                                                    csts.lex_use(matchees), csts.lex_use(prompt)
+                                                ])
+                                            ])
+                                        ])));
 
                     let sub_matchees = Def::new("mseq");
                     // subSeq = __tupleGet seqs 0
-                    stmts.push(
-                        Stmt::Def(Lex(pos.clone(), sub_matchees.clone()),
-                                  Expr::PrimCall(pos.clone(), PrimOp::TupleGet, vec![
-                                      Expr::Lex(pos.clone(), seqs.clone()),
-                                      Expr::Const(pos.clone(), cst::Const::Int(0))
-                                  ]))
-                    );
+                    stmts.push(csts.def(csts.lex_def(&sub_matchees),
+                                        csts.primcall(TupleGet, vec![
+                                            csts.lex_use(&seqs), csts.constant(0)
+                                        ])));
 
                     let rem_matchees = Def::new("mseq");
                     // seq' = __tupleGet seqs 1
-                    stmts.push(
-                        Stmt::Def(Lex(pos.clone(), rem_matchees.clone()),
-                                  Expr::PrimCall(pos.clone(), PrimOp::TupleGet, vec![
-                                      Expr::Lex(pos.clone(), seqs),
-                                      Expr::Const(pos.clone(), cst::Const::Int(1))
-                                  ]))
-                    );
+                    stmts.push(csts.def(csts.lex_def(&rem_matchees),
+                                        csts.primcall(TupleGet, vec![
+                                            csts.lex_use(&seqs), csts.constant(1)
+                                        ])));
 
                     expand_pattern_row(pos, args, sub_matchees, prompt, stmts);
                     rem_matchees
@@ -313,41 +305,36 @@ fn expand_pattern(pattern: Pattern, matchee: &DefRef, prompt: &DefRef, stmts: &m
             }
         );
 
+        let csts = CstFactory::new(pos);
+
         // __assertP (__eq (__sliceLen matchees) 0) prompt
-        stmts.push(Stmt::Expr(Expr::PrimCall(pos.clone(), PrimOp::AssertP, vec![
-            Expr::PrimCall(pos.clone(), PrimOp::Eq, vec![
-                Expr::PrimCall(pos.clone(), PrimOp::SliceLen, vec![
-                    Expr::Lex(pos.clone(), matchees)
-                ]),
-                Expr::Const(pos.clone(), cst::Const::Int(0))
+        stmts.push(csts.primcall(AssertP, vec![
+            csts.primcall(Eq, vec![
+                csts.primcall(SliceLen, vec![csts.lex_use(&matchees)]),
+                csts.constant(0)
             ]),
-            Expr::Lex(pos, prompt.clone())
-        ])));
+            csts.lex_use(prompt)
+        ]).into());
     }
 
     if is_tree_pattern(&pattern) {
         expand_tree_pattern(pattern, matchee, &prompt, stmts);
     } else {
         let pos = pattern.pos().clone();
+        let csts = CstFactory::new(pos.clone());
         let mtup = Def::new("mtup");
         let mseq = Def::new("mseq");
 
         // mtup = __tuple expr
-        stmts.push(Stmt::Def(Pattern::Lex(pos.clone(), mtup.clone()),
-                             Expr::PrimCall(pos.clone(), PrimOp::Tuple, vec![
-                                Expr::Lex(pos.clone(), matchee.clone())
-                             ])));
+        stmts.push(csts.def(csts.lex_def(&mtup),
+                            csts.primcall(Tuple, vec![csts.lex_use(matchee)])));
 
         // mseq = __tupleSlice mtup 0 (__tupleLen mtup)
-        stmts.push(
-            Stmt::Def(Pattern::Lex(pos.clone(), mseq.clone()),
-                      Expr::PrimCall(pos.clone(), PrimOp::TupleSlice, vec![
-                          Expr::Lex(pos.clone(), mtup.clone()),
-                          Expr::Const(pos.clone(), cst::Const::Int(0)),
-                          Expr::PrimCall(pos.clone(), PrimOp::TupleLen, vec![
-                              Expr::Lex(pos.clone(), mtup)
-                          ])
-                      ])));
+        stmts.push(csts.def(csts.lex_def(&mseq),
+                            csts.primcall(TupleSlice, vec![
+                                csts.lex_use(&mtup), csts.constant(0),
+                                csts.primcall(TupleLen, vec![csts.lex_use(&mtup)])
+                            ])));
 
         expand_pattern_row(pos, iter::once(pattern), mseq, &prompt, stmts);
     }
