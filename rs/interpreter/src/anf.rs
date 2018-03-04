@@ -1,8 +1,9 @@
 use std::iter;
 use std::fmt::{self, Display, Formatter};
+use std::collections::HashSet;
 use pretty::{self, Doc, DocAllocator, DocBuilder};
 
-use pcws_syntax::cst::{self, Program, Pattern, Def, DefRef, Const, PrimOp, Pos};
+use pcws_syntax::cst::{self, Program, Pattern, Def, DefRef, Const, PrimOp, Pos, Positioned};
 use patterns::PatternsExpanded;
 
 #[derive(Debug, Clone)]
@@ -11,18 +12,56 @@ pub struct Block {
     pub expr: Expr
 }
 
+impl Positioned for Block {
+    fn pos(&self) -> &Pos {
+        self.stmts.get(0).map(Stmt::pos).unwrap_or_else(|| self.expr.pos())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub pos: Pos,
+    pub params: Vec<DefRef>,
+    pub free_vars: HashSet<DefRef>,
+    pub body: Box<Block>
+}
+
+impl Positioned for Function {
+    fn pos(&self) -> &Pos { &self.pos }
+}
+
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Function(Pos, Vec<DefRef>, Box<Block>),
+    Function(Function),
     Call(Pos, Triv, Vec<Triv>),
     PrimCall(Pos, PrimOp, Vec<Triv>),
     Triv(Pos, Triv)
+}
+
+impl Positioned for Expr {
+    fn pos(&self) -> &Pos {
+        use self::Expr::*;
+
+        match *self {
+            Function(ref f) => f.pos(),
+            Call(ref pos, _, _) | PrimCall(ref pos, _, _) | Triv(ref pos, _) => pos,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Def(DefRef, Expr),
     Expr(Expr)
+}
+
+impl Positioned for Stmt {
+    fn pos(&self) -> &Pos {
+        match *self {
+            Stmt::Def(_, ref expr) => expr.pos(),
+            Stmt::Expr(ref expr) => expr.pos()
+        }
+    }
 }
 
 impl From<Expr> for Stmt {
@@ -69,7 +108,11 @@ impl AnfConvert for cst::Expr {
 
         match self {
             cst::Expr::Function(pos, params, body) =>
-                Function(pos, params, Box::new(Block::from(*body))),
+                Function(self::Function {
+                    pos, params,
+                    free_vars: HashSet::new(),
+                    body: Box::new(Block::from(*body))
+                }),
             cst::Expr::Block(_, old_stmts, expr) => {
                 for stmt in old_stmts {
                     match stmt {
@@ -140,22 +183,28 @@ impl Block {
     }
 }
 
+impl Function {
+    pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
+        let &Function { pos: _, ref params, free_vars: _, ref body } = self;
+        allocator.text("@fn (")
+                 .append(allocator.intersperse(
+                            params.iter().map(|param| allocator.as_string(param.borrow())),
+                            " "))
+                 .append(") {")
+                 .append(allocator.newline()
+                                  .append(body.pretty(allocator))
+                                  .nest(2))
+                 .append(allocator.newline())
+                 .append("}")
+    }
+}
+
 impl Expr {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
         use self::Expr::*;
 
         match self {
-            &Function(_, ref params, ref body) =>
-                allocator.text("@fn (")
-                         .append(allocator.intersperse(
-                                    params.iter().map(|param| allocator.as_string(param.borrow())),
-                                    " "))
-                         .append(") {")
-                         .append(allocator.newline()
-                                          .append(body.pretty(allocator))
-                                          .nest(2))
-                         .append(allocator.newline())
-                         .append("}"),
+            &Function(ref f) => f.pretty(allocator),
             &Call(_, ref callee, ref args) =>
                 allocator.intersperse(
                     iter::once(callee.pretty(allocator))

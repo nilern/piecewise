@@ -9,10 +9,11 @@ extern crate pcws_domain;
 extern crate pcws_syntax;
 
 mod ast;
-mod anf;
 mod binding;
 mod inject;
 mod patterns;
+mod anf;
+mod closures;
 
 use std::io::{self, Read};
 use std::str::FromStr;
@@ -49,6 +50,11 @@ fn main() {
             println!("\n---\n");
 
             let program: anf::Block = program.into();
+            println!("{}", program);
+
+            println!("\n---\n");
+
+            let program = program.closure_convert();
             println!("{}", program);
 
             // let mut allocator = Allocator::new(4*1024*1024);

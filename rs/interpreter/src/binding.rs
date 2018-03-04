@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter;
 
@@ -168,7 +167,7 @@ fn pattern_definiends(pattern: &mut Pattern, bindings: &mut AlphaBindings) {
             for arg in args.iter_mut() { pattern_definiends(arg, bindings) },
 
         Pattern::Lex(_, ref mut def) => {
-            let new_def = Rc::new(RefCell::new(def.borrow().clone()));
+            let new_def = def.clone();
             *def = new_def.clone();
             let name = new_def.borrow().name.clone();
             bindings.insert(name, new_def);

@@ -2,11 +2,13 @@ use std::ptr::NonNull;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::cell::{RefCell, Ref};
+use std::ops::Deref;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
+use std::hash::{Hash, Hasher};
 use combine::Parser;
 use pretty::{self, Doc, DocAllocator, DocBuilder};
 
@@ -48,7 +50,28 @@ impl FromStr for Program<Parsed> {
 
 // ================================================================================================
 
-pub type DefRef = Rc<RefCell<Def>>;
+#[derive(Debug, Clone)]
+pub struct DefRef(Rc<RefCell<Def>>);
+
+impl DefRef {
+    pub fn borrow(&self) -> Ref<Def> { self.0.deref().borrow() }
+}
+
+impl PartialEq for DefRef {
+    fn eq(&self, other: &DefRef) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Hash for DefRef {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        let ptr = Rc::into_raw(self.0.clone());
+        ptr.hash(state);
+        Rc::from(ptr);
+    }
+}
+
+impl Eq for DefRef {}
 
 #[derive(Debug, Clone)]
 pub struct Def {
@@ -58,10 +81,10 @@ pub struct Def {
 
 impl Def {
     pub fn new<S: Into<String>>(name: S) -> DefRef {
-        Rc::new(RefCell::new(Def {
+        DefRef(Rc::new(RefCell::new(Def {
             name: name.into(),
             uses: HashSet::new()
-        }))
+        })))
     }
 }
 
@@ -91,6 +114,9 @@ pub enum PrimOp {
 
     Eq,
     Type,
+
+    Closure,
+    ClosureGet,
 
     DenvEmpty,
     Denv,
