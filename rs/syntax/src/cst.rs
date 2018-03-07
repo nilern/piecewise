@@ -1,10 +1,9 @@
-use std::ptr::NonNull;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::rc::Rc;
 use std::cell::{RefCell, Ref};
 use std::ops::Deref;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
@@ -73,17 +72,21 @@ impl Hash for DefRef {
 
 impl Eq for DefRef {}
 
-#[derive(Debug, Clone)]
+impl Display for DefRef {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.borrow().fmt(f)
+    }
+}
+
+#[derive(Debug)]
 pub struct Def {
-    pub name: String,
-    pub uses: HashSet<NonNull<Expr>>
+    pub name: String
 }
 
 impl Def {
     pub fn new<S: Into<String>>(name: S) -> DefRef {
         DefRef(Rc::new(RefCell::new(Def {
-            name: name.into(),
-            uses: HashSet::new()
+            name: name.into()
         })))
     }
 }

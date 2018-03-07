@@ -1,44 +1,53 @@
+use std::hash::Hash;
 use std::iter;
 use std::fmt::{self, Display, Formatter};
 use std::collections::HashSet;
 use pretty::{self, Doc, DocAllocator, DocBuilder};
 
-use pcws_syntax::cst::{self, Program, Pattern, Def, DefRef, Const, PrimOp, Pos, Positioned};
+use pcws_syntax::cst::{self, Pattern, Def, DefRef, Const, PrimOp, Pos, Positioned};
 use patterns::PatternsExpanded;
 
-#[derive(Debug, Clone)]
-pub struct Block {
-    pub stmts: Vec<Stmt>,
-    pub expr: Expr
+// ================================================================================================
+
+pub struct Program<V> where V: Eq + Hash {
+    pub fns: Vec<(DefRef, Function<V>)>,
+    pub entry: DefRef
 }
 
-impl Positioned for Block {
-    fn pos(&self) -> &Pos {
-        self.stmts.get(0).map(Stmt::pos).unwrap_or_else(|| self.expr.pos())
+impl<V> Display for Program<V> where V: Display + Eq + Hash {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        let allocator = pretty::Arena::new();
+        let doc = allocator.intersperse(
+            self.fns.iter().map(|&(ref k, ref v)| allocator.as_string(k.borrow())
+                                                           .append(" = ")
+                                                           .append(v.pretty(&allocator))),
+            allocator.newline());
+        <DocBuilder<_> as Into<Doc<_>>>::into(doc).render_fmt(80, f)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Function {
+pub struct Function<V> where V: Eq + Hash {
     pub pos: Pos,
-    pub params: Vec<DefRef>,
+    pub params: Vec<V>,
     pub free_vars: HashSet<DefRef>,
-    pub body: Box<Block>
+    pub stmts: Vec<Stmt<V>>,
+    pub expr: Expr<V>
 }
 
-impl Positioned for Function {
+impl<V> Positioned for Function<V> where V: Eq + Hash {
     fn pos(&self) -> &Pos { &self.pos }
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr {
-    Function(Function),
-    Call(Pos, Triv, Vec<Triv>),
-    PrimCall(Pos, PrimOp, Vec<Triv>),
-    Triv(Pos, Triv)
+pub enum Expr<V> where V: Eq + Hash {
+    Function(Box<Function<V>>),
+    Call(Pos, Triv<V>, Vec<Triv<V>>),
+    PrimCall(Pos, PrimOp, Vec<Triv<V>>),
+    Triv(Pos, Triv<V>)
 }
 
-impl Positioned for Expr {
+impl<V> Positioned for Expr<V> where V: Eq + Hash {
     fn pos(&self) -> &Pos {
         use self::Expr::*;
 
@@ -50,12 +59,12 @@ impl Positioned for Expr {
 }
 
 #[derive(Debug, Clone)]
-pub enum Stmt {
-    Def(DefRef, Expr),
-    Expr(Expr)
+pub enum Stmt<V> where V: Eq + Hash {
+    Def(V, Expr<V>),
+    Expr(Expr<V>)
 }
 
-impl Positioned for Stmt {
+impl<V> Positioned for Stmt<V> where V: Eq + Hash {
     fn pos(&self) -> &Pos {
         match *self {
             Stmt::Def(_, ref expr) => expr.pos(),
@@ -64,55 +73,62 @@ impl Positioned for Stmt {
     }
 }
 
-impl From<Expr> for Stmt {
-    fn from(expr: Expr) -> Stmt { Stmt::Expr(expr) }
+impl<V> From<Expr<V>> for Stmt<V> where V: Eq + Hash {
+    fn from(expr: Expr<V>) -> Stmt<V> { Stmt::Expr(expr) }
 }
 
 #[derive(Debug, Clone)]
-pub enum Triv {
-    Var(DefRef),
+pub enum Triv<V> where V: Eq + Hash {
+    Var(V),
     Const(Const)
 }
 
-impl From<DefRef> for Triv {
-    fn from(def: DefRef) -> Triv { Triv::Var(def) }
+impl From<DefRef> for Triv<DefRef> {
+    fn from(var: DefRef) -> Triv<DefRef> { Triv::Var(var) }
 }
 
-impl From<Const> for Triv {
-    fn from(c: Const) -> Triv { Triv::Const(c) }
+impl<V> From<Const> for Triv<V> where V: Eq + Hash {
+    fn from(c: Const) -> Triv<V> { Triv::Const(c) }
 }
 
 // ================================================================================================
 
-impl From<Program<PatternsExpanded>> for Block {
-    fn from(program: Program<PatternsExpanded>) -> Block {
-        program.cst.into()
+impl From<cst::Program<PatternsExpanded>> for Program<DefRef> {
+    fn from(program: cst::Program<PatternsExpanded>) -> Program<DefRef> {
+        let entry = Def::new("entry");
+        Program {
+            fns: vec![(entry.clone(), Function::from_cst(
+                program.cst.pos().clone(),
+                Vec::new(),
+                program.cst
+            ))],
+            entry
+        }
     }
 }
 
-impl From<cst::Expr> for Block {
-    fn from(expr: cst::Expr) -> Block {
+impl Function<DefRef> {
+    fn from_cst(pos: Pos, params: Vec<DefRef>, body: cst::Expr) -> Function<DefRef> {
         let mut stmts = Vec::new();
-        let expr = expr.convert(&mut stmts);
-        Block { stmts, expr }
+        let expr = body.convert(&mut stmts);
+        Function {
+            pos, params: Vec::new(), free_vars: HashSet::new(),
+            stmts, expr
+        }
     }
 }
 
 trait AnfConvert {
-    fn convert(self, stmts: &mut Vec<Stmt>) -> Expr;
+    fn convert(self, stmts: &mut Vec<Stmt<DefRef>>) -> Expr<DefRef>;
 }
 
 impl AnfConvert for cst::Expr {
-    fn convert(self, stmts: &mut Vec<Stmt>) -> Expr {
+    fn convert(self, stmts: &mut Vec<Stmt<DefRef>>) -> Expr<DefRef> {
         use self::Expr::*;
 
         match self {
             cst::Expr::Function(pos, params, body) =>
-                Function(self::Function {
-                    pos, params,
-                    free_vars: HashSet::new(),
-                    body: Box::new(Block::from(*body))
-                }),
+                Function(Box::new(self::Function::from_cst(pos, params, *body))),
             cst::Expr::Block(_, old_stmts, expr) => {
                 for stmt in old_stmts {
                     match stmt {
@@ -146,11 +162,11 @@ impl AnfConvert for cst::Expr {
 }
 
 trait Trivialize {
-    fn trivialize(self, stmts: &mut Vec<Stmt>) -> Triv;
+    fn trivialize(self, stmts: &mut Vec<Stmt<DefRef>>) -> Triv<DefRef>;
 }
 
-impl Trivialize for Expr {
-    fn trivialize(self, stmts: &mut Vec<Stmt>) -> Triv {
+impl Trivialize for Expr<DefRef> {
+    fn trivialize(self, stmts: &mut Vec<Stmt<DefRef>>) -> Triv<DefRef> {
         use self::Expr::*;
 
         if let Triv(_, t) = self {
@@ -165,7 +181,7 @@ impl Trivialize for Expr {
 
 // ================================================================================================
 
-impl Display for Block {
+impl<V> Display for Function<V> where V: Display + Eq + Hash {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         let allocator = pretty::Arena::new();
         <DocBuilder<_> as Into<Doc<_>>>::into(self.pretty(&allocator))
@@ -173,33 +189,33 @@ impl Display for Block {
     }
 }
 
-impl Block {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
-        let &Block { ref stmts, ref expr } = self;
-        allocator.intersperse(stmts.iter()
-                                   .map(|stmt| stmt.pretty(allocator))
-                                   .chain(iter::once(expr.pretty(allocator))),
-                              allocator.newline())
-    }
-}
-
-impl Function {
+impl<V> Function<V> where V: Display + Eq + Hash {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
-        let &Function { pos: _, ref params, free_vars: _, ref body } = self;
+        fn pretty_block<'a, V, A>(stmts: &'a [Stmt<V>], expr: &'a Expr<V>, allocator: &'a A)
+            -> DocBuilder<'a, A>
+            where V: Display + Eq + Hash, A: DocAllocator<'a>
+        {
+            allocator.intersperse(stmts.iter()
+                                       .map(|stmt| stmt.pretty(allocator))
+                                       .chain(iter::once(expr.pretty(allocator))),
+                                  allocator.newline())
+        }
+
+        let &Function { pos: _, ref params, free_vars: _, ref stmts, ref expr } = self;
         allocator.text("@fn (")
                  .append(allocator.intersperse(
-                            params.iter().map(|param| allocator.as_string(param.borrow())),
+                            params.iter().map(|param| allocator.as_string(param)),
                             " "))
                  .append(") {")
                  .append(allocator.newline()
-                                  .append(body.pretty(allocator))
+                                  .append(pretty_block(stmts, expr, allocator))
                                   .nest(2))
                  .append(allocator.newline())
                  .append("}")
     }
 }
 
-impl Expr {
+impl<V> Expr<V> where V: Display + Eq + Hash {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
         use self::Expr::*;
 
@@ -220,21 +236,21 @@ impl Expr {
     }
 }
 
-impl Stmt {
+impl<V> Stmt<V> where V: Display + Eq + Hash {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
         match self {
             &Stmt::Def(ref def, ref val) =>
-                allocator.as_string(def.borrow())
+                allocator.as_string(def)
                          .append(" = ").append(val.pretty(allocator)),
             &Stmt::Expr(ref expr) => expr.pretty(allocator)
         }
     }
 }
 
-impl Triv {
+impl<V> Triv<V> where V: Display + Eq + Hash {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
         match self {
-            &Triv::Var(ref def) => allocator.as_string(def.borrow()),
+            &Triv::Var(ref def) => allocator.as_string(def),
             &Triv::Const(ref c) => allocator.as_string(c)
         }
     }

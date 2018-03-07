@@ -1,4 +1,4 @@
-#![feature(try_from, nonzero, unique, const_atomic_isize_new)]
+#![feature(range_contains, try_from, nonzero, unique, const_atomic_isize_new)]
 
 extern crate core;
 extern crate pretty;
@@ -14,15 +14,15 @@ mod inject;
 mod patterns;
 mod anf;
 mod closures;
+mod registers;
 
 use std::io::{self, Read};
 use std::str::FromStr;
 
-// use pcws_domain::{Allocator, DynamicDebug};
-use pcws_syntax::cst::{Program, Parsed};
+use pcws_syntax::cst::{Program, Parsed, DefRef};
 use binding::{AlphatizationPass, BindingReificationPass};
-// use inject::InjectionPass;
 use patterns::PatternMatchingPass;
+use registers::Reg;
 
 fn main() {
     let mut src = String::new();
@@ -49,7 +49,7 @@ fn main() {
 
             println!("\n---\n");
 
-            let program: anf::Block = program.into();
+            let program: anf::Program<DefRef> = program.into();
             println!("{}", program);
 
             println!("\n---\n");
@@ -57,9 +57,10 @@ fn main() {
             let program = program.closure_convert();
             println!("{}", program);
 
-            // let mut allocator = Allocator::new(4*1024*1024);
-            // let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
-            // println!("{:?}", ast.fmt_wrap(&allocator));
+            println!("\n---\n");
+
+            let program: anf::Program<Reg> = program.into();
+            println!("{}", program);
         },
         Err(err) => println!("ParseError: {}", err.0)
     }

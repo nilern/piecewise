@@ -106,6 +106,9 @@ impl ExpandPatterns for Expr {
 
 fn expand_stmt_patterns(stmt: Stmt, prompt: &DefRef, stmts: &mut Vec<Stmt>) {
     match stmt {
+        Stmt::Expr(expr) => stmts.push(Stmt::Expr(expr.expand_patterns())),
+        Stmt::Def(pat @ Pattern::Lex(..), expr) =>
+            stmts.push(Stmt::Def(pat, expr.expand_patterns())),
         Stmt::Def(pat, expr) => {
             // OPTIMIZE: If `expr` is trivial we don't need to bind it:
             let matchee = Def::new("mval");
@@ -113,8 +116,7 @@ fn expand_stmt_patterns(stmt: Stmt, prompt: &DefRef, stmts: &mut Vec<Stmt>) {
             stmts.push(Stmt::Def(Pattern::Lex(expr.pos().clone(), matchee.clone()),
                                  expr.expand_patterns()));
             expand_pattern(pat, &matchee, prompt, stmts);
-        },
-        Stmt::Expr(expr) => stmts.push(Stmt::Expr(expr.expand_patterns()))
+        }
     }
 }
 
