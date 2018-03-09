@@ -8,35 +8,24 @@ extern crate pcws_domain;
 extern crate pcws_syntax;
 
 mod ast;
-mod binding;
 mod inject;
-mod patterns;
 
 use std::io::{self, Read};
 use std::str::FromStr;
 
 use pcws_domain::{Allocator, DynamicDebug};
-use pcws_syntax::cst::{Program, Parsed};
-use binding::{AlphatizationPass, BindingReificationPass};
-use inject::InjectionPass;
-use patterns::PatternMatchingPass;
+use pcws_syntax::cst::Expr;
+use inject::Inject;
 
 fn main() {
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
-    match Program::<Parsed>::from_str(&src) {
+    match Expr::from_str(&src) {
         Ok(program) => {
             println!("{}", program);
 
-            let program = program.alphatize();
-            println!("{}", program);
-
-            let program = program.reify_bindings();
-            println!("{}", program);
-
-            let program = program.expand_patterns();
-            println!("{}", program);
+            println!("\n---\n");
 
             let mut allocator = Allocator::new(4*1024*1024);
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap

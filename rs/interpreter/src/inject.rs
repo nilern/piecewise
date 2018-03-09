@@ -1,25 +1,14 @@
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
 use pcws_domain::values::Symbol;
-use pcws_syntax::cst::{self, Program};
+use pcws_syntax::cst::{Expr, Stmt, Pattern, Case, Const};
 
 use ast;
-use patterns::PatternsExpanded;
 
 // ================================================================================================
 
-pub trait InjectionPass {
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef>;
-}
-
-impl InjectionPass for Program<PatternsExpanded> {
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        self.cst.inject(allocator)
-    }
-}
-
 /// Like `Into`, but must produce a `ValueRef(T<_>)` and is provided with an `Allocator`.
-trait Inject {
+pub trait Inject {
     /// The type to convert to.
     type Target: Into<ValueRef>;
 
@@ -29,11 +18,11 @@ trait Inject {
 
 // Then we implement the conversion using the obvious, although tedious, structural recursion:
 
-impl Inject for cst::Expr {
+impl Inject for Expr {
     type Target = ValueRef;
 
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        use pcws_syntax::cst::Expr::*;
+        use self::Expr::*;
 
         match self {
             Function(..) => unimplemented!(),
@@ -72,11 +61,11 @@ impl Inject for cst::Expr {
     }
 }
 
-impl Inject for cst::Pattern {
+impl Inject for Pattern {
     type Target = ValueRef;
 
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        use pcws_syntax::cst::Pattern::*;
+        use self::Pattern::*;
 
         match self {
             Call(_, callee, args) =>
@@ -103,12 +92,12 @@ impl Inject for cst::Pattern {
     }
 }
 
-impl Inject for cst::Stmt {
+impl Inject for Stmt {
     type Target = ValueRef;
 
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         match self {
-            cst::Stmt::Def(pattern, expr) =>
+            Stmt::Def(pattern, expr) =>
                 pattern.inject(allocator)
                        .and_then(|pattern|
                            expr.inject(allocator)
@@ -116,12 +105,12 @@ impl Inject for cst::Stmt {
                                    ast::Def::new(allocator, pattern, expr).map(From::from)
                                )
                        ),
-            cst::Stmt::Expr(expr) => expr.inject(allocator)
+            Stmt::Expr(expr) => expr.inject(allocator)
         }
     }
 }
 
-impl Inject for cst::Case {
+impl Inject for Case {
     type Target = ValueRefT<ast::Method>;
 
     fn inject(self, _: &mut Allocator) -> Option<ValueRefT<ast::Method>> {
@@ -129,17 +118,17 @@ impl Inject for cst::Case {
     }
 }
 
-impl Inject for cst::Const {
+impl Inject for Const {
     type Target = ValueRef;
 
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         match self {
-            cst::Const::Int(n) => Some(ValueRefT::from(n).into()),
-            cst::Const::Float(n) => Some(ValueRefT::from(n).into()),
-            cst::Const::Char(c) => Some(ValueRefT::from(c).into()),
-            cst::Const::Bool(b) => Some(ValueRefT::from(b).into()),
-            cst::Const::String(_) => unimplemented!(),
-            cst::Const::Symbol(cs) => Symbol::new(allocator, &cs).map(From::from)
+            Const::Int(n) => Some(ValueRefT::from(n).into()),
+            Const::Float(n) => Some(ValueRefT::from(n).into()),
+            Const::Char(c) => Some(ValueRefT::from(c).into()),
+            Const::Bool(b) => Some(ValueRefT::from(b).into()),
+            Const::String(_) => unimplemented!(),
+            Const::Symbol(cs) => Symbol::new(allocator, &cs).map(From::from)
         }
     }
 }

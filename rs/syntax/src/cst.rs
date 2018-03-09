@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
 use combine::Parser;
@@ -16,31 +15,16 @@ use parser;
 // ================================================================================================
 
 #[derive(Debug)]
-pub struct Program<S> {
-    pub cst: Expr,
-    state: PhantomData<S>
-}
-
-impl<S> Program<S> {
-    pub fn new(cst: Expr) -> Program<S> {
-        Program { cst, state: PhantomData }
-    }
-}
-
-#[derive(Debug)]
-pub enum Parsed {}
-
-#[derive(Debug)]
 pub struct ParseError(pub String);
 
-impl FromStr for Program<Parsed> {
+impl FromStr for Expr {
     type Err = ParseError;
 
-    fn from_str(source: &str) -> Result<Self, ParseError> {
+    fn from_str(source: &str) -> Result<Expr, ParseError> {
         let id_factory = RefCell::new(IdFactory::new());
 
         match parser::program(&id_factory).parse(Lexer::new(source)) {
-            Ok((cst, _)) => Ok(Program::new(cst)),
+            Ok((cst, _)) => Ok(cst),
             Err(err) => Err(ParseError(format!("{}", err))) // HACK
         }
     }
@@ -304,11 +288,10 @@ impl Positioned for Case {
 
 // ================================================================================================
 
-impl<S> Display for Program<S> {
+impl Display for Expr {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         let allocator = pretty::Arena::new();
-        <DocBuilder<_> as Into<Doc<_>>>::into(self.cst.pretty(&allocator))
-                                        .render_fmt(80, f)
+        <DocBuilder<_> as Into<Doc<_>>>::into(self.pretty(&allocator)).render_fmt(80, f)
     }
 }
 
