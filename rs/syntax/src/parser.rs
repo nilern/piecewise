@@ -151,7 +151,6 @@ parser!{
                                                        pat.try_into().unwrap()
                                                    )
                                                    .collect()),
-                commit: Vec::new(),
                 guard: guard.unwrap_or_else(|| Expr::Const(guard_pos, Const::Bool(true))),
                 body
             }

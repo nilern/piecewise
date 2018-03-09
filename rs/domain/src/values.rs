@@ -1,4 +1,5 @@
 use std::str;
+use std::string;
 use std::fmt::{self, Formatter};
 use std::collections::HashMap;
 
@@ -147,6 +148,32 @@ impl DynamicDebug for Tuple {
 
 // ================================================================================================
 
+heap_struct! {
+    pub struct String: BlobTailed<TailItem=u8> {}
+}
+
+impl String {
+    pub fn new(allocator: &mut Allocator, chars: &str) -> Option<ValueRefT<String>> {
+        let bytes = chars.as_bytes();
+        allocator.create_with_slice(|base| String { base }, bytes)
+    }
+
+    pub fn chars(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.tail()) }
+    }
+}
+
+impl DynamicDebug for String {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        f.debug_struct("String")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("chars", &self.chars())
+         .finish()
+    }
+}
+
+// ================================================================================================
+
 /// Symbol (hash-consed string)
 heap_struct! {
     pub struct Symbol: BlobTailed<TailItem=u8> {}
@@ -181,7 +208,7 @@ impl DynamicDebug for Symbol {
 
 // OPTIMIZE: Use a key that does not duplicate the characters.
 /// Symbol table for interning symbols
-pub struct SymbolTable(HashMap<String, ValueRefT<Symbol>>);
+pub struct SymbolTable(HashMap<string::String, ValueRefT<Symbol>>);
 
 impl SymbolTable {
     pub fn new() -> SymbolTable { SymbolTable(HashMap::new()) }

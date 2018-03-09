@@ -1,6 +1,6 @@
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
-use pcws_domain::values::Symbol;
+use pcws_domain::values::{String, Symbol};
 use pcws_syntax::cst::{Expr, Stmt, Pattern, Case, Const};
 
 use ast;
@@ -25,7 +25,16 @@ impl Inject for Expr {
         use self::Expr::*;
 
         match self {
-            Function(..) => unimplemented!(),
+            Function(_, params, body) =>
+                params.into_iter()
+                      .map(|param| Symbol::new(allocator, &param.borrow().name))
+                      .collect::<Option<Vec<_>>>()
+                      .and_then(|params|
+                          body.inject(allocator)
+                              .and_then(|body|
+                                  ast::Function::new(allocator, &params, body).map(From::from)
+                              )
+                      ),
             Block(_, stmts, expr) =>
                 stmts.into_iter()
                      .map(|stmt| stmt.inject(allocator))
@@ -36,7 +45,20 @@ impl Inject for Expr {
                                  ast::Block::new(allocator, &stmts, expr).map(From::from)
                              )
                      ),
-            Match(..) => unimplemented!(),
+            Match(_, matchee, cases, default) =>
+                matchee.inject(allocator)
+                       .and_then(|matchee|
+                           cases.into_iter()
+                                .map(|case| case.inject(allocator))
+                                .collect::<Option<Vec<_>>>()
+                                .and_then(|cases|
+                                    default.inject(allocator)
+                                           .and_then(|default|
+                                               ast::Match::new(allocator, matchee, &cases, default)
+                                                   .map(From::from)
+                                           )
+                                )
+                       ),
             Call(_, callee, args) =>
                 callee.inject(allocator)
                       .and_then(|callee|
@@ -47,7 +69,13 @@ impl Inject for Expr {
                                   ast::Call::new(allocator, callee, &args).map(From::from)
                               )
                       ),
-            PrimCall(..) => unimplemented!(),
+            PrimCall(_, op, args) =>
+                args.into_iter()
+                    .map(|arg| arg.inject(allocator))
+                    .collect::<Option<Vec<_>>>()
+                    .and_then(|args|
+                        ast::PrimCall::new(allocator, op, &args).map(From::from)
+                    ),
             Lex(_, def) =>
                 Symbol::new(allocator, &def.borrow().name)
                        .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
@@ -78,7 +106,13 @@ impl Inject for Pattern {
                                   ast::Call::new(allocator, callee, &args).map(From::from)
                               )
                       ),
-            PrimCall(..) => unimplemented!(),
+            PrimCall(_, op, args) =>
+                args.into_iter()
+                    .map(|arg| arg.inject(allocator))
+                    .collect::<Option<Vec<_>>>()
+                    .and_then(|args|
+                        ast::PrimCall::new(allocator, op, &args).map(From::from)
+                    ),
             Lex(_, def) =>
                 Symbol::new(allocator, &def.borrow().name)
                        .and_then(|name| ast::Lex::new(allocator, name).map(From::from)),
@@ -111,10 +145,21 @@ impl Inject for Stmt {
 }
 
 impl Inject for Case {
-    type Target = ValueRefT<ast::Method>;
+    type Target = ValueRefT<ast::Case>;
 
-    fn inject(self, _: &mut Allocator) -> Option<ValueRefT<ast::Method>> {
-        unimplemented!()
+    fn inject(self, allocator: &mut Allocator) -> Option<ValueRefT<ast::Case>> {
+        let Case { pattern, guard, body } = self;
+
+        pattern.inject(allocator)
+               .and_then(|pattern|
+                   guard.inject(allocator)
+                        .and_then(|guard|
+                            body.inject(allocator)
+                                .and_then(|body|
+                                    ast::Case::new(allocator, pattern, guard, body).map(From::from)
+                                )
+                        )
+               )
     }
 }
 
@@ -127,7 +172,7 @@ impl Inject for Const {
             Const::Float(n) => Some(ValueRefT::from(n).into()),
             Const::Char(c) => Some(ValueRefT::from(c).into()),
             Const::Bool(b) => Some(ValueRefT::from(b).into()),
-            Const::String(_) => unimplemented!(),
+            Const::String(cs) => String::new(allocator, &cs).map(From::from),
             Const::Symbol(cs) => Symbol::new(allocator, &cs).map(From::from)
         }
     }

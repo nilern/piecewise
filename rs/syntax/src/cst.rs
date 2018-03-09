@@ -50,6 +50,7 @@ impl Def {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(usize)]
 pub enum PrimOp {
     Tuple,
     TupleLen,
@@ -157,7 +158,6 @@ impl From<Expr> for Stmt {
 #[derive(Debug, Clone)]
 pub struct Case {
     pub pattern: Pattern,
-    pub commit: Vec<Stmt>,
     pub guard: Expr,
     pub body: Expr
 }
@@ -405,17 +405,15 @@ impl Stmt {
 
 impl Case {
     pub fn pretty<'a, A: DocAllocator<'a>>(&'a self, allocator: &'a A) -> DocBuilder<'a, A> {
-        let &Case { ref pattern, ref commit, ref guard, ref body } = self;
+        let &Case { ref pattern, ref guard, ref body } = self;
 
         pattern.pretty(allocator)
                .append(" => {")
                .append(allocator.newline()
                                 .append(allocator.intersperse(
-                                            commit.iter().map(|stmt| stmt.pretty(allocator))
-                                                  .chain(iter::once(
-                                                      allocator.text("@guard ")
-                                                               .append(guard.pretty(allocator))))
-                                                  .chain(iter::once(body.pretty(allocator))),
+                                            iter::once(allocator.text("@guard ")
+                                                                .append(guard.pretty(allocator)))
+                                                 .chain(iter::once(body.pretty(allocator))),
                                             allocator.text(";").append(allocator.newline())))
                                 .nest(2))
                .append(allocator.newline())

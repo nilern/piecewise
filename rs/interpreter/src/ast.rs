@@ -3,6 +3,36 @@ use std::fmt::{self, Formatter};
 use pcws_domain::{DynamicDebug, Allocator};
 use pcws_domain::object_model::{RefTailed, ValueRef, ValueRefT};
 use pcws_domain::values::Symbol;
+use pcws_syntax::cst::PrimOp;
+
+// ================================================================================================
+
+/// Function AST node
+heap_struct! {
+    pub struct Function: RefTailed<TailItem=ValueRefT<Symbol>> {
+        body: ValueRef
+    }
+}
+
+impl Function {
+    pub fn new(allocator: &mut Allocator, params: &[ValueRefT<Symbol>], body: ValueRef)
+        -> Option<ValueRefT<Function>>
+    {
+        allocator.create_with_slice(|base| Function { base, body }, params)
+    }
+
+    pub fn params(&self) -> &[ValueRefT<Symbol>] { self.tail() }
+}
+
+impl DynamicDebug for Function {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        f.debug_struct("Function")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("body", &self.body.fmt_wrap(types))
+         .field("params", &self.params().fmt_wrap(types))
+         .finish()
+    }
+}
 
 // ================================================================================================
 
@@ -35,80 +65,56 @@ impl DynamicDebug for Block {
 
 // ================================================================================================
 
-/// AST node for definition statements.
 heap_struct! {
-    pub struct Def: UniformHeapValue {
-        pattern: ValueRef,
-        expr: ValueRef
+    pub struct Match: RefTailed<TailItem=ValueRefT<Case>> {
+        matchee: ValueRef,
+        default: ValueRef
     }
 }
 
-impl Def {
-    pub fn new(allocator: &mut Allocator, pattern: ValueRef, expr: ValueRef)
-        -> Option<ValueRefT<Def>>
+impl Match {
+    pub fn new(allocator: &mut Allocator, matchee: ValueRef, cases: &[ValueRefT<Case>],
+               default: ValueRef) -> Option<ValueRefT<Match>>
     {
-        allocator.create_uniform(|base| Def { base, pattern, expr })
+        allocator.create_with_slice(|base| Match { base, matchee, default }, cases)
     }
+
+    fn cases(&self) -> &[ValueRefT<Case>] { self.tail() }
 }
 
-impl DynamicDebug for Def {
+impl DynamicDebug for Match {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
-        f.debug_struct("Def")
+        f.debug_struct("Match")
          .field("base", &self.base.fmt_wrap(types))
-         .field("pattern", &self.pattern.fmt_wrap(types))
-         .field("expr", &self.expr.fmt_wrap(types))
+         .field("matchee", &self.matchee.fmt_wrap(types))
+         .field("default", &self.default.fmt_wrap(types))
+         .field("cases", &self.cases().fmt_wrap(types))
          .finish()
     }
 }
 
 // ================================================================================================
 
-/// Function AST node
+/// Case AST (match sub)node
 heap_struct! {
-    pub struct Function: RefTailed<TailItem=ValueRefT<Method>> {}
-}
-
-impl Function {
-    pub fn new(allocator: &mut Allocator, methods: &[ValueRefT<Method>])
-        -> Option<ValueRefT<Function>>
-    {
-        allocator.create_with_slice(|base| Function { base }, methods)
-    }
-
-    pub fn methods(&self) -> &[ValueRefT<Method>] { self.tail() }
-}
-
-impl DynamicDebug for Function {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
-        f.debug_struct("Function")
-         .field("base", &self.base.fmt_wrap(types))
-         .field("methods", &self.methods().fmt_wrap(types))
-         .finish()
-    }
-}
-
-// ================================================================================================
-
-/// Method AST (function sub)node
-heap_struct! {
-    pub struct Method: UniformHeapValue {
+    pub struct Case: UniformHeapValue {
         pattern: ValueRef,
         guard: ValueRef,
         body: ValueRef
     }
 }
 
-impl Method {
+impl Case {
     pub fn new(allocator: &mut Allocator, pattern: ValueRef, guard: ValueRef, body: ValueRef)
-        -> Option<ValueRefT<Method>>
+        -> Option<ValueRefT<Case>>
     {
-        allocator.create_uniform(|base| Method { base, pattern, guard, body })
+        allocator.create_uniform(|base| Case { base, pattern, guard, body })
     }
 }
 
-impl DynamicDebug for Method {
+impl DynamicDebug for Case {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
-        f.debug_struct("Method")
+        f.debug_struct("Case")
          .field("base", &self.base.fmt_wrap(types))
          .field("pattern", &self.pattern.fmt_wrap(types))
          .field("guard", &self.guard.fmt_wrap(types))
@@ -142,6 +148,63 @@ impl DynamicDebug for Call {
          .field("base", &self.base.fmt_wrap(types))
          .field("callee", &self.callee.fmt_wrap(types))
          .field("args", &self.args().fmt_wrap(types))
+         .finish()
+    }
+}
+
+// ================================================================================================
+
+/// PrimCall AST node
+heap_struct! {
+    pub struct PrimCall: RefTailed<TailItem=ValueRef> {
+        op: PrimOp
+    }
+}
+
+impl PrimCall {
+    pub fn new(allocator: &mut Allocator, op: PrimOp, args: &[ValueRef])
+        -> Option<ValueRefT<PrimCall>>
+    {
+        allocator.create_with_slice(|base| PrimCall { base, op }, args)
+    }
+
+    pub fn args(&self) -> &[ValueRef] { self.tail() }
+}
+
+impl DynamicDebug for PrimCall {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        f.debug_struct("Call")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("op", &self.op)
+         .field("args", &self.args().fmt_wrap(types))
+         .finish()
+    }
+}
+
+// ================================================================================================
+
+/// AST node for definition statements.
+heap_struct! {
+    pub struct Def: UniformHeapValue {
+        pattern: ValueRef,
+        expr: ValueRef
+    }
+}
+
+impl Def {
+    pub fn new(allocator: &mut Allocator, pattern: ValueRef, expr: ValueRef)
+        -> Option<ValueRefT<Def>>
+    {
+        allocator.create_uniform(|base| Def { base, pattern, expr })
+    }
+}
+
+impl DynamicDebug for Def {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        f.debug_struct("Def")
+         .field("base", &self.base.fmt_wrap(types))
+         .field("pattern", &self.pattern.fmt_wrap(types))
+         .field("expr", &self.expr.fmt_wrap(types))
          .finish()
     }
 }
