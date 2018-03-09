@@ -323,6 +323,9 @@ impl Expr<DefRef> {
                     unimplemented!()
                 }
             },
+            // FIXME: __prompt and __abort make implicit calls, so registers need to be saved.
+            //        Another option is to make their stack manipulations and calls explicit in an
+            //        earlier phase.
             // FIXME: Need to remember which arity of a vararg opcode was used:
             PrimCall(pos, op, args) => match ctx {
                 Ctx::Def | Ctx::Tail if args.len() <= 2 =>

@@ -99,6 +99,8 @@ impl Display for Def {
 
 #[derive(Debug, Clone, Copy)]
 pub enum PrimOp {
+    Mov,
+
     Tuple,
     TupleLen,
     TupleGet,
@@ -126,6 +128,7 @@ pub enum PrimOp {
     DenvGet,
 
     Prompt,
+    Ret,
 
     AssertP
 }
