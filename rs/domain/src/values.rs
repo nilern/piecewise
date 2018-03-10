@@ -1,11 +1,11 @@
 use std::str;
 use std::string;
-use std::fmt::{self, Formatter};
+use std::fmt::{self, Write, Formatter};
 use std::collections::HashMap;
 
 use pcws_gc::{GSize, start_init};
 
-use super::{Allocator, DynamicDebug};
+use super::{Allocator, DynamicDebug, DynamicDisplay};
 use object_model::{HeapValueSub, UniformHeapValue, RefTailed, BlobTailed, Sizing,
                    HeapValue, ValueRef, ValueRefT};
 
@@ -39,11 +39,18 @@ macro_rules! heap_struct_base {
 
                 static INDEX: AtomicIsize = AtomicIsize::new(-1);
 
-                unsafe fn fmt_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
+                unsafe fn debug_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
                                  types: &Allocator) -> Result<(), fmt::Error>
                 {
                     use std::mem::transmute;
-                    transmute::<_, &$name>(value).fmt(f, types)
+                    <$name as $crate::DynamicDebug>::fmt(transmute::<_, &$name>(value), f, types)
+                }
+
+                unsafe fn display_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
+                                 types: &Allocator) -> Result<(), fmt::Error>
+                {
+                    use std::mem::transmute;
+                    <$name as $crate::DynamicDisplay>::fmt(transmute::<_, &$name>(value), f, types)
                 }
 
                 let old = INDEX.load(SeqCst);
@@ -53,7 +60,7 @@ macro_rules! heap_struct_base {
                     let typ = $crate::values::Type
                                     ::new::<Self>(allocator, Self::SIZING)
                                     .unwrap(); // FIXME: unwrap
-                    let new = allocator.register_typ(typ, fmt_fn);
+                    let new = allocator.register_typ(typ, debug_fn, display_fn);
                     if INDEX.compare_and_swap(old, new as isize, SeqCst) == old {
                         new // We won the race.
                     } else {
@@ -140,9 +147,23 @@ impl Tuple {
 impl DynamicDebug for Tuple {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Tuple")
-         .field("base", &self.base.fmt_wrap(types))
-         .field("tail", &self.tail().fmt_wrap(types))
+         .field("base", &self.base.debug_wrap(types))
+         .field("tail", &self.tail().debug_wrap(types))
          .finish()
+    }
+}
+
+impl DynamicDisplay for Tuple {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        f.write_char('(')?;
+        let mut vals = self.tail().iter();
+        if let Some(v) = vals.next() {
+            <_ as DynamicDisplay>::fmt(v, f, types)?;
+        }
+        for v in vals {
+            write!(f, ", {}", v.display_wrap(types))?;
+        }
+        f.write_char(')')
     }
 }
 
@@ -166,9 +187,15 @@ impl String {
 impl DynamicDebug for String {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("String")
-         .field("base", &self.base.fmt_wrap(types))
+         .field("base", &self.base.debug_wrap(types))
          .field("chars", &self.chars())
          .finish()
+    }
+}
+
+impl DynamicDisplay for String {
+    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+        write!(f, "{:?}", self.chars())
     }
 }
 
@@ -200,9 +227,15 @@ impl Symbol {
 impl DynamicDebug for Symbol {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Symbol")
-         .field("base", &self.base.fmt_wrap(types))
+         .field("base", &self.base.debug_wrap(types))
          .field("chars", &self.chars())
          .finish()
+    }
+}
+
+impl DynamicDisplay for Symbol {
+    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+        write!(f, ":{}", self.chars())
     }
 }
 
@@ -257,8 +290,14 @@ impl Promise {
 impl DynamicDebug for Promise {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Promise")
-         .field("base", &self.base.fmt_wrap(types))
+         .field("base", &self.base.debug_wrap(types))
          .finish()
+    }
+}
+
+impl DynamicDisplay for Promise {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        <_ as DynamicDisplay>::fmt(&self.base.link, f, types)
     }
 }
 
@@ -322,9 +361,15 @@ impl Type {
 impl DynamicDebug for Type {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Type")
-         .field("heap_value", &self.base.fmt_wrap(types))
+         .field("heap_value", &self.base.debug_wrap(types))
          .field("gsize_with_dyn", &self.gsize_with_dyn)
          .field("ref_len_with_dyn", &self.ref_len_with_dyn)
          .finish()
+    }
+}
+
+impl DynamicDisplay for Type {
+    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+        write!(f, "Type({:x}, {:x})", self.gsize_with_dyn, self.ref_len_with_dyn)
     }
 }

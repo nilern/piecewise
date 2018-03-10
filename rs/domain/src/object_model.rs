@@ -8,7 +8,7 @@ use std::fmt::{self, Debug, Formatter};
 
 use pcws_gc::{GSize, Object, ObjectRef};
 
-use super::{Allocator, DynamicDebug};
+use super::{Allocator, DynamicDebug, DynamicDisplay};
 use values::Type;
 
 // ================================================================================================
@@ -155,13 +155,13 @@ impl DynamicDebug for HeapValue {
         if self.link == self_ref {
             dbg.field("link", &"#[cycle]");
         } else {
-            dbg.field("link", &self.link.fmt_wrap(types));
+            dbg.field("link", &self.link.debug_wrap(types));
         }
 
         if ValueRef::from(self.typ) == self_ref {
             dbg.field("typ", &"#[cycle]");
         } else {
-            dbg.field("typ", &self.typ.fmt_wrap(types));
+            dbg.field("typ", &self.typ.debug_wrap(types));
         }
 
         dbg.finish()
@@ -180,7 +180,7 @@ pub struct DynHeapValue {
 impl DynamicDebug for DynHeapValue {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("DynHeapValue")
-         .field("base", &self.base.fmt_wrap(types))
+         .field("base", &self.base.debug_wrap(types))
          .field("dyn_len", &self.dyn_len)
          .finish()
     }
@@ -198,7 +198,7 @@ impl Iterator for ObjRefs {
 
     fn next(&mut self) -> Option<NonNull<ValueRef>> {
         use self::ObjRefs::*;
-    
+
         unsafe {
             match *self {
                 Link(value) => {
@@ -280,6 +280,14 @@ impl ValueRef {
         }
     }
 
+    pub fn try_downcast<T: HeapValueSub>(self, types: &mut Allocator) -> Option<ValueRefT<T>> {
+        if self.is_instance::<T>(types) {
+            Some(unsafe { self.downcast() })
+        } else {
+            None
+        }
+    }
+
     fn view(self) -> ValueView {
         unsafe {
             match self.0 & Self::TAG_MASK {
@@ -324,7 +332,19 @@ impl DynamicDebug for ValueRef {
             ValueView::Float(n) => n.fmt(f),
             ValueView::Char(c)  => c.fmt(f),
             ValueView::Bool(b)  => b.fmt(f),
-            ValueView::HeapValue(ptr) => types.fmt_value(ptr, f)
+            ValueView::HeapValue(ptr) => types.debug_fmt_value(ptr, f)
+        }
+    }
+}
+
+impl DynamicDisplay for ValueRef {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        match self.view() {
+            ValueView::Int(n)   => n.fmt(f),
+            ValueView::Float(n) => n.fmt(f),
+            ValueView::Char(c)  => c.fmt(f),
+            ValueView::Bool(b)  => b.fmt(f),
+            ValueView::HeapValue(ptr) => types.display_fmt_value(ptr, f)
         }
     }
 }
@@ -437,6 +457,12 @@ impl<T: HeapValueSub> AsMut<ValueRef> for ValueRefT<T> {
 }
 
 impl<T: HeapValueSub + DynamicDebug> DynamicDebug for ValueRefT<T> {
+    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+        self.deref().fmt(f, types)
+    }
+}
+
+impl<T: HeapValueSub + DynamicDisplay> DynamicDisplay for ValueRefT<T> {
     fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
         self.deref().fmt(f, types)
     }

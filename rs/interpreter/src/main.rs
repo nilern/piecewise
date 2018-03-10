@@ -1,6 +1,7 @@
 #![feature(try_from, nonzero, unique, const_atomic_isize_new)]
 
 extern crate core;
+extern crate pretty;
 
 extern crate pcws_gc;
 #[macro_use]
@@ -13,7 +14,7 @@ mod inject;
 use std::io::{self, Read};
 use std::str::FromStr;
 
-use pcws_domain::{Allocator, DynamicDebug};
+use pcws_domain::{Allocator, DynamicDisplay};
 use pcws_syntax::cst::Expr;
 use inject::Inject;
 
@@ -29,7 +30,7 @@ fn main() {
 
             let mut allocator = Allocator::new(4*1024*1024);
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
-            println!("{:?}", ast.fmt_wrap(&allocator));
+            println!("{}", ast.display_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err.0)
     }
