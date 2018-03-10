@@ -10,6 +10,8 @@ extern crate pcws_syntax;
 
 mod ast;
 mod inject;
+mod continuation;
+mod interpret;
 
 use std::io::{self, Read};
 use std::str::FromStr;
@@ -17,6 +19,7 @@ use std::str::FromStr;
 use pcws_domain::{Allocator, DynamicDisplay};
 use pcws_syntax::cst::Expr;
 use inject::Inject;
+use interpret::interpret;
 
 fn main() {
     let mut src = String::new();
@@ -31,6 +34,10 @@ fn main() {
             let mut allocator = Allocator::new(4*1024*1024);
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
             println!("{}", ast.display_wrap(&allocator));
+
+            println!("\n---\n");
+
+            println!("{}", interpret(&mut allocator, ast).unwrap().display_wrap(&allocator));
         },
         Err(err) => println!("ParseError: {}", err.0)
     }

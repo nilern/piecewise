@@ -191,18 +191,19 @@ impl Allocator {
 #[macro_export]
 macro_rules! typecase_loop {
     ( $v:ident, $types:ident, { $w:ident : $T:ty => $body:expr, $($tail:tt)* } ) => {
-        if let Some($w) =
-            // HACK:
-            $v.try_downcast::<$T>(unsafe { transmute::<&Allocator, &mut Allocator>($types) }) {
+        if let Some($w) = $v.try_downcast::<$T>($types) {
             $body
         } else {
             typecase_loop!($v, $types, { $($tail)* })
         }
     };
-    ( $v:ident, $types:ident, { $w:ident => $body:expr } ) => {{
-        let $w = $v;
-        $body
-    }};
+    ( $v:ident, $types:ident, { $T:ty => $body:expr, $($tail:tt)* } ) => {
+        if let Some(_) = $v.try_downcast::<$T>($types) {
+            $body
+        } else {
+            typecase_loop!($v, $types, { $($tail)* })
+        }
+    };
     ( $v:ident, $types:ident, { _ => $body:expr } ) => {{
         $body
     }}
@@ -210,10 +211,9 @@ macro_rules! typecase_loop {
 
 #[macro_export]
 macro_rules! typecase {
-    ( $v:expr, $types:expr, { $($tail:tt)* } ) => {{
+    ( $v:expr, $types:ident, { $($tail:tt)* } ) => {{
         let w = $v;
-        let ts = $types;
-        typecase_loop!(w, ts, { $($tail)* })
+        typecase_loop!(w, $types, { $($tail)* })
     }}
 }
 

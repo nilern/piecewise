@@ -432,6 +432,8 @@ impl Const {
     pub fn new(allocator: &mut Allocator, value: ValueRef) -> Option<ValueRefT<Const>> {
         allocator.create_uniform(|base| Const { base, value })
     }
+
+    pub fn value(&self) -> ValueRef { self.value }
 }
 
 impl DynamicDebug for Const {
