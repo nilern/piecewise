@@ -10,6 +10,7 @@ extern crate pcws_syntax;
 
 mod ast;
 mod inject;
+mod env;
 mod continuation;
 mod interpret;
 
@@ -33,11 +34,11 @@ fn main() {
 
             let mut allocator = Allocator::new(4*1024*1024);
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
-            println!("{}", ast.display_wrap(&allocator));
+            println!("{}", ast.display_wrap(&mut allocator));
 
             println!("\n---\n");
 
-            println!("{}", interpret(&mut allocator, ast).unwrap().display_wrap(&allocator));
+            println!("{}", interpret(&mut allocator, ast).unwrap().display_wrap(&mut allocator));
         },
         Err(err) => println!("ParseError: {}", err.0)
     }

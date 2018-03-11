@@ -40,14 +40,14 @@ macro_rules! heap_struct_base {
                 static INDEX: AtomicIsize = AtomicIsize::new(-1);
 
                 unsafe fn debug_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
-                                 types: &Allocator) -> Result<(), fmt::Error>
+                                   types: &mut Allocator) -> Result<(), fmt::Error>
                 {
                     use std::mem::transmute;
                     <$name as $crate::DynamicDebug>::fmt(transmute::<_, &$name>(value), f, types)
                 }
 
                 unsafe fn display_fn(value: &$crate::object_model::HeapValue, f: &mut Formatter,
-                                 types: &Allocator) -> Result<(), fmt::Error>
+                                     types: &mut Allocator) -> Result<(), fmt::Error>
                 {
                     use std::mem::transmute;
                     <$name as $crate::DynamicDisplay>::fmt(transmute::<_, &$name>(value), f, types)
@@ -145,7 +145,7 @@ impl Tuple {
 }
 
 impl DynamicDebug for Tuple {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Tuple")
          .field("base", &self.base.debug_wrap(types))
          .field("tail", &self.tail().debug_wrap(types))
@@ -154,7 +154,7 @@ impl DynamicDebug for Tuple {
 }
 
 impl DynamicDisplay for Tuple {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.write_char('(')?;
         let mut vals = self.tail().iter();
         if let Some(v) = vals.next() {
@@ -185,7 +185,7 @@ impl String {
 }
 
 impl DynamicDebug for String {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("String")
          .field("base", &self.base.debug_wrap(types))
          .field("chars", &self.chars())
@@ -194,7 +194,7 @@ impl DynamicDebug for String {
 }
 
 impl DynamicDisplay for String {
-    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
         write!(f, "{:?}", self.chars())
     }
 }
@@ -225,7 +225,7 @@ impl Symbol {
 }
 
 impl DynamicDebug for Symbol {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Symbol")
          .field("base", &self.base.debug_wrap(types))
          .field("chars", &self.chars())
@@ -234,7 +234,7 @@ impl DynamicDebug for Symbol {
 }
 
 impl DynamicDisplay for Symbol {
-    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
         write!(f, ":{}", self.chars())
     }
 }
@@ -288,7 +288,7 @@ impl Promise {
 }
 
 impl DynamicDebug for Promise {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Promise")
          .field("base", &self.base.debug_wrap(types))
          .finish()
@@ -296,7 +296,7 @@ impl DynamicDebug for Promise {
 }
 
 impl DynamicDisplay for Promise {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         <_ as DynamicDisplay>::fmt(&self.base.link, f, types)
     }
 }
@@ -359,7 +359,7 @@ impl Type {
 }
 
 impl DynamicDebug for Type {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Type")
          .field("heap_value", &self.base.debug_wrap(types))
          .field("gsize_with_dyn", &self.gsize_with_dyn)
@@ -369,7 +369,7 @@ impl DynamicDebug for Type {
 }
 
 impl DynamicDisplay for Type {
-    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
         write!(f, "Type({:x}, {:x})", self.gsize_with_dyn, self.ref_len_with_dyn)
     }
 }

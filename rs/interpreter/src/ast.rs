@@ -10,14 +10,14 @@ use pcws_syntax::cst::PrimOp;
 // ================================================================================================
 
 pub trait Pretty {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>;
 }
 
 macro_rules! display_pretty {
     { $name:ident } => {
         impl DynamicDisplay for $name {
-            fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+            fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
                 let docs = pretty::Arena::new();
                 <_ as Into<pretty::Doc<_>>>::into(self.pretty(types, &docs)).render_fmt(80, f)
             }
@@ -28,7 +28,7 @@ macro_rules! display_pretty {
 macro_rules! pretty_display {
     { $name:ident } => {
         impl Pretty for $name {
-            fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+            fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
                 -> DocBuilder<'a, A>
             {
                 docs.as_string(self.display_wrap(types))
@@ -38,11 +38,13 @@ macro_rules! pretty_display {
 }
 
 impl Pretty for ValueRef {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
-        // FIXME:
-        docs.as_string(self.display_wrap(types))
+        typecase!(self, types, {
+            // FIXME
+            _ => docs.as_string(self.display_wrap(types))
+        })
     }
 }
 
@@ -66,7 +68,7 @@ impl Function {
 }
 
 impl DynamicDebug for Function {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Function")
          .field("base", &self.base.debug_wrap(types))
          .field("body", &self.body.debug_wrap(types))
@@ -78,15 +80,16 @@ impl DynamicDebug for Function {
 display_pretty! { Function }
 
 impl Pretty for Function {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
-        docs.text("@fn (")
+        docs.text("(@fn (")
             .append(docs.intersperse(self.params().iter()
                                          .map(|param| docs.text(param.chars())),
                                      docs.text(", ")))
             .append(") ")
             .append(self.body.pretty(types, docs))
+            .append(docs.text(")"))
     }
 }
 
@@ -110,7 +113,7 @@ impl Block {
 }
 
 impl DynamicDebug for Block {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Block")
          .field("base", &self.base.debug_wrap(types))
          .field("expr", &self.expr.debug_wrap(types))
@@ -122,13 +125,14 @@ impl DynamicDebug for Block {
 display_pretty! { Block }
 
 impl Pretty for Block {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
         docs.text("{")
             .append(docs.newline()
                         .append(docs.intersperse(self.stmts().iter()
                                                      .map(|stmt| stmt.pretty(types, docs))
+                                                     .collect::<Vec<_>>().into_iter() // HACK
                                                      .chain(iter::once(
                                                                 self.expr.pretty(types, docs))),
                                                  docs.text(";").append(docs.newline())))
@@ -157,7 +161,7 @@ impl Match {
 }
 
 impl DynamicDebug for Match {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Match")
          .field("base", &self.base.debug_wrap(types))
          .field("matchee", &self.matchee.debug_wrap(types))
@@ -170,7 +174,7 @@ impl DynamicDebug for Match {
 display_pretty! { Match }
 
 impl Pretty for Match {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
         docs.text("@match ")
@@ -207,7 +211,7 @@ impl Case {
 }
 
 impl DynamicDebug for Case {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Case")
          .field("base", &self.base.debug_wrap(types))
          .field("pattern", &self.pattern.debug_wrap(types))
@@ -220,7 +224,7 @@ impl DynamicDebug for Case {
 display_pretty! { Case }
 
 impl Pretty for Case {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
         self.pattern.pretty(types, docs)
@@ -247,11 +251,13 @@ impl Call {
         allocator.create_with_slice(|base| Call { base, callee }, args)
     }
 
+    pub fn callee(&self) -> ValueRef { self.callee }
+
     pub fn args(&self) -> &[ValueRef] { self.tail() }
 }
 
 impl DynamicDebug for Call {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Call")
          .field("base", &self.base.debug_wrap(types))
          .field("callee", &self.callee.debug_wrap(types))
@@ -263,13 +269,15 @@ impl DynamicDebug for Call {
 display_pretty! { Call }
 
 impl Pretty for Call {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
-        docs.intersperse(iter::once(self.callee.pretty(types, docs))
-                              .chain(self.args().iter()
-                                         .map(|arg| arg.pretty(types, docs))),
-                         docs.text(" "))
+        docs.text("(")
+            .append(docs.intersperse(iter::once(self.callee.pretty(types, docs))
+                                          .chain(self.args().iter()
+                                                     .map(|arg| arg.pretty(types, docs))),
+                                     docs.text(" ")))
+            .append(docs.text(")"))
     }
 }
 
@@ -293,7 +301,7 @@ impl PrimCall {
 }
 
 impl DynamicDebug for PrimCall {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Call")
          .field("base", &self.base.debug_wrap(types))
          .field("op", &self.op)
@@ -305,13 +313,15 @@ impl DynamicDebug for PrimCall {
 display_pretty! { PrimCall }
 
 impl Pretty for PrimCall {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
-        docs.intersperse(iter::once(docs.as_string(self.op))
-                              .chain(self.args().iter()
-                                         .map(|arg| arg.pretty(types, docs))),
-                         docs.text(" "))
+        docs.text("(")
+            .append(docs.intersperse(iter::once(docs.as_string(self.op))
+                                          .chain(self.args().iter()
+                                                     .map(|arg| arg.pretty(types, docs))),
+                                     docs.text(" ")))
+            .append(docs.text(")"))
     }
 }
 
@@ -334,7 +344,7 @@ impl Def {
 }
 
 impl DynamicDebug for Def {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Def")
          .field("base", &self.base.debug_wrap(types))
          .field("pattern", &self.pattern.debug_wrap(types))
@@ -346,7 +356,7 @@ impl DynamicDebug for Def {
 display_pretty! { Def }
 
 impl Pretty for Def {
-    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &Allocator, docs: &'a A)
+    fn pretty<'a, A: DocAllocator<'a>>(&'a self, types: &mut Allocator, docs: &'a A)
         -> DocBuilder<'a, A>
     {
         self.pattern.pretty(types, docs)
@@ -371,7 +381,7 @@ impl Lex {
 }
 
 impl DynamicDebug for Lex {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Lex")
          .field("base", &self.base.debug_wrap(types))
          .field("name", &self.name.debug_wrap(types))
@@ -380,7 +390,7 @@ impl DynamicDebug for Lex {
 }
 
 impl DynamicDisplay for Lex {
-    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
         write!(f, "{}", self.name.chars())
     }
 }
@@ -403,7 +413,7 @@ impl Dyn {
 }
 
 impl DynamicDebug for Dyn {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Dyn")
          .field("base", &self.base.debug_wrap(types))
          .field("name", &self.name.debug_wrap(types))
@@ -412,7 +422,7 @@ impl DynamicDebug for Dyn {
 }
 
 impl DynamicDisplay for Dyn {
-    fn fmt(&self, f: &mut Formatter, _: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
         write!(f, "${}", self.name.chars())
     }
 }
@@ -437,7 +447,7 @@ impl Const {
 }
 
 impl DynamicDebug for Const {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("Const")
          .field("base", &self.base.debug_wrap(types))
          .field("value", &self.value.debug_wrap(types))
@@ -446,7 +456,7 @@ impl DynamicDebug for Const {
 }
 
 impl DynamicDisplay for Const {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         <_ as DynamicDisplay>::fmt(&self.value, f, types)
     }
 }

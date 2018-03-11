@@ -147,7 +147,7 @@ impl Object for HeapValue {
 }
 
 impl DynamicDebug for HeapValue {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         let self_ref =
             ValueRef::from(unsafe { NonNull::new_unchecked((self as *const HeapValue) as _) });
         let mut dbg = f.debug_struct("HeapValue");
@@ -178,7 +178,7 @@ pub struct DynHeapValue {
 }
 
 impl DynamicDebug for DynHeapValue {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         f.debug_struct("DynHeapValue")
          .field("base", &self.base.debug_wrap(types))
          .field("dyn_len", &self.dyn_len)
@@ -326,7 +326,7 @@ impl ObjectRef for ValueRef {
 }
 
 impl DynamicDebug for ValueRef {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         match self.view() {
             ValueView::Int(n)   => n.fmt(f),
             ValueView::Float(n) => n.fmt(f),
@@ -338,7 +338,7 @@ impl DynamicDebug for ValueRef {
 }
 
 impl DynamicDisplay for ValueRef {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         match self.view() {
             ValueView::Int(n)   => n.fmt(f),
             ValueView::Float(n) => n.fmt(f),
@@ -457,13 +457,13 @@ impl<T: HeapValueSub> AsMut<ValueRef> for ValueRefT<T> {
 }
 
 impl<T: HeapValueSub + DynamicDebug> DynamicDebug for ValueRefT<T> {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         self.deref().fmt(f, types)
     }
 }
 
 impl<T: HeapValueSub + DynamicDisplay> DynamicDisplay for ValueRefT<T> {
-    fn fmt(&self, f: &mut Formatter, types: &Allocator) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
         self.deref().fmt(f, types)
     }
 }
