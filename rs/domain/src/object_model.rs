@@ -20,6 +20,13 @@ pub enum Sizing {
     DynamicBlob
 }
 
+#[derive(Clone, Copy)]
+pub struct Layout {
+    pub sizing: Sizing,
+    pub size: usize,
+    pub min_ref_len: usize
+}
+
 // ================================================================================================
 
 /// Unboxable scalar reference.
@@ -33,15 +40,7 @@ pub trait Unbox {
 
 /// A subtype of `HeapValue`.
 pub trait HeapValueSub: Sized {
-    /// The constant portion (or minimum number) of `ValueRef` fields on instances of `self`.
-    const UNIFORM_REF_LEN: usize;
-
-    /// The sizing of instances.
-    const SIZING: Sizing;
-
-    /// Get the index of the type in `types`. Create the dynamic type and put it in `types` if
-    /// necessary.
-    fn type_index(types: &mut Allocator) -> usize;
+    const LAYOUT: Layout;
 }
 
 pub trait UniformHeapValue: HeapValueSub {}
@@ -272,7 +271,7 @@ impl ValueRef {
     }
 
     /// Is `self` an instance of `T`?
-    pub fn is_instance<T: HeapValueSub>(self, types: &mut Allocator) -> bool {
+    pub fn is_instance<T: HeapValueSub + 'static>(self, types: &mut Allocator) -> bool {
         if let Some(sptr) = self.ptr() {
             unsafe { sptr.as_ref() }.typ == types.reify::<T>()
         } else {
@@ -280,7 +279,9 @@ impl ValueRef {
         }
     }
 
-    pub fn try_downcast<T: HeapValueSub>(self, types: &mut Allocator) -> Option<ValueRefT<T>> {
+    pub fn try_downcast<T: HeapValueSub + 'static>(self, types: &mut Allocator)
+        -> Option<ValueRefT<T>>
+    {
         if self.is_instance::<T>(types) {
             Some(unsafe { self.downcast() })
         } else {

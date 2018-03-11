@@ -13,9 +13,10 @@ use std::ptr::{Unique, NonNull};
 use std::slice;
 use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::collections::HashMap;
+use std::any::TypeId;
 
 use pcws_gc::{GSize, Initializable, start_init, Generation};
-use object_model::{HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
+use object_model::{Layout, HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
 use values::Type;
 
 pub use values::SymbolTable;
@@ -28,52 +29,45 @@ type UnsafeFmtFn = unsafe fn(&HeapValue, &mut Formatter, &mut Allocator) -> Resu
 pub struct Allocator {
     gc: Generation<ValueRef>,
 
-    types: HashMap<usize, ValueRefT<Type>>,
-    type_indices: HashMap<ValueRefT<Type>, usize>,
-    debug_fns: HashMap<usize, UnsafeFmtFn>,
-    display_fns: HashMap<usize, UnsafeFmtFn>,
-    type_counter: usize,
+    types: HashMap<TypeId, ValueRefT<Type>>,
+    debug_fns: HashMap<TypeId, UnsafeFmtFn>,
+    display_fns: HashMap<TypeId, UnsafeFmtFn>,
+    type_indices: HashMap<ValueRefT<Type>, TypeId>,
 
     symbols: SymbolTable
 }
 
 impl Allocator {
-    pub fn new(max_heap: usize) -> Allocator {
-        unsafe fn debug_fn(value: &HeapValue, f: &mut Formatter, types: &mut Allocator)
-            -> Result<(), fmt::Error>
-        {
-            use std::mem::transmute;
-            <Type as DynamicDebug>::fmt(transmute::<_, &Type>(value), f, types)
-        }
-
-        unsafe fn display_fn(value: &HeapValue, f: &mut Formatter, types: &mut Allocator)
-            -> Result<(), fmt::Error>
-        {
-            use std::mem::transmute;
-            <Type as DynamicDisplay>::fmt(transmute::<_, &Type>(value), f, types)
-        }
-
+    pub fn new(max_heap: usize, basis: HashMap<TypeId, (Layout, UnsafeFmtFn, UnsafeFmtFn)>)
+        -> Allocator
+    {
         let mut allocator = Allocator {
             gc: Generation::new(max_heap),
 
             types: HashMap::new(),
-            type_indices: HashMap::new(),
             debug_fns: HashMap::new(),
             display_fns: HashMap::new(),
-            type_counter: 0,
+            type_indices: HashMap::new(),
 
             symbols: SymbolTable::new()
         };
 
         let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
-        allocator.register_typ(ValueRefT::from(start_init(type_type)), debug_fn, display_fn);
-        allocator.init_uniform(type_type, |base| Type::make::<Type>(base, Type::SIZING));
+        for (index, (layout, debug, display)) in basis {
+            let typ = if index == TypeId::of::<Type>() {
+                allocator.init_uniform(type_type, |base| Type::make(base, layout));
+                ValueRefT::<Type>::from(start_init(type_type)).into()
+            } else {
+                allocator.create_uniform(|base| Type::make(base, layout)).unwrap().into()
+            };
+            allocator.register_typ(index, typ, debug, display);
+        }
 
         allocator
     }
 
     fn init<T, F>(&mut self, ptr: Initializable<T>, f: F) -> ValueRefT<T>
-        where T: HeapValueSub, F: FnOnce(Unique<T>, HeapValue)
+        where T: HeapValueSub + 'static, F: FnOnce(Unique<T>, HeapValue)
     {
         let uptr = start_init(ptr);
         let tvref = ValueRefT::from(uptr);
@@ -86,7 +80,7 @@ impl Allocator {
 
     /// Initialize a `T`, delegating to `f` for everything but the `HeapValue` part.
     fn init_uniform<T, F>(&mut self, ptr: Initializable<T>, f: F) -> ValueRefT<T>
-        where T: HeapValueSub, F: FnOnce(HeapValue) -> T
+        where T: HeapValueSub + 'static, F: FnOnce(HeapValue) -> T
     {
         self.init(ptr, |mut uptr, heap_value| {
             *unsafe { uptr.as_mut() } = f(heap_value);
@@ -95,7 +89,7 @@ impl Allocator {
 
     fn init_with_iter<T, F, I, E>(&mut self, iptr: Initializable<T>, f: F, len: usize, iter: I)
         -> ValueRefT<T>
-        where T: HeapValueSub, F: Fn(DynHeapValue) -> T,
+        where T: HeapValueSub + 'static, F: Fn(DynHeapValue) -> T,
               I: Iterator<Item=E>, E: Copy
     {
         self.init(iptr, |mut uptr, heap_value| {
@@ -121,14 +115,14 @@ impl Allocator {
     }
 
     pub fn create_uniform<T, F>(&mut self, f: F) -> Option<ValueRefT<T>>
-        where T: HeapValueSub, F: Fn(HeapValue) -> T
+        where T: HeapValueSub + 'static, F: Fn(HeapValue) -> T
     {
         self.allocate_t().map(|typ| self.init_uniform(typ, f))
     }
 
     pub fn create_with_iter<T, F, I, E>(&mut self, f: F, len: usize, iter: I)
         -> Option<ValueRefT<T>>
-        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, I: Iterator<Item=E>, E: Copy
+        where T: HeapValueSub + 'static, F: Fn(DynHeapValue) -> T, I: Iterator<Item=E>, E: Copy
     {
         let gsize = GSize::from_bytesize(size_of::<T>() + len*size_of::<E>());
         unsafe { self.gc.allocate(NonZero::new_unchecked(GSize::from(1)),
@@ -137,32 +131,21 @@ impl Allocator {
     }
 
     pub fn create_with_slice<T, F, E>(&mut self, f: F, slice: &[E]) -> Option<ValueRefT<T>>
-        where T: HeapValueSub, F: Fn(DynHeapValue) -> T, E: Copy
+        where T: HeapValueSub + 'static, F: Fn(DynHeapValue) -> T, E: Copy
     {
         self.create_with_iter(f, slice.len(), slice.iter().cloned())
     }
 
-    pub fn reify<T: HeapValueSub>(&mut self) -> ValueRefT<Type> {
-        let index = T::type_index(self);
-        self.types[&index]
+    pub fn reify<T: HeapValueSub + 'static>(&mut self) -> ValueRefT<Type> {
+        self.types[&TypeId::of::<T>()]
     }
 
-    pub fn register_typ(&mut self, typ: ValueRefT<Type>, f: UnsafeFmtFn, g: UnsafeFmtFn) -> usize {
-        let index = self.type_counter;
+    fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>, f: UnsafeFmtFn, g: UnsafeFmtFn)
+    {
         self.types.insert(index, typ);
-        self.type_indices.insert(typ, index);
         self.debug_fns.insert(index, f);
         self.display_fns.insert(index, g);
-        self.type_counter += 1;
-        index
-    }
-
-    pub fn deregister_typ(&mut self, index: usize) {
-        let typ = self.types[&index];
-        self.type_indices.remove(&typ);
-        self.types.remove(&index);
-        self.debug_fns.remove(&index);
-        self.display_fns.remove(&index);
+        self.type_indices.insert(typ, index);
     }
 
     pub fn debug_fmt_value(&mut self, vref: NonNull<HeapValue>, f: &mut Formatter)
