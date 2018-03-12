@@ -1,4 +1,3 @@
-use std::mem::size_of;
 use std::str;
 use std::string;
 use std::fmt::{self, Write, Formatter};
@@ -7,7 +6,7 @@ use std::collections::HashMap;
 use pcws_gc::{GSize, start_init};
 
 use super::{Allocator, DynamicDebug, DynamicDisplay};
-use object_model::{RefTailed, BlobTailed, Sizing, Layout, HeapValue, ValueRef, ValueRefT};
+use object_model::{RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
 
 // ================================================================================================
 
@@ -30,11 +29,8 @@ macro_rules! heap_struct_base {
         }
 
         impl $crate::object_model::HeapValueSub for $name {
-            const LAYOUT: $crate::object_model::Layout = $crate::object_model::Layout {
-                sizing: $sizing,
-                size: $crate::values::size_of::<$name>(),
-                min_ref_len: count_vrefs!($($field_types),*)
-            };
+            const SIZING: $crate::object_model::Sizing = $sizing;
+            const MIN_REF_LEN: usize = count_vrefs!($($field_types),*);
         }
     }
 }
@@ -278,23 +274,24 @@ heap_struct! {
 }
 
 impl Type {
-    pub fn make(base: HeapValue, layout: Layout) -> Type {
-        let gsize = GSize::from_bytesize(layout.size);
+    pub fn make(base: HeapValue, sizing: Sizing, min_gsize: GSize, min_ref_len: usize) -> Type {
         Type {
             base,
-            gsize_with_dyn: usize::from(gsize) << 1 | match layout.sizing {
+            gsize_with_dyn: usize::from(min_gsize) << 1 | match sizing {
                 Sizing::Static => 0,
                 Sizing::DynamicRefs | Sizing::DynamicBlob => 1
             },
-            ref_len_with_dyn: layout.min_ref_len << 1 | match layout.sizing {
+            ref_len_with_dyn: min_ref_len << 1 | match sizing {
                 Sizing::Static | Sizing::DynamicBlob => 0,
                 Sizing::DynamicRefs => 1
             }
         }
     }
 
-    pub fn new(allocator: &mut Allocator, layout: Layout) -> Option<ValueRefT<Type>> {
-        allocator.create_uniform(|base| Type::make(base, layout))
+    pub fn new(allocator: &mut Allocator, sizing: Sizing, min_gsize: GSize, min_ref_len: usize)
+        -> Option<ValueRefT<Type>>
+    {
+        allocator.create_uniform(|base| Type::make(base, sizing, min_gsize, min_ref_len))
     }
 
     /// The constant portion (or minimum) granule size of instances.

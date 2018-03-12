@@ -20,13 +20,6 @@ pub enum Sizing {
     DynamicBlob
 }
 
-#[derive(Clone, Copy)]
-pub struct Layout {
-    pub sizing: Sizing,
-    pub size: usize,
-    pub min_ref_len: usize
-}
-
 // ================================================================================================
 
 /// Unboxable scalar reference.
@@ -40,7 +33,8 @@ pub trait Unbox {
 
 /// A subtype of `HeapValue`.
 pub trait HeapValueSub: Sized {
-    const LAYOUT: Layout;
+    const SIZING: Sizing;
+    const MIN_REF_LEN: usize;
 }
 
 pub trait UniformHeapValue: HeapValueSub {}

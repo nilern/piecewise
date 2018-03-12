@@ -16,14 +16,15 @@ use std::collections::HashMap;
 use std::any::TypeId;
 
 use pcws_gc::{GSize, Initializable, start_init, Generation};
-use object_model::{Layout, HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
+use object_model::{Sizing, HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
 use values::Type;
 
 pub use values::SymbolTable;
 
 // ================================================================================================
 
-type UnsafeFmtFn = unsafe fn(&HeapValue, &mut Formatter, &mut Allocator) -> Result<(), fmt::Error>;
+pub type UnsafeFmtFn =
+    unsafe fn(&HeapValue, &mut Formatter, &mut Allocator) -> Result<(), fmt::Error>;
 
 /// Value allocator.
 pub struct Allocator {
@@ -38,7 +39,8 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn new(max_heap: usize, basis: HashMap<TypeId, (Layout, UnsafeFmtFn, UnsafeFmtFn)>)
+    pub fn new(max_heap: usize,
+               basis: HashMap<TypeId, (Sizing, GSize, usize, UnsafeFmtFn, UnsafeFmtFn)>)
         -> Allocator
     {
         let mut allocator = Allocator {
@@ -52,15 +54,23 @@ impl Allocator {
             symbols: SymbolTable::new()
         };
 
-        let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
-        for (index, (layout, debug, display)) in basis {
-            let typ = if index == TypeId::of::<Type>() {
-                allocator.init_uniform(type_type, |base| Type::make(base, layout));
-                ValueRefT::<Type>::from(start_init(type_type)).into()
-            } else {
-                allocator.create_uniform(|base| Type::make(base, layout)).unwrap().into()
-            };
-            allocator.register_typ(index, typ, debug, display);
+        let type_type_index = TypeId::of::<Type>();
+        {
+            let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
+            let (sizing, min_gsize, min_ref_len, debug, display) = basis[&type_type_index];
+            allocator.register_typ(type_type_index, ValueRefT::from(start_init(type_type)).into(),
+                                   debug, display);
+            allocator.init_uniform(
+                type_type, |base| Type::make(base, sizing, min_gsize, min_ref_len));
+        }
+
+        for (index, (sizing, min_gsize, min_ref_len, debug, display)) in basis {
+            if index != type_type_index {
+                let typ = allocator.create_uniform(|base|
+                    Type::make(base, sizing, min_gsize, min_ref_len)
+                ).unwrap().into();
+                allocator.register_typ(index, typ, debug, display);
+            }
         }
 
         allocator
@@ -167,6 +177,39 @@ impl Allocator {
     }
 
     fn symbol_table(&mut self) -> &mut SymbolTable { &mut self.symbols }
+}
+
+// ================================================================================================
+
+#[macro_export]
+macro_rules! type_basis {
+    ( $($Ts:path),* ) => {{
+        let mut types = HashMap::new();
+        $({
+            unsafe fn debug_fn(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+                -> Result<(), fmt::Error>
+            {
+                use std::mem::transmute;
+                <$Ts as DynamicDebug>::fmt(transmute::<_, &$Ts>(val), f, alloc)
+            }
+
+            unsafe fn display_fn(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+                -> Result<(), fmt::Error>
+            {
+                use std::mem::transmute;
+                <$Ts as DynamicDisplay>::fmt(transmute::<_, &$Ts>(val), f, alloc)
+            }
+
+            types.insert(TypeId::of::<$Ts>(), (
+                <$Ts as HeapValueSub>::SIZING,
+                GSize::of::<$Ts>(),
+                <$Ts as HeapValueSub>::MIN_REF_LEN,
+                debug_fn as UnsafeFmtFn,
+                display_fn as UnsafeFmtFn
+            ));
+        };)*
+        types
+    }}
 }
 
 // ================================================================================================
