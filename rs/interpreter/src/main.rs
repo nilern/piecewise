@@ -15,15 +15,10 @@ mod continuation;
 mod interpret;
 
 use std::io::{self, Read};
-use std::fmt::{self, Formatter};
 use std::str::FromStr;
-use std::collections::HashMap;
-use std::any::TypeId;
 
-use pcws_gc::GSize;
-use pcws_domain::{Allocator, DynamicDebug, DynamicDisplay, UnsafeFmtFn};
-use pcws_domain::object_model::{HeapValue, HeapValueSub};
-use pcws_domain::values::{self, Type};
+use pcws_domain::{Allocator, DynamicDisplay};
+use pcws_domain::values::Type;
 use pcws_syntax::cst::Expr;
 use inject::Inject;
 use continuation::{Halt, CalleeCont};
