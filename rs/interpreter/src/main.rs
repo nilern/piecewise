@@ -23,7 +23,7 @@ use std::any::TypeId;
 use pcws_gc::GSize;
 use pcws_domain::{Allocator, DynamicDebug, DynamicDisplay, UnsafeFmtFn};
 use pcws_domain::object_model::{HeapValue, HeapValueSub};
-use pcws_domain::values;
+use pcws_domain::values::{self, Type};
 use pcws_syntax::cst::Expr;
 use inject::Inject;
 use continuation::{Halt, CalleeCont};
@@ -39,13 +39,20 @@ fn main() {
 
             println!("\n---\n");
 
-            let mut allocator = Allocator::new(4*1024*1024, type_basis!(
-                values::Type, values::Promise, values::Tuple, values::String, values::Symbol,
-                ast::Function, ast::Block, ast::Match, ast::Case, ast::Def,
-                ast::Call, ast::PrimCall,
-                ast::Lex, ast::Dyn, ast::Const,
-                Halt, CalleeCont
-            ));
+            let mut allocator = Allocator::new(4*1024*1024);
+            Type::new::<ast::Function>(&mut allocator);
+            Type::new::<ast::Block>(&mut allocator);
+            Type::new::<ast::Match>(&mut allocator);
+            Type::new::<ast::Case>(&mut allocator);
+            Type::new::<ast::Def>(&mut allocator);
+            Type::new::<ast::Call>(&mut allocator);
+            Type::new::<ast::PrimCall>(&mut allocator);
+            Type::new::<ast::Lex>(&mut allocator);
+            Type::new::<ast::Dyn>(&mut allocator);
+            Type::new::<ast::Const>(&mut allocator);
+            Type::new::<Halt>(&mut allocator);
+            Type::new::<CalleeCont>(&mut allocator);
+
             let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
             println!("{}", ast.display_wrap(&mut allocator));
 

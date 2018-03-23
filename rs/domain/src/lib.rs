@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::any::TypeId;
 
 use pcws_gc::{GSize, Initializable, start_init, Generation};
-use object_model::{Sizing, HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
+use object_model::{HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
 use values::Type;
 
 pub use values::SymbolTable;
@@ -25,6 +25,22 @@ pub use values::SymbolTable;
 
 pub type UnsafeFmtFn =
     unsafe fn(&HeapValue, &mut Formatter, &mut Allocator) -> Result<(), fmt::Error>;
+
+unsafe fn debug_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+    -> Result<(), fmt::Error>
+    where T: DynamicDebug
+{
+    <T as DynamicDebug>::fmt(transmute::<_, &T>(val), f, alloc)
+}
+
+unsafe fn display_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+    -> Result<(), fmt::Error>
+    where T: DynamicDisplay
+{
+    <T as DynamicDisplay>::fmt(transmute::<_, &T>(val), f, alloc)
+}
+
+// ================================================================================================
 
 /// Value allocator.
 pub struct Allocator {
@@ -39,8 +55,7 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn new(max_heap: usize,
-               basis: HashMap<TypeId, (Sizing, GSize, usize, UnsafeFmtFn, UnsafeFmtFn)>)
+    pub fn new(max_heap: usize)
         -> Allocator
     {
         let mut allocator = Allocator {
@@ -57,21 +72,18 @@ impl Allocator {
         let type_type_index = TypeId::of::<Type>();
         {
             let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
-            let (sizing, min_gsize, min_ref_len, debug, display) = basis[&type_type_index];
             allocator.register_typ(type_type_index, ValueRefT::from(start_init(type_type)).into(),
-                                   debug, display);
+                                   debug_fn::<Type> as _, display_fn::<Type> as _);
             allocator.init_uniform(
-                type_type, |base| Type::make(base, sizing, min_gsize, min_ref_len));
+                type_type,
+                |base| Type::make(base, Type::SIZING, GSize::of::<Type>(), Type::MIN_REF_LEN)
+            );
         }
 
-        for (index, (sizing, min_gsize, min_ref_len, debug, display)) in basis {
-            if index != type_type_index {
-                let typ = allocator.create_uniform(|base|
-                    Type::make(base, sizing, min_gsize, min_ref_len)
-                ).unwrap().into();
-                allocator.register_typ(index, typ, debug, display);
-            }
-        }
+        Type::new::<values::Promise>(&mut allocator);
+        Type::new::<values::Tuple>(&mut allocator);
+        Type::new::<values::String>(&mut allocator);
+        Type::new::<values::Symbol>(&mut allocator);
 
         allocator
     }
@@ -150,7 +162,7 @@ impl Allocator {
         self.types[&TypeId::of::<T>()]
     }
 
-    fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>, f: UnsafeFmtFn, g: UnsafeFmtFn)
+    pub fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>, f: UnsafeFmtFn, g: UnsafeFmtFn)
     {
         self.types.insert(index, typ);
         self.debug_fns.insert(index, f);
@@ -177,39 +189,6 @@ impl Allocator {
     }
 
     fn symbol_table(&mut self) -> &mut SymbolTable { &mut self.symbols }
-}
-
-// ================================================================================================
-
-#[macro_export]
-macro_rules! type_basis {
-    ( $($Ts:path),* ) => {{
-        let mut types = HashMap::new();
-        $({
-            unsafe fn debug_fn(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-                -> Result<(), fmt::Error>
-            {
-                use std::mem::transmute;
-                <$Ts as DynamicDebug>::fmt(transmute::<_, &$Ts>(val), f, alloc)
-            }
-
-            unsafe fn display_fn(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-                -> Result<(), fmt::Error>
-            {
-                use std::mem::transmute;
-                <$Ts as DynamicDisplay>::fmt(transmute::<_, &$Ts>(val), f, alloc)
-            }
-
-            types.insert(TypeId::of::<$Ts>(), (
-                <$Ts as HeapValueSub>::SIZING,
-                GSize::of::<$Ts>(),
-                <$Ts as HeapValueSub>::MIN_REF_LEN,
-                debug_fn as UnsafeFmtFn,
-                display_fn as UnsafeFmtFn
-            ));
-        };)*
-        types
-    }}
 }
 
 // ================================================================================================

@@ -1,12 +1,14 @@
+use std::mem::transmute;
 use std::str;
 use std::string;
 use std::fmt::{self, Write, Formatter};
 use std::collections::HashMap;
+use std::any::TypeId;
 
 use pcws_gc::{GSize, start_init};
 
 use super::{Allocator, DynamicDebug, DynamicDisplay};
-use object_model::{RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
+use object_model::{HeapValueSub, RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
 
 // ================================================================================================
 
@@ -288,10 +290,31 @@ impl Type {
         }
     }
 
-    pub fn new(allocator: &mut Allocator, sizing: Sizing, min_gsize: GSize, min_ref_len: usize)
-        -> Option<ValueRefT<Type>>
+    pub fn new<T>(allocator: &mut Allocator) -> Option<ValueRefT<Type>>
+        where T: HeapValueSub + DynamicDebug + DynamicDisplay + 'static
     {
-        allocator.create_uniform(|base| Type::make(base, sizing, min_gsize, min_ref_len))
+        unsafe fn debug_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+            -> Result<(), fmt::Error>
+            where T: DynamicDebug
+        {
+            <T as DynamicDebug>::fmt(transmute::<_, &T>(val), f, alloc)
+        }
+
+        unsafe fn display_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
+            -> Result<(), fmt::Error>
+            where T: DynamicDisplay
+        {
+            <T as DynamicDisplay>::fmt(transmute::<_, &T>(val), f, alloc)
+        }
+
+        allocator.create_uniform(|base|
+                     Type::make(base, T::SIZING, GSize::of::<T>(), T::MIN_REF_LEN)
+                 )
+                 .map(|typ| {
+                     allocator.register_typ(TypeId::of::<T>(), typ,
+                                            debug_fn::<T> as _, display_fn::<T> as _);
+                     typ
+                 })
     }
 
     /// The constant portion (or minimum) granule size of instances.
