@@ -43,14 +43,6 @@ impl CstFactory {
         )
     }
 
-    fn block(&self, stmts: Vec<Stmt>, expr: Expr) -> Expr {
-        if stmts.is_empty() {
-            expr
-        } else {
-            Expr::Block(self.pos(), stmts, Box::new(expr))
-        }
-    }
-
     fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
         let apply = Expr::Lex(self.pos(), Def::new("apply"));
         let arg_tup = Expr::PrimCall(self.pos(), PrimOp::Tuple, args);

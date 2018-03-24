@@ -1,6 +1,5 @@
 #![feature(try_from)]
 
-#[macro_use]
 extern crate combine;
 extern crate pretty;
 

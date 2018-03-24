@@ -6,7 +6,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Display, Formatter};
 use std::iter;
-use combine::Parser;
 use pretty::{self, Doc, DocAllocator, DocBuilder};
 
 use lexer::Lexer;

@@ -1,10 +1,9 @@
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 
-use combine::{self, StreamOnce, Positioned, Parser,
-              position, value, optional, many, many1, none_of, between};
-use combine::char::{char, digit, letter, alpha_num, spaces};
-use combine::error::{StringStreamError, FastResult};
+use combine::{self, StreamOnce, Positioned, Parser};
+use combine::char::spaces;
+use combine::error::StringStreamError;
 use combine::stream::state::{State, Positioner};
 use combine::stream::{Resetable, StreamErrorFor};
 
@@ -22,15 +21,11 @@ pub enum Token {
 
     Lex(String),
     Dyn(String),
-    // Op(String, Precedence),
+    // TODO: Op(String, Precedence),
     Const(Const)
 }
 
 impl Token {
-    fn int(digits: String) -> Token { Token::Const(Const::Int(digits.parse().unwrap())) }
-
-    fn string(chars: String) -> Token { Token::Const(Const::String(chars)) }
-
     pub fn lex_name(self) -> Option<String> {
         if let Token::Lex(name) = self { Some(name) } else { None }
     }
@@ -131,6 +126,111 @@ impl<'input> Lexer<'input> {
             token_index: 0
         }
     }
+
+    // TODO: Use helper functions instead of manual loops (like in / the ones from `parser`).
+    /// Parse one `Token` from `self.chars`.
+    fn parse_token(&mut self) -> Result<Token, StreamErrorFor<Self>> {
+        let res = self.chars.uncons().and_then(|c| match c {
+            '(' => Ok(Token::LParen),
+            ')' => Ok(Token::RParen),
+            '[' => Ok(Token::LBracket),
+            ']' => Ok(Token::RBracket),
+            '{' => Ok(Token::LBrace),
+            '}' => Ok(Token::RBrace),
+            ',' => Ok(Token::Comma),
+            ';' => Ok(Token::Semicolon),
+            '=' => {
+                let checkpoint = self.chars.checkpoint();
+                match self.chars.uncons() {
+                    Ok('>') => Ok(Token::DArrow),
+                    _ => {
+                        self.chars.reset(checkpoint);
+                        Ok(Token::Eq)
+                    }
+                }
+            },
+            '|' => Ok(Token::Bar),
+            c if c.is_digit(10) => {
+                let mut cs = String::new();
+                cs.push(c);
+                loop {
+                    let checkpoint = self.chars.checkpoint();
+                    match self.chars.uncons() {
+                        Ok(c) if c.is_digit(10) => cs.push(c),
+                        _ => {
+                            self.chars.reset(checkpoint);
+                            break;
+                        }
+                    }
+                }
+                Ok(Token::Const(Const::Int(cs.parse().unwrap())))
+            },
+            '"' => {
+                let mut cs = String::new();
+                let checkpoint = self.chars.checkpoint();
+                loop {
+                    let checkpoint = self.chars.checkpoint();
+                    if let Ok(c) = self.chars.uncons() {
+                        cs.push(c);
+                    } else {
+                        self.chars.reset(checkpoint);
+                        break;
+                    }
+                }
+                match self.chars.uncons() {
+                    Ok('"') => Ok(Token::Const(Const::String(cs))),
+                    Ok(_) => Err(unimplemented!()),
+                    Err(err) => {
+                        self.chars.reset(checkpoint);
+                        Err(err)
+                    }
+                }
+            },
+            '$' => {
+                let mut cs = String::new();
+                loop {
+                    let checkpoint = self.chars.checkpoint();
+                    match self.chars.uncons() {
+                        Ok(c) if c.is_alphanumeric() => cs.push(c),
+                        _ => {
+                            self.chars.reset(checkpoint);
+                            break;
+                        }
+                    }
+                }
+                Ok(Token::Dyn(cs))
+            },
+            c if c.is_alphabetic() => {
+                let mut cs = String::new();
+                cs.push(c);
+                loop {
+                    let checkpoint = self.chars.checkpoint();
+                    match self.chars.uncons() {
+                        Ok(c) if c.is_alphanumeric() => cs.push(c),
+                        _ => {
+                            self.chars.reset(checkpoint);
+                            break;
+                        }
+                    }
+                }
+                Ok(Token::Lex(cs))
+            },
+            _ => Err(unimplemented!())
+        });
+
+        loop {
+            let checkpoint = self.chars.checkpoint();
+            match self.chars.uncons() {
+                Ok(c) if c.is_whitespace() => {},
+                _ => {
+                    self.chars.reset(checkpoint);
+                    break;
+                }
+            }
+        }
+
+        res
+    }
 }
 
 impl<'input> Iterator for Lexer<'input> {
@@ -154,44 +254,11 @@ impl<'input> StreamOnce for Lexer<'input> {
         } else if self.chars.input.is_empty() {
             Err(StringStreamError::Eoi)
         } else {
-            let mut parser = (position(), choice!(
-                char('(').with(value(Token::LParen)),
-                char(')').with(value(Token::RParen)),
-                char('[').with(value(Token::LBracket)),
-                char(']').with(value(Token::RBracket)),
-                char('{').with(value(Token::LBrace)),
-                char('}').with(value(Token::RBrace)),
-
-                char(',').with(value(Token::Comma)),
-                char(';').with(value(Token::Semicolon)),
-
-                (char('='), optional(char('>'))).map(|(_, arrowhead)| if arrowhead.is_some() {
-                    Token::DArrow
-                } else {
-                    Token::Eq
-                })
-                .or(char('|').map(|_| Token::Bar)),
-
-                many1(digit()).map(Token::int),
-                between(char('"'), char('"'), many1(none_of("\"".chars()))).map(Token::string),
-
-                char('$').with(many(alpha_num())).map(Token::Dyn),
-                (letter(), many(alpha_num())).map(|(c, mut cs): (_, String)| {
-                    cs.insert(0, c); // OPTIMIZE
-                    Token::Lex(cs)
-                })
-            ).skip(spaces()));
-
-            match parser.parse_stream_consumed(&mut self.chars) {
-                FastResult::ConsumedOk((pos, token)) => {
-                    self.buffer.push((pos, token.clone()));
-                    self.token_index += 1;
-                    Ok(token)
-                },
-                FastResult::EmptyOk(_) => unreachable!(),
-                FastResult::ConsumedErr(err) => Err(err),
-                FastResult::EmptyErr(err) => Err(err.error)
-            }
+            let pos = self.chars.position();
+            let tok = self.parse_token()?;
+            self.buffer.push((pos, tok.clone()));
+            self.token_index += 1;
+            Ok(tok)
         }
     }
 }
