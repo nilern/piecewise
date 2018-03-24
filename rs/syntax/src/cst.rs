@@ -10,23 +10,15 @@ use combine::Parser;
 use pretty::{self, Doc, DocAllocator, DocBuilder};
 
 use lexer::Lexer;
-use parser;
+use parser::{self, ParseError};
 
 // ================================================================================================
-
-#[derive(Debug)]
-pub struct ParseError(pub String);
 
 impl FromStr for Expr {
     type Err = ParseError;
 
     fn from_str(source: &str) -> Result<Expr, ParseError> {
-        let id_factory = RefCell::new(IdFactory::new());
-
-        match parser::program(&id_factory).parse(Lexer::new(source)) {
-            Ok((cst, _)) => Ok(cst),
-            Err(err) => Err(ParseError(format!("{}", err))) // HACK
-        }
+        parser::program(&mut Lexer::new(source), &RefCell::new(IdFactory::new()))
     }
 }
 
@@ -129,7 +121,7 @@ impl TryFrom<Expr> for Pattern {
 
     fn try_from(expr: Expr) -> Result<Pattern, IllegalPattern> {
         Ok(match expr {
-            Expr::Call(pos, callee, args) =>
+            Expr::Call(pos, callee, args) => // FIXME: Deal with `apply`:s from CstFactory
                 Pattern::Call(pos, *callee, args.into_iter()
                                                 .map(TryFrom::try_from)
                                                 .collect::<Result<Vec<_>, _>>()?),

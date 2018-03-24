@@ -1,10 +1,13 @@
-use std::convert::TryInto;
 use std::cell::RefCell;
-use combine::{many, many1, sep_by1, optional, between, eof, try, not_followed_by,
-              satisfy_map, token, position};
+use std::convert::TryFrom;
+use combine::stream::{StreamOnce, Resetable};
+use combine::error::StringStreamError;
 
-use lexer::{Lexer, Token};
-use cst::{Stmt, Expr, Pattern, Case, PrimOp, Const, Def, IdFactory, Pos, Positioned};
+use lexer::{Token, Lexer};
+use cst::{Expr, Stmt, Pattern, Case, PrimOp, Def, Const,
+          IllegalPattern, IdFactory, Pos, Positioned};
+
+// ================================================================================================
 
 #[derive(Debug)]
 struct CstFactory {
@@ -48,7 +51,6 @@ impl CstFactory {
         }
     }
 
-    // FIXME: This should not be done for patterns.
     fn call(&self, callee: Expr, args: Vec<Expr>) -> Expr {
         let apply = Expr::Lex(self.pos(), Def::new("apply"));
         let arg_tup = Expr::PrimCall(self.pos(), PrimOp::Tuple, args);
@@ -61,147 +63,185 @@ impl CstFactory {
 
 // ================================================================================================
 
-parser!{
-    pub fn program['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        body(id_factory).skip(eof())
-    }
+#[derive(Debug)]
+pub enum ParseError {
+    Lex(StringStreamError),
+    Token {
+        expected: Token,
+        received: Token
+    },
+    Expr,
+    Pattern(IllegalPattern)
 }
 
-parser!{
-    fn body['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        (position(), body_parts(ids))
-        .map(|(pos, (mut stmts, expr))| {
-            stmts.reverse();
-            CstFactory::new(pos).block(stmts, expr)
-        })
-    }
+impl From<StringStreamError> for ParseError {
+    fn from(err: StringStreamError) -> ParseError { ParseError::Lex(err) }
 }
 
-parser!{
-    fn body_parts['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>)
-        -> (Vec<Stmt>, Expr)
-    {
-        try(
-            (stmt(id_factory).skip(token(Token::Semicolon)),
-                body_parts(id_factory)).map(|(stmt, mut body)| {
-                     body.0.push(stmt);
-                     body
-                })
-        ).or(expr(id_factory).map(|expr| (Vec::new(), expr)))
-    }
+impl From<IllegalPattern> for ParseError {
+    fn from(err: IllegalPattern) -> ParseError { ParseError::Pattern(err) }
 }
 
-parser!{
-    fn stmt['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Stmt {
-        (expr(id_factory), optional(token(Token::Eq).with(expr(id_factory))))
-        .map(|(pattern, oval)| if let Some(val) = oval {
-            Stmt::Def(pattern.try_into().unwrap(), val)
+pub type ParseResult<T> = Result<T, ParseError>;
+
+// ================================================================================================
+
+fn try_parse<T, F>(lexer: &mut Lexer, f: F) -> ParseResult<T>
+    where F: FnOnce(&mut Lexer) -> ParseResult<T>
+{
+    let checkpoint = lexer.checkpoint();
+    f(lexer).map_err(|err| {
+        lexer.reset(checkpoint);
+        err
+    })
+}
+
+fn token(lexer: &mut Lexer, expected: Token) -> ParseResult<Token> {
+    try_parse(lexer, |lexer| {
+        let tok = lexer.uncons()?;
+        if tok == expected {
+            Ok(tok)
         } else {
-            Stmt::Expr(pattern)
-        })
-    }
+            Err(ParseError::Token { expected, received: tok })
+        }
+    })
 }
 
-parser!{
-    fn expr['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        call(id_factory)
-    }
+fn optional<T, F>(lexer: &mut Lexer, f: F) -> ParseResult<Option<T>>
+    where F: Fn(&mut Lexer) -> ParseResult<T>
+{
+    try_parse(lexer, f).map(Some).or(Ok(None))
 }
 
-parser!{
-    fn call['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        (position(), simple(ids), many::<Vec<_>, _>(simple(ids))).map(|(pos, callee, args)|
-            if !args.is_empty() {
-                CstFactory::new(pos).call(callee, args)
-            } else {
-                callee
-            }
-        )
+fn many<T, F>(lexer: &mut Lexer, f: F) -> ParseResult<Vec<T>>
+    where F: Fn(&mut Lexer) -> ParseResult<T>
+{
+    let mut vals = Vec::new();
+    while let Ok(v) = f(lexer) {
+        vals.push(v);
     }
+    Ok(vals)
 }
 
-parser!{
-    fn simple['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        choice!(
-            try(
-                (position(),
-                 between(token(Token::LBrace), token(Token::RBrace),
-                         sep_by1(method(ids), token(Token::Semicolon))))
-            ).map(|(pos, methods)| CstFactory::new(pos).function(methods)),
-            between(token(Token::LBrace), token(Token::RBrace), body(ids)),
-            (position(),
-             between(token(Token::LBracket), token(Token::RBracket), body(ids)))
-                .map(|(pos, body)| Expr::Function(pos, /* FIXME: */ vec![], Box::new(body))),
-            between(token(Token::LParen), token(Token::RParen), expr(ids)),
-            var(ids),
-            constant()
-        )
+fn many1<T, F>(lexer: &mut Lexer, f: F) -> ParseResult<Vec<T>>
+    where F: Fn(&mut Lexer) -> ParseResult<T>
+{
+    let mut vals = Vec::new();
+
+    vals.push(try_parse(lexer, |lexer| f(lexer))?);
+    while let Ok(v) = f(lexer) {
+        vals.push(v);
     }
+
+    Ok(vals)
 }
 
-parser!{
-    fn method['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Case {
-        (many1::<Vec<_>, _>(simple(ids)), position(), optional(token(Token::Bar).with(expr(ids))),
-         token(Token::DArrow).with(method_body(ids)))
-        .map(|(patterns, guard_pos, guard, body)|
-            Case {
-                pattern: Pattern::PrimCall(patterns[0].pos().clone(), PrimOp::Tuple,
-                                           patterns.into_iter()
-                                                   .map(|pat|
-                                                       pat.try_into().unwrap()
-                                                   )
-                                                   .collect()),
-                guard: guard.unwrap_or_else(|| Expr::Const(guard_pos, Const::Bool(true))),
-                body
-            }
-        )
+fn sep1<T, S, F, G>(lexer: &mut Lexer, f: F, separator: G) -> ParseResult<Vec<T>>
+    where F: Fn(&mut Lexer) -> ParseResult<T>,
+          G: Fn(&mut Lexer) -> ParseResult<S>
+{
+    let mut vals = Vec::new();
+    vals.push(f(lexer)?);
+    while let Ok(v) = try_parse(lexer, |lexer| separator(lexer).and_then(|_| f(lexer))) {
+        vals.push(v);
     }
+    Ok(vals)
 }
 
-// FIXME: almost the same as `body`.
-parser!{
-    fn method_body['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        (position(), method_body_parts(ids))
-        .map(|(pos, (mut stmts, expr))| {
-            stmts.reverse();
-            CstFactory::new(pos).block(stmts, expr)
-        })
-    }
+// ================================================================================================
+
+pub fn program(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Expr> {
+    body(lexer, ids)
 }
 
-// FIXME: almost the same as `body_parts`.
-parser!{
-    fn method_body_parts['a, 'input](id_factory: &'a RefCell<IdFactory>)(Lexer<'input>)
-        -> (Vec<Stmt>, Expr)
-    {
-        try(
-            (stmt(id_factory).skip(token(Token::Semicolon)),
-                method_body_parts(id_factory)).map(|(stmt, mut body)| {
-                     body.0.push(stmt);
-                     body
-                })
-        ).or(expr(id_factory).skip(not_followed_by(token(Token::DArrow).or(token(Token::Bar))))
-                             .map(|expr| (Vec::new(), expr)))
+fn body(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Expr> {
+    fn body_parts(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<(Vec<Stmt>, Expr)> {
+        let s = stmt(lexer, ids)?;
+        token(lexer, Token::Semicolon)?;
+        let (mut stmts, e) = body_work(lexer, ids)?;
+        stmts.push(s);
+        Ok((stmts, e))
     }
+
+    fn body_work(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<(Vec<Stmt>, Expr)> {
+        try_parse(lexer, |lexer| body_parts(lexer, ids))
+            .or_else(|_| Ok((Vec::new(), expr(lexer, ids)?)))
+    }
+
+    body_work(lexer, ids).map(|(mut stmts, e)| {
+        stmts.reverse();
+        Expr::Block(Pos::default(), stmts, Box::new(e))
+    })
 }
 
-parser!{
-    fn var['a, 'input](ids: &'a RefCell<IdFactory>)(Lexer<'input>) -> Expr {
-        let lex = (
-            position(), satisfy_map(Token::lex_name)
-        ).map(|(pos, name)| Expr::Lex(pos, ids.borrow_mut().usage(&name)));
-
-        let dyn = (
-            position(), satisfy_map(Token::dyn_name)
-        ).map(|(pos, name)| Expr::Dyn(pos, name));
-
-        lex.or(dyn)
-    }
+fn stmt(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Stmt> {
+    try_parse(lexer, |lexer| {
+        let pattern = Pattern::try_from(expr(lexer, ids)?)?;
+        token(lexer, Token::Eq)?;
+        let value = expr(lexer, ids)?;
+        Ok(Stmt::Def(pattern, value))
+    })
+    .or_else(|_| expr(lexer, ids).map(Stmt::Expr))
 }
 
-parser!{
-    fn constant['input]()(Lexer<'input>) -> Expr {
-        (position(), satisfy_map(|token: Token| token.try_into().ok()))
-        .map(|(pos, c)| Expr::Const(pos, c))
-    }
+fn expr(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Expr> {
+    call(lexer, ids)
+}
+
+fn call(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Expr> {
+    let callee = simple(lexer, ids)?;
+    let args = many(lexer, |lexer| simple(lexer, ids))?;
+    Ok(if !args.is_empty() {
+        CstFactory::new(Pos::default()).call(callee, args)
+    } else {
+        callee
+    })
+}
+
+fn simple(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Expr> {
+    try_parse(lexer, |lexer| match lexer.uncons()? {
+        Token::LBrace =>
+            try_parse(lexer, |lexer| {
+                let methods = sep1(lexer, |lexer| method(lexer, ids),
+                                          |lexer| token(lexer, Token::Semicolon))?;
+                token(lexer, Token::RBrace)?;
+                Ok(CstFactory::new(Pos::default()).function(methods))
+            })
+            .or_else(|_| {
+                let res = body(lexer, ids)?;
+                token(lexer, Token::RBrace)?;
+                Ok(res)
+            }),
+        Token::LBracket => {
+            let body = body(lexer, ids)?;
+            token(lexer, Token::RBracket)?;
+            Ok(Expr::Function(Pos::default(), /* FIXME: */ vec![], Box::new(body)))
+        }
+        Token::LParen => {
+            let res = expr(lexer, ids)?;
+            token(lexer, Token::RParen)?;
+            Ok(res)
+        },
+        Token::Lex(name) => Ok(Expr::Lex(Pos::default(), ids.borrow_mut().usage(&name))),
+        Token::Dyn(name) => Ok(Expr::Dyn(Pos::default(), name)),
+        Token::Const(c) => Ok(Expr::Const(Pos::default(), c)),
+        _ => Err(ParseError::Expr)
+    })
+}
+
+fn method(lexer: &mut Lexer, ids: &RefCell<IdFactory>) -> ParseResult<Case> {
+    let patterns = many1(lexer, |lexer| simple(lexer, ids))?.into_iter()
+                       .map(Pattern::try_from)
+                       .collect::<Result<Vec<_>, _>>()?;
+    let guard = optional(lexer, |lexer| {
+        token(lexer, Token::Bar)?;
+        expr(lexer, ids)
+    })?;
+    token(lexer, Token::DArrow)?;
+    let body = expr(lexer, ids)?;
+    Ok(Case {
+        pattern: Pattern::PrimCall(patterns[0].pos().clone(), PrimOp::Tuple, patterns),
+        guard: guard.unwrap_or_else(|| Expr::Const(Pos::default(), Const::Bool(true))),
+        body
+    })
 }

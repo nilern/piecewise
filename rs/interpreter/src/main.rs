@@ -14,8 +14,8 @@ mod env;
 mod continuation;
 mod interpret;
 
-use std::io::{self, Read};
 use std::str::FromStr;
+use std::io::{self, Read};
 
 use pcws_domain::Allocator;
 use pcws_domain::values::Type;
@@ -58,6 +58,6 @@ fn main() {
 
             println!("{}", interpret(ast).unwrap());
         },
-        Err(err) => println!("ParseError: {}", err.0)
+        Err(err) => println!("ParseError: {:?}", err)
     }
 }
