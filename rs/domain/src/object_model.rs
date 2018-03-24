@@ -4,11 +4,11 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::hash::{Hash, Hasher};
 use std::slice;
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 
 use pcws_gc::{GSize, Object, ObjectRef};
 
-use super::{Allocator, DynamicDebug, DynamicDisplay};
+use super::Allocator;
 use values::Type;
 
 // ================================================================================================
@@ -139,8 +139,8 @@ impl Object for HeapValue {
     }
 }
 
-impl DynamicDebug for HeapValue {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for HeapValue {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         let self_ref =
             ValueRef::from(unsafe { NonNull::new_unchecked((self as *const HeapValue) as _) });
         let mut dbg = f.debug_struct("HeapValue");
@@ -148,13 +148,13 @@ impl DynamicDebug for HeapValue {
         if self.link == self_ref {
             dbg.field("link", &"#[cycle]");
         } else {
-            dbg.field("link", &self.link.debug_wrap(types));
+            dbg.field("link", &self.link);
         }
 
         if ValueRef::from(self.typ) == self_ref {
             dbg.field("typ", &"#[cycle]");
         } else {
-            dbg.field("typ", &self.typ.debug_wrap(types));
+            dbg.field("typ", &self.typ);
         }
 
         dbg.finish()
@@ -170,10 +170,10 @@ pub struct DynHeapValue {
     pub dyn_len: usize
 }
 
-impl DynamicDebug for DynHeapValue {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for DynHeapValue {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("DynHeapValue")
-         .field("base", &self.base.debug_wrap(types))
+         .field("base", &self.base)
          .field("dyn_len", &self.dyn_len)
          .finish()
     }
@@ -265,18 +265,18 @@ impl ValueRef {
     }
 
     /// Is `self` an instance of `T`?
-    pub fn is_instance<T: HeapValueSub + 'static>(self, types: &mut Allocator) -> bool {
+    pub fn is_instance<T: HeapValueSub + 'static>(self) -> bool {
         if let Some(sptr) = self.ptr() {
-            unsafe { sptr.as_ref() }.typ == types.reify::<T>()
+            unsafe { sptr.as_ref() }.typ == Allocator::instance().reify::<T>()
         } else {
             false
         }
     }
 
-    pub fn try_downcast<T: HeapValueSub + 'static>(self, types: &mut Allocator)
+    pub fn try_downcast<T: HeapValueSub + 'static>(self)
         -> Option<ValueRefT<T>>
     {
-        if self.is_instance::<T>(types) {
+        if self.is_instance::<T>() {
             Some(unsafe { self.downcast() })
         } else {
             None
@@ -320,26 +320,28 @@ impl ObjectRef for ValueRef {
     fn is_pointy(self) -> bool { self.0 & Self::POINTY_BITS == Self::POINTY_BITS }
 }
 
-impl DynamicDebug for ValueRef {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for ValueRef {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         match self.view() {
-            ValueView::Int(n)   => n.fmt(f),
-            ValueView::Float(n) => n.fmt(f),
-            ValueView::Char(c)  => c.fmt(f),
-            ValueView::Bool(b)  => b.fmt(f),
-            ValueView::HeapValue(ptr) => types.debug_fmt_value(ptr, f)
+            ValueView::Int(n)   => Debug::fmt(&n, f),
+            ValueView::Float(n) => Debug::fmt(&n, f),
+            ValueView::Char(c)  => Debug::fmt(&c, f),
+            ValueView::Bool(b)  => Debug::fmt(&b, f),
+            ValueView::HeapValue(ptr) =>
+                Allocator::instance().debug(unsafe { ptr.as_ref() }, f)
         }
     }
 }
 
-impl DynamicDisplay for ValueRef {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for ValueRef {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         match self.view() {
-            ValueView::Int(n)   => n.fmt(f),
-            ValueView::Float(n) => n.fmt(f),
-            ValueView::Char(c)  => c.fmt(f),
-            ValueView::Bool(b)  => b.fmt(f),
-            ValueView::HeapValue(ptr) => types.display_fmt_value(ptr, f)
+            ValueView::Int(n)   => Display::fmt(&n, f),
+            ValueView::Float(n) => Display::fmt(&n, f),
+            ValueView::Char(c)  => Display::fmt(&c, f),
+            ValueView::Bool(b)  => Display::fmt(&b, f),
+            ValueView::HeapValue(ptr) =>
+                Allocator::instance().display(unsafe { ptr.as_ref() }, f)
         }
     }
 }
@@ -419,11 +421,11 @@ impl Unbox for ValueRefT<bool> {
     fn unbox(self) -> bool { unsafe { transmute(((self.0).0 >> ValueRef::SHIFT) as u8) } }
 }
 
-impl<T: Copy + Debug> Debug for ValueRefT<T> where Self: Unbox<Target=T> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        self.unbox().fmt(f)
-    }
-}
+// impl<T: Copy + Debug> Debug for ValueRefT<T> where Self: Unbox<Target=T> {
+//     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+//         self.unbox().fmt(f)
+//     }
+// }
 
 // ================================================================================================
 
@@ -451,14 +453,14 @@ impl<T: HeapValueSub> AsMut<ValueRef> for ValueRefT<T> {
     fn as_mut(&mut self) -> &mut ValueRef { unsafe { transmute(self) } }
 }
 
-impl<T: HeapValueSub + DynamicDebug> DynamicDebug for ValueRefT<T> {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
-        self.deref().fmt(f, types)
+impl<T: HeapValueSub + Debug> Debug for ValueRefT<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.deref().fmt(f)
     }
 }
 
-impl<T: HeapValueSub + DynamicDisplay> DynamicDisplay for ValueRefT<T> {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
-        self.deref().fmt(f, types)
+impl<T: HeapValueSub + Display> Display for ValueRefT<T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.deref().fmt(f)
     }
 }

@@ -1,6 +1,6 @@
-use std::fmt::{self, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 
-use pcws_domain::{Allocator, DynamicDebug, DynamicDisplay};
+use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
 use ast::Call;
 
@@ -16,16 +16,16 @@ impl Halt {
     }
 }
 
-impl DynamicDebug for Halt {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Halt {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Halt")
-         .field("base", &self.base.debug_wrap(types))
+         .field("base", &self.base)
          .finish()
     }
 }
 
-impl DynamicDisplay for Halt {
-    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for Halt {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "#<ContinuationFrame (Halt)>")
     }
 }
@@ -40,25 +40,25 @@ heap_struct! {
 }
 
 impl CalleeCont {
-    pub fn new(heap: &mut Allocator, parent: ValueRef, call: ValueRefT<Call>)
+    pub fn new(allocator: &mut Allocator, parent: ValueRef, call: ValueRefT<Call>)
         -> Option<ValueRefT<CalleeCont>>
     {
-        heap.create_uniform(|base| CalleeCont { base, parent, call })
+        allocator.create_uniform(|base| CalleeCont { base, parent, call })
     }
 }
 
-impl DynamicDebug for CalleeCont {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for CalleeCont {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("CalleeCont")
-         .field("base", &self.base.debug_wrap(types))
-         .field("parent", &self.parent.debug_wrap(types))
-         .field("call", &self.call.debug_wrap(types))
+         .field("base", &self.base)
+         .field("parent", &self.parent)
+         .field("call", &self.call)
          .finish()
     }
 }
 
-impl DynamicDisplay for CalleeCont {
-    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for CalleeCont {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "#<ContinuationFrame (Callee)>")
     }
 }

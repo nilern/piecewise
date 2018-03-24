@@ -1,6 +1,6 @@
-use std::fmt::{self, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 
-use pcws_domain::{Allocator, DynamicDebug, DynamicDisplay};
+use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
 use pcws_domain::values::Symbol;
 
@@ -36,14 +36,14 @@ impl Env {
     }
 }
 
-impl DynamicDebug for Env {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Env {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         unimplemented!()
     }
 }
 
-impl DynamicDisplay for Env {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for Env {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         unimplemented!()
     }
 }

@@ -17,7 +17,7 @@ mod interpret;
 use std::io::{self, Read};
 use std::str::FromStr;
 
-use pcws_domain::{Allocator, DynamicDisplay};
+use pcws_domain::Allocator;
 use pcws_domain::values::Type;
 use pcws_syntax::cst::Expr;
 use inject::Inject;
@@ -34,26 +34,29 @@ fn main() {
 
             println!("\n---\n");
 
-            let mut allocator = Allocator::new(4*1024*1024);
-            Type::new::<ast::Function>(&mut allocator);
-            Type::new::<ast::Block>(&mut allocator);
-            Type::new::<ast::Match>(&mut allocator);
-            Type::new::<ast::Case>(&mut allocator);
-            Type::new::<ast::Def>(&mut allocator);
-            Type::new::<ast::Call>(&mut allocator);
-            Type::new::<ast::PrimCall>(&mut allocator);
-            Type::new::<ast::Lex>(&mut allocator);
-            Type::new::<ast::Dyn>(&mut allocator);
-            Type::new::<ast::Const>(&mut allocator);
-            Type::new::<Halt>(&mut allocator);
-            Type::new::<CalleeCont>(&mut allocator);
+            let ast = {
+                let heap = &mut *Allocator::instance_mut();
+                Type::new::<ast::Function>(heap);
+                Type::new::<ast::Block>(heap);
+                Type::new::<ast::Match>(heap);
+                Type::new::<ast::Case>(heap);
+                Type::new::<ast::Def>(heap);
+                Type::new::<ast::Call>(heap);
+                Type::new::<ast::PrimCall>(heap);
+                Type::new::<ast::Lex>(heap);
+                Type::new::<ast::Dyn>(heap);
+                Type::new::<ast::Const>(heap);
+                Type::new::<Halt>(heap);
+                Type::new::<CalleeCont>(heap);
 
-            let ast = program.inject(&mut allocator).unwrap(); // FIXME: unwrap
-            println!("{}", ast.display_wrap(&mut allocator));
+                program.inject(heap).unwrap() // FIXME: unwrap
+            };
+
+            println!("{}", ast);
 
             println!("\n---\n");
 
-            println!("{}", interpret(&mut allocator, ast).unwrap().display_wrap(&mut allocator));
+            println!("{}", interpret(ast).unwrap());
         },
         Err(err) => println!("ParseError: {}", err.0)
     }

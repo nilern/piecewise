@@ -5,3 +5,4 @@ authors = ["Pauli Jaakkola <pauli.jaakkola@iki.fi>"]
 
 [dependencies]
 pcws-gc = { path = "../gc"}
+lazy_static = "1.0.0"

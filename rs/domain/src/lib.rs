@@ -1,6 +1,8 @@
 #![feature(nonzero, unique, ptr_internals, const_atomic_isize_new)]
 
 extern crate core;
+#[macro_use]
+extern crate lazy_static;
 
 extern crate pcws_gc;
 
@@ -9,11 +11,12 @@ pub mod values;
 
 use core::nonzero::NonZero;
 use std::mem::{size_of, transmute};
-use std::ptr::{Unique, NonNull};
+use std::ptr::Unique;
 use std::slice;
-use std::fmt::{self, Debug, Display, Formatter, Write};
 use std::collections::HashMap;
 use std::any::TypeId;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::fmt::{self, Debug, Display, Formatter};
 
 use pcws_gc::{GSize, Initializable, start_init, Generation};
 use object_model::{HeapValueSub, HeapValue, DynHeapValue, ValueRef, ValueRefT};
@@ -23,21 +26,18 @@ pub use values::SymbolTable;
 
 // ================================================================================================
 
-pub type UnsafeFmtFn =
-    unsafe fn(&HeapValue, &mut Formatter, &mut Allocator) -> Result<(), fmt::Error>;
+pub type UnsafeFmtFn = unsafe fn(&HeapValue, &mut Formatter) -> Result<(), fmt::Error>;
 
-unsafe fn debug_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-    -> Result<(), fmt::Error>
-    where T: DynamicDebug
+pub unsafe fn debug_fn<T>(value: &HeapValue, f: &mut Formatter) -> Result<(), fmt::Error>
+    where T: HeapValueSub + Debug
 {
-    <T as DynamicDebug>::fmt(transmute::<_, &T>(val), f, alloc)
+    <T as Debug>::fmt(transmute::<_, &T>(value), f)
 }
 
-unsafe fn display_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-    -> Result<(), fmt::Error>
-    where T: DynamicDisplay
+pub unsafe fn display_fn<T>(value: &HeapValue, f: &mut Formatter) -> Result<(), fmt::Error>
+    where T: HeapValueSub + Display
 {
-    <T as DynamicDisplay>::fmt(transmute::<_, &T>(val), f, alloc)
+    <T as Display>::fmt(transmute::<_, &T>(value), f)
 }
 
 // ================================================================================================
@@ -47,24 +47,52 @@ pub struct Allocator {
     gc: Generation<ValueRef>,
 
     types: HashMap<TypeId, ValueRefT<Type>>,
+    type_indices: HashMap<ValueRefT<Type>, TypeId>,
     debug_fns: HashMap<TypeId, UnsafeFmtFn>,
     display_fns: HashMap<TypeId, UnsafeFmtFn>,
-    type_indices: HashMap<ValueRefT<Type>, TypeId>,
 
     symbols: SymbolTable
 }
 
+unsafe impl Sync for Allocator {}
+unsafe impl Send for Allocator {}
+
+lazy_static! {
+    static ref ALLOCATOR: RwLock<Allocator> = {
+        RwLock::new(Allocator::new(4*1024*1024)) // FIXME: Heap size should be set by client
+    };
+}
+
 impl Allocator {
-    pub fn new(max_heap: usize)
-        -> Allocator
+    pub fn instance() -> RwLockReadGuard<'static, Allocator> {
+        ALLOCATOR.read().unwrap()
+    }
+
+    pub fn instance_mut() -> RwLockWriteGuard<'static, Allocator> {
+        ALLOCATOR.write().unwrap()
+    }
+
+    pub fn safepoint<T, F>(f: F, roots: &mut [&mut ValueRef]) -> Option<T>
+        where F: Fn(&mut Allocator) -> Option<T>
     {
+        let heap = &mut *ALLOCATOR.write().unwrap();
+        f(heap).or_else(|| {
+            for root in roots {
+                **root = heap.gc.mark_ref(**root);
+            }
+            unsafe { heap.gc.collect(); }
+            f(heap)
+        })
+    }
+
+    fn new(max_heap: usize) -> Allocator {
         let mut allocator = Allocator {
             gc: Generation::new(max_heap),
 
             types: HashMap::new(),
+            type_indices: HashMap::new(),
             debug_fns: HashMap::new(),
             display_fns: HashMap::new(),
-            type_indices: HashMap::new(),
 
             symbols: SymbolTable::new()
         };
@@ -73,7 +101,7 @@ impl Allocator {
         {
             let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
             allocator.register_typ(type_type_index, ValueRefT::from(start_init(type_type)).into(),
-                                   debug_fn::<Type> as _, display_fn::<Type> as _);
+                                   debug_fn::<Type>, display_fn::<Type>);
             allocator.init_uniform(
                 type_type,
                 |base| Type::make(base, Type::SIZING, GSize::of::<Type>(), Type::MIN_REF_LEN)
@@ -158,34 +186,25 @@ impl Allocator {
         self.create_with_iter(f, slice.len(), slice.iter().cloned())
     }
 
-    pub fn reify<T: HeapValueSub + 'static>(&mut self) -> ValueRefT<Type> {
+    pub fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>,
+                        debug_fn: UnsafeFmtFn, display_fn: UnsafeFmtFn)
+    {
+        self.types.insert(index, typ);
+        self.type_indices.insert(typ, index);
+        self.debug_fns.insert(index, debug_fn);
+        self.display_fns.insert(index, display_fn);
+    }
+
+    pub fn reify<T: HeapValueSub + 'static>(&self) -> ValueRefT<Type> {
         self.types[&TypeId::of::<T>()]
     }
 
-    pub fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>, f: UnsafeFmtFn, g: UnsafeFmtFn)
-    {
-        self.types.insert(index, typ);
-        self.debug_fns.insert(index, f);
-        self.display_fns.insert(index, g);
-        self.type_indices.insert(typ, index);
+    pub fn debug(&self, value: &HeapValue, f: &mut Formatter) -> Result<(), fmt::Error> {
+        unsafe { self.debug_fns[&self.type_indices[&value.typ]](value, f) }
     }
 
-    pub fn debug_fmt_value(&mut self, vref: NonNull<HeapValue>, f: &mut Formatter)
-        -> Result<(), fmt::Error>
-    {
-        unsafe {
-            let vref = vref.as_ref();
-            self.debug_fns[&self.type_indices[&vref.typ]](vref, f, self)
-        }
-    }
-
-    pub fn display_fmt_value(&mut self, vref: NonNull<HeapValue>, f: &mut Formatter)
-        -> Result<(), fmt::Error>
-    {
-        unsafe {
-            let vref = vref.as_ref();
-            self.display_fns[&self.type_indices[&vref.typ]](vref, f, self)
-        }
+    pub fn display(&self, value: &HeapValue, f: &mut Formatter) -> Result<(), fmt::Error> {
+        unsafe { self.display_fns[&self.type_indices[&value.typ]](value, f) }
     }
 
     fn symbol_table(&mut self) -> &mut SymbolTable { &mut self.symbols }
@@ -195,107 +214,36 @@ impl Allocator {
 
 #[macro_export]
 macro_rules! typecase_loop {
-    ( $v:ident, $types:ident, { $w:ident : $T:ty => $body:expr, $($tail:tt)* } ) => {
-        if let Some($w) = $v.try_downcast::<$T>($types) {
+    ( $v:ident, { $w:ident : $T:ty => $body:expr, $($tail:tt)* } ) => {
+        if let Some($w) = $v.try_downcast::<$T>() {
             $body
         } else {
-            typecase_loop!($v, $types, { $($tail)* })
+            typecase_loop!($v, { $($tail)* })
         }
     };
-    ( $v:ident, $types:ident, { mut $w:ident : $T:ty => $body:expr, $($tail:tt)* } ) => {
-        if let Some(mut $w) = $v.try_downcast::<$T>($types) {
+    ( $v:ident, { mut $w:ident : $T:ty => $body:expr, $($tail:tt)* } ) => {
+        if let Some(mut $w) = $v.try_downcast::<$T>() {
             $body
         } else {
-            typecase_loop!($v, $types, { $($tail)* })
+            typecase_loop!($v, { $($tail)* })
         }
     };
-    ( $v:ident, $types:ident, { $T:ty => $body:expr, $($tail:tt)* } ) => {
-        if let Some(_) = $v.try_downcast::<$T>($types) {
+    ( $v:ident, { $T:ty => $body:expr, $($tail:tt)* } ) => {
+        if let Some(_) = $v.try_downcast::<$T>() {
             $body
         } else {
-            typecase_loop!($v, $types, { $($tail)* })
+            typecase_loop!($v, { $($tail)* })
         }
     };
-    ( $v:ident, $types:ident, { _ => $body:expr } ) => {{
+    ( $v:ident, { _ => $body:expr } ) => {{
         $body
     }}
 }
 
 #[macro_export]
 macro_rules! typecase {
-    ( $v:expr, $types:ident, { $($tail:tt)* } ) => {{
+    ( $v:expr, { $($tail:tt)* } ) => {{
         let w = $v;
-        typecase_loop!(w, $types, { $($tail)* })
+        typecase_loop!(w, { $($tail)* })
     }}
-}
-
-// ================================================================================================
-
-/// Like `std::fmt::Debug`, but needs an `Allocator` because of the dynamic typing.
-pub trait DynamicDebug: Sized {
-    /// Formats the value using the given formatter.
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error>;
-
-    /// Wrap `self` and `types` into a `DynDebugWrapper`.
-    fn debug_wrap<'a, 'b>(&'a self, types: &'b mut Allocator) -> DynDebugWrapper<'a, 'b, Self> {
-        DynDebugWrapper {
-            value: self,
-            types: types
-        }
-    }
-}
-
-/// Wraps a `DynamicDebug` and an `Allocator` into a struct that implements `fmt::Debug`.
-pub struct DynDebugWrapper<'a, 'b, T: 'a + DynamicDebug> {
-    value: &'a T,
-    types: &'b Allocator
-}
-
-// HACK:
-#[allow(mutable_transmutes)]
-impl<'a, 'b, T: DynamicDebug> Debug for DynDebugWrapper<'a, 'b, T> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        self.value.fmt(f, unsafe { transmute::<_, &mut Allocator>(self.types) })
-    }
-}
-
-impl<'a, T> DynamicDebug for &'a [T] where T: DynamicDebug {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
-        f.write_char('[')?;
-        let mut vals = self.iter();
-        if let Some(v) = vals.next() { v.fmt(f, types)?; }
-        for v in vals { write!(f, ", {:?}", v.debug_wrap(types))?; }
-        f.write_char(']')
-    }
-}
-
-// ================================================================================================
-
-/// Like `std::fmt::Display`, but needs an `Allocator` because of the dynamic typing.
-pub trait DynamicDisplay: Sized {
-    /// Formats the value using the given formatter.
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error>;
-
-    /// Wrap `self` and `types` into a `DynDisplayWrapper`.
-    fn display_wrap<'a, 'b>(&'a self, types: &'b mut Allocator) -> DynDisplayWrapper<'a, 'b, Self>
-    {
-        DynDisplayWrapper {
-            value: self,
-            types: types
-        }
-    }
-}
-
-/// Wraps a `DynamicDisplay` and an `Allocator` into a struct that implements `fmt::Display`.
-pub struct DynDisplayWrapper<'a, 'b, T: 'a + DynamicDisplay> {
-    value: &'a T,
-    types: &'b Allocator
-}
-
-// HACK:
-#[allow(mutable_transmutes)]
-impl<'a, 'b, T: DynamicDisplay> Display for DynDisplayWrapper<'a, 'b, T> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        self.value.fmt(f, unsafe { transmute::<_, &mut Allocator>(self.types) })
-    }
 }

@@ -1,13 +1,12 @@
-use std::mem::transmute;
 use std::str;
 use std::string;
-use std::fmt::{self, Write, Formatter};
+use std::fmt::{self, Debug, Display, Write, Formatter};
 use std::collections::HashMap;
 use std::any::TypeId;
 
 use pcws_gc::{GSize, start_init};
 
-use super::{Allocator, DynamicDebug, DynamicDisplay};
+use super::{Allocator, debug_fn, display_fn};
 use object_model::{HeapValueSub, RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
 
 // ================================================================================================
@@ -101,31 +100,31 @@ heap_struct! {
 }
 
 impl Tuple {
-    pub fn new<I>(allocator: &mut Allocator, len: usize, values: I) -> Option<ValueRefT<Tuple>>
-        where I: Iterator<Item=ValueRef>
+    pub fn new<I: Iterator<Item=ValueRef>>(allocator: &mut Allocator, len: usize, values: I)
+        -> Option<ValueRefT<Tuple>>
     {
         allocator.create_with_iter(|base| Tuple { base }, len, values)
     }
 }
 
-impl DynamicDebug for Tuple {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Tuple {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Tuple")
-         .field("base", &self.base.debug_wrap(types))
-         .field("tail", &self.tail().debug_wrap(types))
+         .field("base", &self.base)
+         .field("tail", &self.tail())
          .finish()
     }
 }
 
-impl DynamicDisplay for Tuple {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for Tuple {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.write_char('(')?;
         let mut vals = self.tail().iter();
         if let Some(v) = vals.next() {
-            <_ as DynamicDisplay>::fmt(v, f, types)?;
+            <_ as Display>::fmt(v, f)?;
         }
         for v in vals {
-            write!(f, ", {}", v.display_wrap(types))?;
+            write!(f, ", {}", v)?;
         }
         f.write_char(')')
     }
@@ -148,17 +147,17 @@ impl String {
     }
 }
 
-impl DynamicDebug for String {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for String {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("String")
-         .field("base", &self.base.debug_wrap(types))
+         .field("base", &self.base)
          .field("chars", &self.chars())
          .finish()
     }
 }
 
-impl DynamicDisplay for String {
-    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for String {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:?}", self.chars())
     }
 }
@@ -188,17 +187,17 @@ impl Symbol {
     }
 }
 
-impl DynamicDebug for Symbol {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Symbol {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Symbol")
-         .field("base", &self.base.debug_wrap(types))
+         .field("base", &self.base)
          .field("chars", &self.chars())
          .finish()
     }
 }
 
-impl DynamicDisplay for Symbol {
-    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for Symbol {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, ":{}", self.chars())
     }
 }
@@ -251,17 +250,17 @@ impl Promise {
     }
 }
 
-impl DynamicDebug for Promise {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Promise {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Promise")
-         .field("base", &self.base.debug_wrap(types))
+         .field("base", &self.base)
          .finish()
     }
 }
 
-impl DynamicDisplay for Promise {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
-        <_ as DynamicDisplay>::fmt(&self.base.link, f, types)
+impl Display for Promise {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        <_ as Display>::fmt(&self.base.link, f)
     }
 }
 
@@ -290,29 +289,15 @@ impl Type {
         }
     }
 
-    pub fn new<T>(allocator: &mut Allocator) -> Option<ValueRefT<Type>>
-        where T: HeapValueSub + DynamicDebug + DynamicDisplay + 'static
+    pub fn new<T>(allocator: &mut Allocator, ) -> Option<ValueRefT<Type>>
+        where T: HeapValueSub + Debug + Display + 'static
     {
-        unsafe fn debug_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-            -> Result<(), fmt::Error>
-            where T: DynamicDebug
-        {
-            <T as DynamicDebug>::fmt(transmute::<_, &T>(val), f, alloc)
-        }
-
-        unsafe fn display_fn<T>(val: &HeapValue, f: &mut Formatter, alloc: &mut Allocator)
-            -> Result<(), fmt::Error>
-            where T: DynamicDisplay
-        {
-            <T as DynamicDisplay>::fmt(transmute::<_, &T>(val), f, alloc)
-        }
-
         allocator.create_uniform(|base|
                      Type::make(base, T::SIZING, GSize::of::<T>(), T::MIN_REF_LEN)
                  )
                  .map(|typ| {
                      allocator.register_typ(TypeId::of::<T>(), typ,
-                                            debug_fn::<T> as _, display_fn::<T> as _);
+                                            debug_fn::<T>, display_fn::<T>);
                      typ
                  })
     }
@@ -330,18 +315,18 @@ impl Type {
     pub fn has_dyn_ref_len(&self) -> bool { self.ref_len_with_dyn & 0b1 == 1 }
 }
 
-impl DynamicDebug for Type {
-    fn fmt(&self, f: &mut Formatter, types: &mut Allocator) -> Result<(), fmt::Error> {
+impl Debug for Type {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Type")
-         .field("heap_value", &self.base.debug_wrap(types))
+         .field("heap_value", &self.base)
          .field("gsize_with_dyn", &self.gsize_with_dyn)
          .field("ref_len_with_dyn", &self.ref_len_with_dyn)
          .finish()
     }
 }
 
-impl DynamicDisplay for Type {
-    fn fmt(&self, f: &mut Formatter, _: &mut Allocator) -> Result<(), fmt::Error> {
+impl Display for Type {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "Type({:x}, {:x})", self.gsize_with_dyn, self.ref_len_with_dyn)
     }
 }
