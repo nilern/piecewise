@@ -458,12 +458,12 @@ impl<T: HeapValueSub> DerefMut for ValueRefT<T> {
     fn deref_mut(&mut self) -> &mut T { unsafe { transmute(self.0.unchecked_ptr()) } }
 }
 
-impl<T: HeapValueSub> AsRef<ValueRef> for ValueRefT<T> {
-    fn as_ref(&self) -> &ValueRef { unsafe { transmute(self) } }
+impl<T: HeapValueSub> AsRef<Option<ValueRef>> for ValueRefT<T> {
+    fn as_ref(&self) -> &Option<ValueRef> { unsafe { transmute(self) } }
 }
 
-impl<T: HeapValueSub> AsMut<ValueRef> for ValueRefT<T> {
-    fn as_mut(&mut self) -> &mut ValueRef { unsafe { transmute(self) } }
+impl<T: HeapValueSub> AsMut<Option<ValueRef>> for ValueRefT<T> {
+    fn as_mut(&mut self) -> &mut Option<ValueRef> { unsafe { transmute(self) } }
 }
 
 impl<T: HeapValueSub + Debug> Debug for ValueRefT<T> {

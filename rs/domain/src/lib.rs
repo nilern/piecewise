@@ -72,13 +72,13 @@ impl Allocator {
         ALLOCATOR.write().unwrap()
     }
 
-    pub fn safepoint<T, F>(f: F, roots: &mut [&mut ValueRef]) -> Option<T>
+    pub fn safepoint<T, F>(f: F, roots: &mut [&mut Option<ValueRef>]) -> Option<T>
         where F: Fn(&mut Allocator) -> Option<T>
     {
         let heap = &mut *ALLOCATOR.write().unwrap();
         f(heap).or_else(|| {
             for root in roots {
-                *(*root).as_mut() = heap.gc.mark_ref(*(*root).as_ref());
+                **root = heap.gc.mark_ref(**root);
             }
             unsafe { heap.gc.collect(); }
             f(heap)

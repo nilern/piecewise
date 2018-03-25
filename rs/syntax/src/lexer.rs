@@ -167,22 +167,11 @@ impl<'input> Lexer<'input> {
             },
             '"' => {
                 let mut cs = String::new();
-                let checkpoint = self.chars.checkpoint();
                 loop {
-                    let checkpoint = self.chars.checkpoint();
-                    if let Ok(c) = self.chars.uncons() {
-                        cs.push(c);
-                    } else {
-                        self.chars.reset(checkpoint);
-                        break;
-                    }
-                }
-                match self.chars.uncons() {
-                    Ok('"') => Ok(Token::Const(Const::String(cs))),
-                    Ok(_) => Err(unimplemented!()),
-                    Err(err) => {
-                        self.chars.reset(checkpoint);
-                        Err(err)
+                    match self.chars.uncons() {
+                        Ok('"') => return Ok(Token::Const(Const::String(cs))),
+                        Ok(c) => cs.push(c),
+                        Err(err) => return Err(err)
                     }
                 }
             },

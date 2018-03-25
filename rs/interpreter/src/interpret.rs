@@ -1,7 +1,9 @@
-use pcws_domain::object_model::ValueRef;
-use pcws_domain::Allocator;
+use std::mem::transmute;
 
+use pcws_domain::object_model::{HeapValueSub, ValueRef, ValueRefT};
+use pcws_domain::Allocator;
 use ast::{Call, Def, Const};
+use env::Env;
 use continuation::{CalleeCont, Halt};
 
 // ================================================================================================
@@ -14,13 +16,18 @@ pub enum EvalError {
 pub type EvalResult<T> = Result<T, EvalError>;
 
 pub fn interpret(mut program: ValueRef) -> EvalResult<ValueRef> {
-    let cont = safepoint(Halt::new, &mut [&mut program])?.into();
-    let mut state = State::Eval { expr: program, cont };
+    let cont = safepoint(Halt::new, &mut [program.as_mut()])?.into();
+    let mut state = State::Eval {
+        expr: program,
+        lenv: None,
+        denv: None,
+        cont
+    };
 
     loop { // trampoline
         state = match state {
-            State::Eval { expr, cont } => eval(expr, cont)?,
-            State::Exec { stmt, cont } => exec(stmt, cont)?,
+            State::Eval { expr, lenv, denv, cont } => eval(expr, lenv, denv, cont)?,
+            State::Exec { stmt, lenv, denv, cont } => exec(stmt, lenv, denv, cont)?,
             State::Continue { value, cont } => invoke(value, cont)?,
             State::Halt(value) => return Ok(value)
         };
@@ -32,10 +39,14 @@ pub fn interpret(mut program: ValueRef) -> EvalResult<ValueRef> {
 enum State {
     Eval {
         expr: ValueRef,
+        lenv: Option<ValueRefT<Env>>,
+        denv: Option<ValueRefT<Env>>,
         cont: ValueRef
     },
     Exec {
         stmt: ValueRef,
+        lenv: Option<ValueRefT<Env>>,
+        denv: Option<ValueRefT<Env>>,
         cont: ValueRef
     },
     Continue {
@@ -45,22 +56,27 @@ enum State {
     Halt(ValueRef)
 }
 
-fn eval(expr: ValueRef, mut cont: ValueRef) -> EvalResult<State> {
+fn eval(expr: ValueRef, mut lenv: Option<ValueRefT<Env>>, mut denv: Option<ValueRefT<Env>>,
+        mut cont: ValueRef) -> EvalResult<State>
+{
     typecase!(expr, {
         mut call: Call => {
             let cont = safepoint(move |heap| CalleeCont::new(heap, cont.into(), call),
-                                 &mut [call.as_mut(), &mut cont])?;
-            Ok(State::Eval { expr: call.callee(), cont: cont.into() })
+                                 &mut [call.as_mut(), as_mut(&mut lenv), as_mut(&mut denv),
+                                       cont.as_mut()])?;
+            Ok(State::Eval { expr: call.callee(), lenv, denv, cont: cont.into() })
         },
         c: Const => Ok(State::Continue { value: c.value(), cont }),
         _ => unimplemented!()
     })
 }
 
-fn exec(stmt: ValueRef, cont: ValueRef) -> EvalResult<State> {
+fn exec(stmt: ValueRef, lenv: Option<ValueRefT<Env>>, denv: Option<ValueRefT<Env>>,
+        cont: ValueRef) -> EvalResult<State>
+{
     typecase!(stmt, {
         def: Def => unimplemented!(),
-        _ => eval(stmt, cont)
+        _ => eval(stmt, lenv, denv, cont)
     })
 }
 
@@ -71,8 +87,14 @@ fn invoke(value: ValueRef, cont: ValueRef) -> EvalResult<State> {
     })
 }
 
-fn safepoint<T, F>(f: F, roots: &mut [&mut ValueRef]) -> EvalResult<T>
+// ================================================================================================
+
+fn safepoint<T, F>(f: F, roots: &mut [&mut Option<ValueRef>]) -> EvalResult<T>
     where F: Fn(&mut Allocator) -> Option<T>
 {
     Allocator::safepoint(f, roots).ok_or(EvalError::OOM)
+}
+
+fn as_mut<T: HeapValueSub>(vref: &mut Option<ValueRefT<T>>) -> &mut Option<ValueRef> {
+    unsafe { transmute(vref) }
 }
