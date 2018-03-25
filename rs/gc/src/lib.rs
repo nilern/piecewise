@@ -23,7 +23,7 @@ pub trait Object {
     /// The `ObjectRef` pointing to and contained in fields of `Self`.
     type ORef: ObjectRef;
     /// Iterator over pointers to `ValueRef` fields of `Self`.
-    type RefIter: Iterator<Item=NonNull<Self::ORef>>;
+    type RefIter: Iterator<Item=NonNull<Option<Self::ORef>>>;
 
     /// Allocated size of `self` in granules.
     fn gsize(&self) -> GSize;

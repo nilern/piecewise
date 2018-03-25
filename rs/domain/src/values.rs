@@ -232,7 +232,7 @@ impl Promise {
                      let mut uptr = start_init(iptr);
                      *unsafe { uptr.as_mut() } = Promise {
                          base: HeapValue {
-                             link: ValueRef::NULL,
+                             link: None,
                              typ: allocator.reify::<Promise>()
                          }
                      };
@@ -241,8 +241,8 @@ impl Promise {
     }
 
     pub fn init(&mut self, value: ValueRef) -> Result<(), Reinit> {
-        if self.base.link == ValueRef::NULL {
-            self.base.link = value;
+        if self.base.link.is_none() {
+            self.base.link = Some(value);
             Ok(())
         } else {
             Err(Reinit)
@@ -260,7 +260,7 @@ impl Debug for Promise {
 
 impl Display for Promise {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        <_ as Display>::fmt(&self.base.link, f)
+        <_ as Display>::fmt(&self.base.link.unwrap(), f)
     }
 }
 

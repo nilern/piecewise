@@ -78,7 +78,7 @@ impl Allocator {
         let heap = &mut *ALLOCATOR.write().unwrap();
         f(heap).or_else(|| {
             for root in roots {
-                **root = heap.gc.mark_ref(**root);
+                *(*root).as_mut() = heap.gc.mark_ref(*(*root).as_ref());
             }
             unsafe { heap.gc.collect(); }
             f(heap)
@@ -122,7 +122,7 @@ impl Allocator {
         let uptr = start_init(ptr);
         let tvref = ValueRefT::from(uptr);
         f(uptr, HeapValue {
-            link: tvref.into(),
+            link: Some(tvref.into()),
             typ: self.reify::<T>()
         });
         tvref

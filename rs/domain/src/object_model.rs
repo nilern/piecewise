@@ -1,3 +1,4 @@
+use core::nonzero::NonZero;
 use std::mem::transmute;
 use std::ptr::{Unique, NonNull};
 use std::marker::PhantomData;
@@ -42,7 +43,7 @@ pub trait UniformHeapValue: HeapValueSub {}
 /// A dynamically sized `HeapValue` whose tail contains `ValueRef`:s.
 pub trait RefTailed: HeapValueSub {
     /// The type of tail elements.
-    type TailItem: Into<ValueRef>;
+    type TailItem: Into<Option<ValueRef>>;
 
     /// Get the tail slice.
     fn tail(&self) -> &[Self::TailItem] {
@@ -73,7 +74,7 @@ pub trait BlobTailed: HeapValueSub {
 #[repr(C)]
 pub struct HeapValue {
     /// Multipurpose redirection field
-    pub link: ValueRef,
+    pub link: Option<ValueRef>,
     /// Dynamic type
     pub typ: ValueRefT<Type>
 }
@@ -85,17 +86,16 @@ impl HeapValue {
         let mut vref = ValueRef::from(unsafe { NonNull::new_unchecked(ptr as *mut _) });
 
         loop {
-            let link = unsafe { (*ptr).link };
-            if link == vref {
-                return Some(vref);
-            } else if link == ValueRef::NULL {
-                return None;
-            } else {
-                vref = link;
-                if let Some(sptr) = vref.ptr() {
-                    ptr = sptr.as_ptr();
-                } else {
-                    return Some(vref);
+            match unsafe { (*ptr).link } {
+                Some(link) if link == vref => return Some(vref),
+                None => return None,
+                Some(link) => {
+                    vref = link;
+                    if let Some(sptr) = vref.ptr() {
+                        ptr = sptr.as_ptr();
+                    } else {
+                        return Some(vref);
+                    }
                 }
             }
         }
@@ -109,7 +109,7 @@ impl HeapValue {
         }
     }
 
-    fn refs_ptr(&self) -> *mut ValueRef {
+    fn refs_ptr(&self) -> *mut Option<ValueRef> {
         if self.typ.has_dyn_ref_len() {
             (unsafe { transmute::<_, *const DynHeapValue>(self).offset(1) }) as _
         } else {
@@ -145,11 +145,11 @@ impl Debug for HeapValue {
             ValueRef::from(unsafe { NonNull::new_unchecked((self as *const HeapValue) as _) });
         let mut dbg = f.debug_struct("HeapValue");
 
-        if self.link == self_ref {
-            dbg.field("link", &"#[cycle]");
-        } else {
-            dbg.field("link", &self.link);
-        }
+        match self.link {
+            Some(link) if link == self_ref => dbg.field("link", &"#[cycle]"),
+            Some(_) => dbg.field("link", &self.link),
+            None => dbg.field("link", &"#[null]")
+        };
 
         if ValueRef::from(self.typ) == self_ref {
             dbg.field("typ", &"#[cycle]");
@@ -183,13 +183,13 @@ impl Debug for DynHeapValue {
 pub enum ObjRefs {
     Link(NonNull<HeapValue>),
     Type(NonNull<HeapValue>),
-    Fields(*mut ValueRef, usize)
+    Fields(*mut Option<ValueRef>, usize)
 }
 
 impl Iterator for ObjRefs {
-    type Item = NonNull<ValueRef>;
+    type Item = NonNull<Option<ValueRef>>;
 
-    fn next(&mut self) -> Option<NonNull<ValueRef>> {
+    fn next(&mut self) -> Option<Self::Item> {
         use self::ObjRefs::*;
 
         unsafe {
@@ -218,7 +218,7 @@ impl Iterator for ObjRefs {
 
 /// A value reference (tagged pointer).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ValueRef(usize);
+pub struct ValueRef(NonZero<usize>);
 
 enum ValueView {
     Int(isize),
@@ -234,19 +234,16 @@ impl ValueRef {
     const PTR_BIT: usize = 0b001;
     const POINTY_BITS: usize = 0b011;
 
-    const INT_TAG  : usize = 0b000;
-    const FLOAT_TAG: usize = 0b010;
-    const CHAR_TAG : usize = 0b100;
-    const BOOL_TAG : usize = 0b110;
-
-    /// The null reference.
-    pub const NULL: ValueRef = ValueRef(0b001);
+    const INT_TAG  : usize = 0b001;
+    const FLOAT_TAG: usize = 0b011;
+    const CHAR_TAG : usize = 0b101;
+    const BOOL_TAG : usize = 0b111;
 
     /// Does `self` contain a pointer?
-    pub fn is_ptr(self) -> bool { self.0 & Self::PTR_BIT == Self::PTR_BIT }
+    pub fn is_ptr(self) -> bool { self.0.get() & Self::PTR_BIT == 0 }
 
     unsafe fn unchecked_ptr(self) -> *mut HeapValue {
-        (self.0 & !Self::TAG_MASK) as *mut HeapValue
+        (self.0.get() & !Self::TAG_MASK) as *mut HeapValue
     }
 
     /// Get the actual (non-`Promise`) reference to `self`. If the link chain ends at an
@@ -273,9 +270,7 @@ impl ValueRef {
         }
     }
 
-    pub fn try_downcast<T: HeapValueSub + 'static>(self)
-        -> Option<ValueRefT<T>>
-    {
+    pub fn try_downcast<T: HeapValueSub + 'static>(self) -> Option<ValueRefT<T>> {
         if self.is_instance::<T>() {
             Some(unsafe { self.downcast() })
         } else {
@@ -284,12 +279,13 @@ impl ValueRef {
     }
 
     fn view(self) -> ValueView {
+        let self_bits = self.0.get();
         unsafe {
-            match self.0 & Self::TAG_MASK {
-                Self::INT_TAG   => ValueView::Int((self.0 >> Self::SHIFT) as isize),
-                Self::FLOAT_TAG => ValueView::Float(transmute(self.0 & !Self::TAG_MASK)),
-                Self::CHAR_TAG  => ValueView::Char(transmute((self.0 >> Self::SHIFT) as u32)),
-                Self::BOOL_TAG  => ValueView::Bool(transmute((self.0 >> Self::SHIFT) as u8)),
+            match self_bits & Self::TAG_MASK {
+                Self::INT_TAG   => ValueView::Int((self_bits >> Self::SHIFT) as isize),
+                Self::FLOAT_TAG => ValueView::Float(transmute(self_bits & !Self::TAG_MASK)),
+                Self::CHAR_TAG  => ValueView::Char(transmute((self_bits >> Self::SHIFT) as u32)),
+                Self::BOOL_TAG  => ValueView::Bool(transmute((self_bits >> Self::SHIFT) as u8)),
                 _ => ValueView::HeapValue(self.ptr().unwrap())
             }
         }
@@ -298,7 +294,7 @@ impl ValueRef {
 
 impl From<NonNull<HeapValue>> for ValueRef {
     fn from(sptr: NonNull<HeapValue>) -> ValueRef {
-        ValueRef(sptr.as_ptr() as usize | Self::PTR_BIT)
+        ValueRef(unsafe { NonZero::new_unchecked(sptr.as_ptr() as usize) })
     }
 }
 
@@ -306,18 +302,26 @@ impl<T> From<ValueRefT<T>> for ValueRef {
     fn from(svref: ValueRefT<T>) -> ValueRef { svref.0 }
 }
 
+impl AsRef<Option<ValueRef>> for ValueRef {
+    fn as_ref(&self) -> &Option<ValueRef> { unsafe { transmute(self) } }
+}
+
+impl AsMut<Option<ValueRef>> for ValueRef {
+    fn as_mut(&mut self) -> &mut Option<ValueRef> { unsafe { transmute(self) } }
+}
+
 impl ObjectRef for ValueRef {
     type Obj = HeapValue;
 
     fn ptr(self) -> Option<NonNull<HeapValue>> {
         if self.is_ptr() {
-            NonNull::new((self.0 & !Self::TAG_MASK) as _)
+            NonNull::new(unsafe { self.unchecked_ptr() })
         } else {
             None
         }
     }
 
-    fn is_pointy(self) -> bool { self.0 & Self::POINTY_BITS == Self::POINTY_BITS }
+    fn is_pointy(self) -> bool { self.0.get() & Self::POINTY_BITS == Self::POINTY_BITS }
 }
 
 impl Debug for ValueRef {
@@ -366,33 +370,41 @@ impl<T> Hash for ValueRefT<T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher { self.0.hash(state) }
 }
 
+impl<T> From<ValueRefT<T>> for Option<ValueRef> {
+    fn from(vref: ValueRefT<T>) -> Option<ValueRef> { Some(vref.into()) }
+}
+
 // ================================================================================================
 
 impl From<isize> for ValueRefT<isize> {
     fn from(n: isize) -> ValueRefT<isize> {
-        ValueRefT(ValueRef((n as usize) << ValueRef::SHIFT | ValueRef::INT_TAG),
+        ValueRefT(ValueRef(unsafe { NonZero::new_unchecked(
+                               (n as usize) << ValueRef::SHIFT | ValueRef::INT_TAG) }),
                   PhantomData::default())
     }
 }
 
 impl From<f64> for ValueRefT<f64> {
     fn from(n: f64) -> ValueRefT<f64> {
-        ValueRefT(ValueRef((unsafe { transmute::<_, usize>(n) } & !ValueRef::TAG_MASK)
-                           | ValueRef::FLOAT_TAG),
+        ValueRefT(ValueRef(unsafe { NonZero::new_unchecked(
+                               (transmute::<_, usize>(n) & !ValueRef::TAG_MASK)
+                               | ValueRef::FLOAT_TAG) }),
                   PhantomData::default())
     }
 }
 
 impl From<char> for ValueRefT<char> {
     fn from(c: char) -> ValueRefT<char> {
-        ValueRefT(ValueRef((c as usize) << ValueRef::SHIFT | ValueRef::CHAR_TAG),
+        ValueRefT(ValueRef(unsafe { NonZero::new_unchecked(
+                               (c as usize) << ValueRef::SHIFT | ValueRef::CHAR_TAG) }),
                   PhantomData::default())
     }
 }
 
 impl From<bool> for ValueRefT<bool> {
     fn from(b: bool) -> ValueRefT<bool> {
-        ValueRefT(ValueRef((b as usize) << ValueRef::SHIFT | ValueRef::BOOL_TAG),
+        ValueRefT(ValueRef(unsafe { NonZero::new_unchecked(
+                               (b as usize) << ValueRef::SHIFT | ValueRef::BOOL_TAG) }),
                   PhantomData::default())
     }
 }
@@ -400,25 +412,25 @@ impl From<bool> for ValueRefT<bool> {
 impl Unbox for ValueRefT<isize> {
     type Target = isize;
 
-    fn unbox(self) -> isize { ((self.0).0 >> ValueRef::SHIFT) as isize }
+    fn unbox(self) -> isize { ((self.0).0.get() >> ValueRef::SHIFT) as isize }
 }
 
 impl Unbox for ValueRefT<f64> {
     type Target = f64;
 
-    fn unbox(self) -> f64 { unsafe { transmute(((self.0).0 & !ValueRef::TAG_MASK) as f64) } }
+    fn unbox(self) -> f64 { unsafe { transmute(((self.0).0.get() & !ValueRef::TAG_MASK) as f64) } }
 }
 
 impl Unbox for ValueRefT<char> {
     type Target = char;
 
-    fn unbox(self) -> char { unsafe { transmute(((self.0).0 >> ValueRef::SHIFT) as u32) } }
+    fn unbox(self) -> char { unsafe { transmute(((self.0).0.get() >> ValueRef::SHIFT) as u32) } }
 }
 
 impl Unbox for ValueRefT<bool> {
     type Target = bool;
 
-    fn unbox(self) -> bool { unsafe { transmute(((self.0).0 >> ValueRef::SHIFT) as u8) } }
+    fn unbox(self) -> bool { unsafe { transmute(((self.0).0.get() >> ValueRef::SHIFT) as u8) } }
 }
 
 // impl<T: Copy + Debug> Debug for ValueRefT<T> where Self: Unbox<Target=T> {
@@ -431,7 +443,8 @@ impl Unbox for ValueRefT<bool> {
 
 impl<T: HeapValueSub> From<Unique<T>> for ValueRefT<T> {
     fn from(ptr: Unique<T>) -> ValueRefT<T> {
-        ValueRefT(ValueRef(ptr.as_ptr() as usize | ValueRef::PTR_BIT), PhantomData::default())
+        ValueRefT(ValueRef(unsafe { NonZero::new_unchecked(ptr.as_ptr() as usize) }),
+                  PhantomData::default())
     }
 }
 
@@ -462,5 +475,21 @@ impl<T: HeapValueSub + Debug> Debug for ValueRefT<T> {
 impl<T: HeapValueSub + Display> Display for ValueRefT<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         self.deref().fmt(f)
+    }
+}
+
+// ================================================================================================
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+
+    use super::{ValueRef, ValueRefT};
+    use values::Type;
+
+    #[test]
+    fn zeroables() {
+        assert_eq!(size_of::<Option<ValueRef>>(), size_of::<ValueRef>());
+        assert_eq!(size_of::<Option<ValueRefT<Type>>>(), size_of::<ValueRefT<Type>>());
     }
 }

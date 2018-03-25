@@ -67,16 +67,18 @@ impl<ORef, Obj> Generation<ORef> where ORef: ObjectRef<Obj=Obj>, Obj: Object<ORe
     }
 
     /// Mark a single object reference, returning the new value for it.
-    pub fn mark_ref(&mut self, oref: ORef) -> ORef {
-        if let Some(ptr) = oref.ptr() {
-            let mut descr = Descriptor::of(ptr.as_ptr());
-            let descr = unsafe { descr.as_mut() };
+    pub fn mark_ref(&mut self, oref: Option<ORef>) -> Option<ORef> {
+        if let Some(oref) = oref { // only non-null references
+            if let Some(ptr) = oref.ptr() { // only pointer references
+                let mut descr = Descriptor::of(ptr.as_ptr());
+                let descr = unsafe { descr.as_mut() };
 
-            if descr.mark_of(ptr) != self.current_mark {
-                unsafe { descr.set_mark_of(ptr, self.current_mark, ptr.as_ref().gsize()) };
+                if descr.mark_of(ptr) != self.current_mark {
+                    unsafe { descr.set_mark_of(ptr, self.current_mark, ptr.as_ref().gsize()) };
 
-                if oref.is_pointy() {
-                    self.mark_stack.push(ptr);
+                    if oref.is_pointy() {
+                        self.mark_stack.push(ptr);
+                    }
                 }
             }
         }
