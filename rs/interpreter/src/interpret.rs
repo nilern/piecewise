@@ -8,6 +8,39 @@ use continuation::{CalleeCont, Halt};
 
 // ================================================================================================
 
+trait AsRoot {
+    fn as_root(self) -> Option<ValueRef>;
+}
+
+impl AsRoot for ValueRef {
+    fn as_root(self) -> Option<ValueRef> { Some(self) }
+}
+
+impl<T> AsRoot for ValueRefT<T> {
+    fn as_root(self) -> Option<ValueRef> { Some(self.into()) }
+}
+
+impl<T> AsRoot for Option<ValueRefT<T>> {
+    fn as_root(self) -> Option<ValueRef> { self.map(ValueRef::from) }
+}
+
+macro_rules! allocate {
+    ($f:path, ($($args:expr),*), { $($live_in:ident),* } ) => {{
+        let mut heap = Allocator::instance_mut();
+        if let Some(v) = $f(&mut*heap, $($args),*) {
+            Ok(v)
+        } else {
+            unsafe {
+                $($live_in = transmute(heap.mark_ref($live_in.as_root()));)*
+                heap.collect_garbage();
+            }
+            $f(&mut*heap, $($args),*).ok_or(EvalError::OOM)
+        }
+    }}
+}
+
+// ================================================================================================
+
 #[derive(Debug)]
 pub enum EvalError {
     OOM
@@ -16,7 +49,7 @@ pub enum EvalError {
 pub type EvalResult<T> = Result<T, EvalError>;
 
 pub fn interpret(mut program: ValueRef) -> EvalResult<ValueRef> {
-    let cont = safepoint(Halt::new, &mut [program.as_mut()])?.into();
+    let cont = allocate!(Halt::new, (), { program })?.into();
     let mut state = State::Eval {
         expr: program,
         lenv: None,
@@ -61,9 +94,7 @@ fn eval(expr: ValueRef, mut lenv: Option<ValueRefT<Env>>, mut denv: Option<Value
 {
     typecase!(expr, {
         mut call: Call => {
-            let cont = safepoint(move |heap| CalleeCont::new(heap, cont.into(), call),
-                                 &mut [call.as_mut(), as_mut(&mut lenv), as_mut(&mut denv),
-                                       cont.as_mut()])?;
+            let cont = allocate!(CalleeCont::new, (cont.into(), call), {call, lenv, denv, cont})?;
             Ok(State::Eval { expr: call.callee(), lenv, denv, cont: cont.into() })
         },
         c: Const => Ok(State::Continue { value: c.value(), cont }),
@@ -85,16 +116,4 @@ fn invoke(value: ValueRef, cont: ValueRef) -> EvalResult<State> {
         Halt => Ok(State::Halt(value)),
         _ => unimplemented!()
     })
-}
-
-// ================================================================================================
-
-fn safepoint<T, F>(f: F, roots: &mut [&mut Option<ValueRef>]) -> EvalResult<T>
-    where F: Fn(&mut Allocator) -> Option<T>
-{
-    Allocator::safepoint(f, roots).ok_or(EvalError::OOM)
-}
-
-fn as_mut<T: HeapValueSub>(vref: &mut Option<ValueRefT<T>>) -> &mut Option<ValueRef> {
-    unsafe { transmute(vref) }
 }

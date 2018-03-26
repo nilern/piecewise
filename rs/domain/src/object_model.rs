@@ -302,14 +302,6 @@ impl<T> From<ValueRefT<T>> for ValueRef {
     fn from(svref: ValueRefT<T>) -> ValueRef { svref.0 }
 }
 
-impl AsRef<Option<ValueRef>> for ValueRef {
-    fn as_ref(&self) -> &Option<ValueRef> { unsafe { transmute(self) } }
-}
-
-impl AsMut<Option<ValueRef>> for ValueRef {
-    fn as_mut(&mut self) -> &mut Option<ValueRef> { unsafe { transmute(self) } }
-}
-
 impl ObjectRef for ValueRef {
     type Obj = HeapValue;
 
@@ -456,14 +448,6 @@ impl<T: HeapValueSub> Deref for ValueRefT<T> {
 
 impl<T: HeapValueSub> DerefMut for ValueRefT<T> {
     fn deref_mut(&mut self) -> &mut T { unsafe { transmute(self.0.unchecked_ptr()) } }
-}
-
-impl<T: HeapValueSub> AsRef<Option<ValueRef>> for ValueRefT<T> {
-    fn as_ref(&self) -> &Option<ValueRef> { unsafe { transmute(self) } }
-}
-
-impl<T: HeapValueSub> AsMut<Option<ValueRef>> for ValueRefT<T> {
-    fn as_mut(&mut self) -> &mut Option<ValueRef> { unsafe { transmute(self) } }
 }
 
 impl<T: HeapValueSub + Debug> Debug for ValueRefT<T> {

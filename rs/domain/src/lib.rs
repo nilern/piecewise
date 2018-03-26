@@ -72,19 +72,6 @@ impl Allocator {
         ALLOCATOR.write().unwrap()
     }
 
-    pub fn safepoint<T, F>(f: F, roots: &mut [&mut Option<ValueRef>]) -> Option<T>
-        where F: Fn(&mut Allocator) -> Option<T>
-    {
-        let heap = &mut *ALLOCATOR.write().unwrap();
-        f(heap).or_else(|| {
-            for root in roots {
-                **root = heap.gc.mark_ref(**root);
-            }
-            unsafe { heap.gc.collect(); }
-            f(heap)
-        })
-    }
-
     fn new(max_heap: usize) -> Allocator {
         let mut allocator = Allocator {
             gc: Generation::new(max_heap),
@@ -115,6 +102,12 @@ impl Allocator {
 
         allocator
     }
+
+    pub fn mark_ref(&mut self, vref: Option<ValueRef>) -> Option<ValueRef> {
+        self.gc.mark_ref(vref)
+    }
+
+    pub unsafe fn collect_garbage(&mut self) { self.gc.collect() }
 
     fn init<T, F>(&mut self, ptr: Initializable<T>, f: F) -> ValueRefT<T>
         where T: HeapValueSub + 'static, F: FnOnce(Unique<T>, HeapValue)
