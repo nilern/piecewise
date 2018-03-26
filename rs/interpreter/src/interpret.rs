@@ -1,10 +1,10 @@
 use std::mem::transmute;
 
-use pcws_domain::object_model::{HeapValueSub, ValueRef, ValueRefT};
+use pcws_domain::object_model::{ValueRef, ValueRefT};
 use pcws_domain::Allocator;
-use ast::{Call, Def, Const};
+use ast::{Block, Call, Def, Const};
 use env::Env;
-use continuation::{CalleeCont, Halt};
+use continuation::{BlockCont, CalleeCont, Halt};
 
 // ================================================================================================
 
@@ -93,8 +93,18 @@ fn eval(expr: ValueRef, mut lenv: Option<ValueRefT<Env>>, mut denv: Option<Value
         mut cont: ValueRef) -> EvalResult<State>
 {
     typecase!(expr, {
+        mut block: Block =>
+            if block.stmts().len() > 0 {
+                let i = 0;
+                let cont = allocate!(BlockCont::new, (cont, lenv, denv, block, i), {
+                    block, lenv, denv, cont
+                })?.into();
+                Ok(State::Exec { stmt: block.stmts()[i], lenv, denv, cont })
+            } else {
+                Ok(State::Eval { expr: block.expr(), lenv, denv, cont })
+            },
         mut call: Call => {
-            let cont = allocate!(CalleeCont::new, (cont.into(), call), {call, lenv, denv, cont})?;
+            let cont = allocate!(CalleeCont::new, (cont, call), {call, lenv, denv, cont})?;
             Ok(State::Eval { expr: call.callee(), lenv, denv, cont: cont.into() })
         },
         c: Const => Ok(State::Continue { value: c.value(), cont }),
@@ -113,6 +123,21 @@ fn exec(stmt: ValueRef, lenv: Option<ValueRefT<Env>>, denv: Option<ValueRefT<Env
 
 fn invoke(value: ValueRef, cont: ValueRef) -> EvalResult<State> {
     typecase!(cont, {
+        bcont: BlockCont => {
+            let mut parent = bcont.parent();
+            let mut lenv = bcont.lenv();
+            let mut denv = bcont.denv();
+            let mut block = bcont.block();
+            let index = bcont.index() + 1;
+            if let Some(mut stmt) = block.stmts().get(index).map(|&v| v) {
+                let cont = allocate!(BlockCont::new, (parent, lenv, denv, block, index), {
+                    parent, lenv, denv, block, stmt
+                })?.into();
+                Ok(State::Exec { stmt, lenv, denv, cont })
+            } else {
+                Ok(State::Eval { expr: block.expr(), lenv, denv, cont: parent })
+            }
+        },
         Halt => Ok(State::Halt(value)),
         _ => unimplemented!()
     })

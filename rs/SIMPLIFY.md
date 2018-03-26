@@ -7,3 +7,4 @@
 * [ ] Rewrite pretty printing similarly to parsing, using extra context nesting and parent
       precedence arguments.
 * [ ] Remove the vestigial cst and just parse to ast directly (need to add source positions to ast).
+* [ ] Use a contiguous mutable stack for top cont.

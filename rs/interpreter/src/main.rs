@@ -21,7 +21,6 @@ use pcws_domain::Allocator;
 use pcws_domain::values::Type;
 use pcws_syntax::cst::Expr;
 use inject::Inject;
-use continuation::{Halt, CalleeCont};
 use interpret::interpret;
 
 fn main() {
@@ -46,15 +45,16 @@ fn main() {
                 Type::new::<ast::Lex>(heap);
                 Type::new::<ast::Dyn>(heap);
                 Type::new::<ast::Const>(heap);
-                Type::new::<Halt>(heap);
-                Type::new::<CalleeCont>(heap);
+                Type::new::<continuation::Halt>(heap);
+                Type::new::<continuation::CalleeCont>(heap);
+                Type::new::<continuation::BlockCont>(heap);
 
                 program.inject(heap).unwrap() // FIXME: unwrap
             };
 
-            println!("{}", ast);
-
-            println!("\n---\n");
+            // println!("{}", ast);
+            //
+            // println!("\n---\n");
 
             println!("{}", interpret(ast).unwrap());
         },

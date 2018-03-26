@@ -105,6 +105,8 @@ impl Block {
     }
 
     pub fn stmts(&self) -> &[ValueRef] { self.tail() }
+
+    pub fn expr(&self) -> ValueRef { self.expr }
 }
 
 impl Debug for Block {
