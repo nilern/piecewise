@@ -11,7 +11,6 @@ extern crate pcws_syntax;
 mod ast;
 mod inject;
 mod env;
-mod continuation;
 mod interpret;
 
 use std::str::FromStr;
@@ -45,9 +44,6 @@ fn main() {
                 Type::new::<ast::Lex>(heap);
                 Type::new::<ast::Dyn>(heap);
                 Type::new::<ast::Const>(heap);
-                Type::new::<continuation::Halt>(heap);
-                Type::new::<continuation::CalleeCont>(heap);
-                Type::new::<continuation::BlockCont>(heap);
 
                 program.inject(heap).unwrap() // FIXME: unwrap
             };
