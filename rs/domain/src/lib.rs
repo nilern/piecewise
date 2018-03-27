@@ -10,7 +10,7 @@ pub mod object_model;
 pub mod values;
 
 use core::nonzero::NonZero;
-use std::mem::{size_of, transmute};
+use std::mem::{self, size_of, transmute};
 use std::ptr::Unique;
 use std::slice;
 use std::collections::HashMap;
@@ -107,7 +107,21 @@ impl Allocator {
         self.gc.mark_ref(vref)
     }
 
-    pub unsafe fn collect_garbage(&mut self) { self.gc.collect() }
+    pub unsafe fn collect_garbage(&mut self) {
+        // Trace roots in self.types:
+        for v in self.types.values_mut() {
+            *v = transmute(self.gc.mark_ref((*v).into()));
+        }
+
+        // Trace roots in self.type_indices:
+        for (k, v) in mem::replace(&mut self.type_indices, HashMap::new()) {
+            self.type_indices.insert(transmute(self.gc.mark_ref(k.into())), v);
+        }
+
+        self.symbols.mark_roots(&mut self.gc);
+
+        self.gc.collect()
+    }
 
     fn init<T, F>(&mut self, ptr: Initializable<T>, f: F) -> ValueRefT<T>
         where T: HeapValueSub + 'static, F: FnOnce(Unique<T>, HeapValue)

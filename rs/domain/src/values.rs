@@ -1,10 +1,11 @@
+use std::mem::transmute;
 use std::str;
 use std::string;
 use std::fmt::{self, Debug, Display, Write, Formatter};
 use std::collections::HashMap;
 use std::any::TypeId;
 
-use pcws_gc::{GSize, start_init};
+use pcws_gc::{GSize, start_init, Generation};
 
 use super::{Allocator, debug_fn, display_fn};
 use object_model::{HeapValueSub, RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
@@ -215,6 +216,12 @@ impl SymbolTable {
 
     fn insert_symbol(&mut self, symbol: ValueRefT<Symbol>) {
         self.0.insert(symbol.chars().to_string(), symbol);
+    }
+
+    pub fn mark_roots(&mut self, heap: &mut Generation<ValueRef>) {
+        for v in self.0.values_mut() {
+            *v = unsafe { transmute(heap.mark_ref((*v).into())) };
+        }
     }
 }
 
