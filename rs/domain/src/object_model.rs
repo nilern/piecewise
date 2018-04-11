@@ -9,7 +9,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use pcws_gc::{GSize, Object, ObjectRef};
 
-use super::Allocator;
+use super::TypeRegistry;
 use values::Type;
 
 // ================================================================================================
@@ -264,7 +264,7 @@ impl ValueRef {
     /// Is `self` an instance of `T`?
     pub fn is_instance<T: HeapValueSub + 'static>(self) -> bool {
         if let Some(sptr) = self.ptr() {
-            unsafe { sptr.as_ref() }.typ == Allocator::instance().reify::<T>()
+            unsafe { sptr.as_ref() }.typ == TypeRegistry::instance().reify::<T>()
         } else {
             false
         }
@@ -324,7 +324,7 @@ impl Debug for ValueRef {
             ValueView::Char(c)  => Debug::fmt(&c, f),
             ValueView::Bool(b)  => Debug::fmt(&b, f),
             ValueView::HeapValue(ptr) =>
-                Allocator::instance().debug(unsafe { ptr.as_ref() }, f)
+                TypeRegistry::instance().debug(unsafe { ptr.as_ref() }, f)
         }
     }
 }
@@ -337,7 +337,7 @@ impl Display for ValueRef {
             ValueView::Char(c)  => Display::fmt(&c, f),
             ValueView::Bool(b)  => Display::fmt(&b, f),
             ValueView::HeapValue(ptr) =>
-                Allocator::instance().display(unsafe { ptr.as_ref() }, f)
+                TypeRegistry::instance().display(unsafe { ptr.as_ref() }, f)
         }
     }
 }

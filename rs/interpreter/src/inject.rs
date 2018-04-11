@@ -1,6 +1,6 @@
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{ValueRef, ValueRefT};
-use pcws_domain::values::{String, Symbol};
+use pcws_domain::values::{String, Symbol, Tuple};
 use pcws_syntax::cst::{Expr, Stmt, Pattern, Case, Const};
 
 use ast;
@@ -24,6 +24,32 @@ impl Inject for Expr {
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         use self::Expr::*;
 
+        fn pattern_binders(pat: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
+            typecase!(pat, {
+                lvar: ast::Lex => lbs.push(lvar.name().into()),
+                dvar: ast::Dyn => dbs.push(dvar.name().into()),
+                _ => unimplemented!()
+            })
+        }
+
+        fn stmt_binders(stmt: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
+            typecase!(stmt, {
+                def: ast::Def => pattern_binders(def.pattern(), lbs, dbs),
+                _ => {}
+            })
+        }
+
+        fn block_binders(stmts: &[ValueRef]) -> (Vec<ValueRef>, Vec<ValueRef>) {
+            let mut lbs = Vec::new();
+            let mut dbs = Vec::new();
+
+            for stmt in stmts {
+                stmt_binders(*stmt, &mut lbs, &mut dbs);
+            }
+
+            (lbs, dbs)
+        }
+
         match self {
             Function(_, params, body) =>
                 params.into_iter()
@@ -41,9 +67,17 @@ impl Inject for Expr {
                      .collect::<Option<Vec<_>>>()
                      .and_then(|stmts|
                          expr.inject(allocator)
-                             .and_then(|expr|
-                                 ast::Block::new(allocator, &stmts, expr).map(From::from)
-                             )
+                             .and_then(|expr| {
+                                 let (lbs, dbs) = block_binders(&stmts);
+                                 Tuple::new(allocator, lbs.len(), lbs.into_iter())
+                                     .and_then(|lbs|
+                                          Tuple::new(allocator, dbs.len(), dbs.into_iter())
+                                              .and_then(|dbs|
+                                                  ast::Block::new(allocator, lbs, dbs,
+                                                                  &stmts, expr).map(From::from)
+                                              )
+                                     )
+                             })
                      ),
             Match(_, matchee, cases, default) =>
                 matchee.inject(allocator)

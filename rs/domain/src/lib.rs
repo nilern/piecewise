@@ -15,7 +15,7 @@ use std::ptr::Unique;
 use std::slice;
 use std::collections::HashMap;
 use std::any::TypeId;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::fmt::{self, Debug, Display, Formatter};
 
 use pcws_gc::{GSize, Initializable, start_init, Generation};
@@ -45,12 +45,6 @@ pub unsafe fn display_fn<T>(value: &HeapValue, f: &mut Formatter) -> Result<(), 
 /// Value allocator.
 pub struct Allocator {
     gc: Generation<ValueRef>,
-
-    types: HashMap<TypeId, ValueRefT<Type>>,
-    type_indices: HashMap<ValueRefT<Type>, TypeId>,
-    debug_fns: HashMap<TypeId, UnsafeFmtFn>,
-    display_fns: HashMap<TypeId, UnsafeFmtFn>,
-
     symbols: SymbolTable
 }
 
@@ -58,49 +52,21 @@ unsafe impl Sync for Allocator {}
 unsafe impl Send for Allocator {}
 
 lazy_static! {
-    static ref ALLOCATOR: RwLock<Allocator> = {
-        RwLock::new(Allocator::new(4*1024*1024)) // FIXME: Heap size should be set by client
+    static ref ALLOCATOR: Mutex<Allocator> = {
+        Mutex::new(Allocator::new(4*1024*1024)) // FIXME: Heap size should be set by client
     };
 }
 
 impl Allocator {
-    pub fn instance() -> RwLockReadGuard<'static, Allocator> {
-        ALLOCATOR.read().unwrap()
-    }
-
-    pub fn instance_mut() -> RwLockWriteGuard<'static, Allocator> {
-        ALLOCATOR.write().unwrap()
+    pub fn instance() -> MutexGuard<'static, Allocator> {
+        ALLOCATOR.lock().unwrap()
     }
 
     fn new(max_heap: usize) -> Allocator {
-        let mut allocator = Allocator {
+        Allocator {
             gc: Generation::new(max_heap),
-
-            types: HashMap::new(),
-            type_indices: HashMap::new(),
-            debug_fns: HashMap::new(),
-            display_fns: HashMap::new(),
-
             symbols: SymbolTable::new()
-        };
-
-        let type_type_index = TypeId::of::<Type>();
-        {
-            let type_type: Initializable<Type> = allocator.allocate_t().unwrap();
-            allocator.register_typ(type_type_index, ValueRefT::from(start_init(type_type)).into(),
-                                   debug_fn::<Type>, display_fn::<Type>);
-            allocator.init_uniform(
-                type_type,
-                |base| Type::make(base, Type::SIZING, GSize::of::<Type>(), Type::MIN_REF_LEN)
-            );
         }
-
-        Type::new::<values::Promise>(&mut allocator);
-        Type::new::<values::Tuple>(&mut allocator);
-        Type::new::<values::String>(&mut allocator);
-        Type::new::<values::Symbol>(&mut allocator);
-
-        allocator
     }
 
     pub fn mark_ref(&mut self, vref: Option<ValueRef>) -> Option<ValueRef> {
@@ -108,18 +74,8 @@ impl Allocator {
     }
 
     pub unsafe fn collect_garbage(&mut self) {
-        // Trace roots in self.types:
-        for v in self.types.values_mut() {
-            *v = transmute(self.gc.mark_ref((*v).into()));
-        }
-
-        // Trace roots in self.type_indices:
-        for (k, v) in mem::replace(&mut self.type_indices, HashMap::new()) {
-            self.type_indices.insert(transmute(self.gc.mark_ref(k.into())), v);
-        }
-
+        TypeRegistry::instance_mut().trace(self);
         self.symbols.mark_roots(&mut self.gc);
-
         self.gc.collect()
     }
 
@@ -130,7 +86,7 @@ impl Allocator {
         let tvref = ValueRefT::from(uptr);
         f(uptr, HeapValue {
             link: Some(tvref.into()),
-            typ: self.reify::<T>()
+            typ: TypeRegistry::instance().reify::<T>()
         });
         tvref
     }
@@ -193,15 +149,68 @@ impl Allocator {
         self.create_with_iter(f, slice.len(), slice.iter().cloned())
     }
 
-    pub fn register_typ(&mut self, index: TypeId, typ: ValueRefT<Type>,
-                        debug_fn: UnsafeFmtFn, display_fn: UnsafeFmtFn)
-    {
-        self.types.insert(index, typ);
-        self.type_indices.insert(typ, index);
-        self.debug_fns.insert(index, debug_fn);
-        self.display_fns.insert(index, display_fn);
+    fn symbol_table(&mut self) -> &mut SymbolTable { &mut self.symbols }
+}
+
+// ================================================================================================
+
+pub struct TypeRegistry {
+    types: HashMap<TypeId, ValueRefT<Type>>,
+    type_indices: HashMap<ValueRefT<Type>, TypeId>,
+    debug_fns: HashMap<TypeId, UnsafeFmtFn>,
+    display_fns: HashMap<TypeId, UnsafeFmtFn>
+}
+
+lazy_static! {
+    static ref TYPES: RwLock<TypeRegistry> = RwLock::new(TypeRegistry::new());
+}
+
+impl TypeRegistry {
+    pub fn instance() -> RwLockReadGuard<'static, TypeRegistry> {
+        TYPES.read().unwrap()
     }
 
+    pub fn instance_mut() -> RwLockWriteGuard<'static, TypeRegistry> {
+        TYPES.write().unwrap()
+    }
+
+    fn new() -> TypeRegistry {
+        let allocator = &mut *Allocator::instance();
+
+        let mut types = TypeRegistry {
+            types: HashMap::new(),
+            type_indices: HashMap::new(),
+            debug_fns: HashMap::new(),
+            display_fns: HashMap::new()
+        };
+
+        {
+            let mut type_type: Unique<Type> = start_init(allocator.allocate_t().unwrap());
+            let type_type_vref = ValueRefT::from(type_type);
+            types.register_typ::<Type>(type_type_vref);
+            unsafe {
+                *type_type.as_mut() = Type::make(
+                    HeapValue {
+                        link: Some(type_type_vref.into()),
+                        typ: type_type_vref
+                    },
+                    Type::SIZING, GSize::of::<Type>(), Type::MIN_REF_LEN
+                );
+            }
+        }
+
+        types
+    }
+
+    fn register_typ<T: HeapValueSub + Debug + Display + 'static>(&mut self, typ: ValueRefT<Type>) {
+        let index = TypeId::of::<T>();
+        self.types.insert(index, typ);
+        self.type_indices.insert(typ, index);
+        self.debug_fns.insert(index, debug_fn::<T>);
+        self.display_fns.insert(index, display_fn::<T>);
+    }
+
+    /// Get the dynamic type corresponding to the (previously registered) static type `T`.
     pub fn reify<T: HeapValueSub + 'static>(&self) -> ValueRefT<Type> {
         self.types[&TypeId::of::<T>()]
     }
@@ -214,7 +223,24 @@ impl Allocator {
         unsafe { self.display_fns[&self.type_indices[&value.typ]](value, f) }
     }
 
-    fn symbol_table(&mut self) -> &mut SymbolTable { &mut self.symbols }
+    fn trace(&mut self, heap: &mut Allocator) {
+        unsafe {
+            for v in self.types.values_mut() {
+                *v = transmute(heap.gc.mark_ref((*v).into()));
+            }
+
+            for (k, v) in mem::replace(&mut self.type_indices, HashMap::new()) {
+                self.type_indices.insert(transmute(heap.gc.mark_ref(k.into())), v);
+            }
+        }
+    }
+}
+
+/// Register the static type `T`, creating the dynamic counterpart.
+pub fn register_static_t<T: HeapValueSub + Debug + Display + 'static>() {
+    lazy_static::initialize(&TYPES); // HACK
+    let typ = Type::from_static::<T>(&mut*Allocator::instance()).unwrap();
+    TypeRegistry::instance_mut().register_typ::<T>(typ);
 }
 
 // ================================================================================================

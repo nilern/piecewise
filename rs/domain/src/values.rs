@@ -3,11 +3,10 @@ use std::str;
 use std::string;
 use std::fmt::{self, Debug, Display, Write, Formatter};
 use std::collections::HashMap;
-use std::any::TypeId;
 
 use pcws_gc::{GSize, start_init, Generation};
 
-use super::{Allocator, debug_fn, display_fn};
+use super::{Allocator, TypeRegistry};
 use object_model::{HeapValueSub, RefTailed, BlobTailed, Sizing, HeapValue, ValueRef, ValueRefT};
 
 // ================================================================================================
@@ -240,7 +239,7 @@ impl Promise {
                      *unsafe { uptr.as_mut() } = Promise {
                          base: HeapValue {
                              link: None,
-                             typ: allocator.reify::<Promise>()
+                             typ: TypeRegistry::instance().reify::<Promise>()
                          }
                      };
                      ValueRefT::from(uptr)
@@ -296,17 +295,10 @@ impl Type {
         }
     }
 
-    pub fn new<T>(allocator: &mut Allocator, ) -> Option<ValueRefT<Type>>
-        where T: HeapValueSub + Debug + Display + 'static
-    {
+    pub fn from_static<T: HeapValueSub>(allocator: &mut Allocator) -> Option<ValueRefT<Type>> {
         allocator.create_uniform(|base|
-                     Type::make(base, T::SIZING, GSize::of::<T>(), T::MIN_REF_LEN)
-                 )
-                 .map(|typ| {
-                     allocator.register_typ(TypeId::of::<T>(), typ,
-                                            debug_fn::<T>, display_fn::<T>);
-                     typ
-                 })
+            Type::make(base, T::SIZING, GSize::of::<T>(), T::MIN_REF_LEN)
+        )
     }
 
     /// The constant portion (or minimum) granule size of instances.

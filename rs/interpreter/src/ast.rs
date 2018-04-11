@@ -4,7 +4,7 @@ use pretty::{self, DocAllocator, DocBuilder};
 
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{RefTailed, ValueRef, ValueRefT};
-use pcws_domain::values::Symbol;
+use pcws_domain::values::{Symbol, Tuple};
 use pcws_syntax::cst::PrimOp;
 
 // ================================================================================================
@@ -93,15 +93,18 @@ impl Pretty for Function {
 /// Block AST node
 heap_struct! {
     pub struct Block: RefTailed<TailItem=ValueRef> {
+        lex_binders: ValueRefT<Tuple>,
+        dyn_binders: ValueRefT<Tuple>,
         expr: ValueRef
     }
 }
 
 impl Block {
-    pub fn new(allocator: &mut Allocator, stmts: &[ValueRef], expr: ValueRef)
-        -> Option<ValueRefT<Block>>
+    pub fn new(allocator: &mut Allocator,
+               lex_binders: ValueRefT<Tuple>, dyn_binders: ValueRefT<Tuple>,
+               stmts: &[ValueRef], expr: ValueRef) -> Option<ValueRefT<Block>>
     {
-        allocator.create_with_slice(|base| Block { base, expr }, stmts)
+        allocator.create_with_slice(|base| Block { base, lex_binders, dyn_binders, expr }, stmts)
     }
 
     pub fn stmts(&self) -> &[ValueRef] { self.tail() }
@@ -329,6 +332,8 @@ impl Def {
     {
         allocator.create_uniform(|base| Def { base, pattern, expr })
     }
+
+    pub fn pattern(&self) -> ValueRef { self.pattern }
 }
 
 impl Debug for Def {
@@ -364,6 +369,8 @@ impl Lex {
     pub fn new(allocator: &mut Allocator, name: ValueRefT<Symbol>) -> Option<ValueRefT<Lex>> {
         allocator.create_uniform(|base| Lex { base, name })
     }
+
+    pub fn name(&self) -> ValueRefT<Symbol> { self.name }
 }
 
 impl Debug for Lex {
@@ -396,6 +403,8 @@ impl Dyn {
     pub fn new(allocator: &mut Allocator, name: ValueRefT<Symbol>) -> Option<ValueRefT<Dyn>> {
         allocator.create_uniform(|base| Dyn { base, name })
     }
+
+    pub fn name(&self) -> ValueRefT<Symbol> { self.name }
 }
 
 impl Debug for Dyn {

@@ -16,13 +16,28 @@ mod interpret;
 use std::str::FromStr;
 use std::io::{self, Read};
 
-use pcws_domain::Allocator;
-use pcws_domain::values::Type;
+use pcws_domain::{Allocator, register_static_t};
+use pcws_domain::values::{self, Type};
 use pcws_syntax::cst::Expr;
 use inject::Inject;
 use interpret::interpret;
 
 fn main() {
+    register_static_t::<values::Promise>();
+    register_static_t::<values::Tuple>();
+    register_static_t::<values::String>();
+    register_static_t::<values::Symbol>();
+    register_static_t::<ast::Function>();
+    register_static_t::<ast::Block>();
+    register_static_t::<ast::Match>();
+    register_static_t::<ast::Case>();
+    register_static_t::<ast::Def>();
+    register_static_t::<ast::Call>();
+    register_static_t::<ast::PrimCall>();
+    register_static_t::<ast::Lex>();
+    register_static_t::<ast::Dyn>();
+    register_static_t::<ast::Const>();
+
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
 
@@ -32,21 +47,7 @@ fn main() {
 
             println!("\n---\n");
 
-            let ast = {
-                let heap = &mut *Allocator::instance_mut();
-                Type::new::<ast::Function>(heap);
-                Type::new::<ast::Block>(heap);
-                Type::new::<ast::Match>(heap);
-                Type::new::<ast::Case>(heap);
-                Type::new::<ast::Def>(heap);
-                Type::new::<ast::Call>(heap);
-                Type::new::<ast::PrimCall>(heap);
-                Type::new::<ast::Lex>(heap);
-                Type::new::<ast::Dyn>(heap);
-                Type::new::<ast::Const>(heap);
-
-                program.inject(heap).unwrap() // FIXME: unwrap
-            };
+            let ast = program.inject(&mut *Allocator::instance()).unwrap(); // FIXME: unwrap
 
             // println!("{}", ast);
             //
