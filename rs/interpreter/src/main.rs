@@ -17,8 +17,9 @@ use std::str::FromStr;
 use std::io::{self, Read};
 
 use pcws_domain::{Allocator, register_static_t};
-use pcws_domain::values::{self, Type};
+use pcws_domain::values;
 use pcws_syntax::cst::Expr;
+use env::Env;
 use inject::Inject;
 use interpret::interpret;
 
@@ -37,6 +38,7 @@ fn main() {
     register_static_t::<ast::Lex>();
     register_static_t::<ast::Dyn>();
     register_static_t::<ast::Const>();
+    register_static_t::<Env>();
 
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
@@ -53,7 +55,8 @@ fn main() {
             //
             // println!("\n---\n");
 
-            println!("{}", interpret(ast).unwrap());
+            let value = interpret(ast).unwrap();
+            println!("{}", value);
         },
         Err(err) => println!("ParseError: {:?}", err)
     }

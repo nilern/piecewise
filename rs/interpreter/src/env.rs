@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{RefTailed, ValueRef, ValueRefT};
-use pcws_domain::values::{Symbol, Reinit};
+use pcws_domain::values::{Promise, Symbol, Reinit};
 
 // ================================================================================================
 
@@ -43,26 +43,33 @@ heap_struct! {
 }
 
 impl Env {
-    pub fn new(heap: &mut Allocator, parent: Option<ValueRefT<Env>>, names: &[ValueRefT<Symbol>])
+    pub fn block(heap: &mut Allocator, parent: Option<ValueRefT<Env>>, names: &[ValueRefT<Symbol>])
         -> Option<ValueRefT<Env>>
     {
         heap.create_with_iter(|base| Env { base, parent }, names.len() * 4,
                               iter::repeat::<Option<ValueRef>>(None))
-            .map(|mut env| {
+            .and_then(|mut env| {
                 for &name in names {
-                    env.prepare_entry(name);
+                    if !env.prepare_entry(heap, name) {
+                        return None;
+                    }
                 }
-                env
+                Some(env)
             })
     }
 
-    fn prepare_entry(&mut self, name: ValueRefT<Symbol>) {
+    fn prepare_entry(&mut self, heap: &mut Allocator, name: ValueRefT<Symbol>) -> bool {
         let entries = self.entries_mut();
         let mut i = scaled_hash(name, entries.len());
         loop {
             if entries[i].key.is_none() {
-                entries[i].key = Some(name);
-                return;
+                if let Some(value) = Promise::new(heap) {
+                    entries[i].key = Some(name);
+                    entries[i].value = Some(value.into());
+                    return true;
+                } else {
+                    return false;
+                }
             } else {
                 i = (i + 1) % entries.len();
             }
@@ -87,25 +94,6 @@ impl Env {
                 Some(k) if k == name => return Some(entries[i].value),
                 Some(k) => { i = (i + 1) % entries.len(); },
                 None => return None
-            }
-        }
-    }
-
-    pub fn init(&mut self, name: ValueRefT<Symbol>, value: ValueRef) -> Result<(), InitError> {
-        let entries = self.entries_mut();
-        let mut i = scaled_hash(name, entries.len());
-        loop {
-            match entries[i].key {
-                Some(k) if k == name => {
-                    if entries[i].value.is_none() {
-                        entries[i].value = Some(value);
-                        return Ok(());
-                    } else {
-                        return Err(Reinit.into())
-                    }
-                },
-                Some(k) => { i = (i + 1) % entries.len(); },
-                None => return Err(Unbound(name).into())
             }
         }
     }
@@ -144,3 +132,31 @@ fn hash<T: Hash>(v: T) -> u64 {
 }
 
 fn scaled_hash<T: Hash>(v: T, len: usize) -> usize { hash(v) as usize % len }
+
+#[cfg(test)]
+mod tests {
+    use pcws_domain::{Allocator, register_static_t};
+    use pcws_domain::object_model::{ValueRefT, ValueRef};
+    use pcws_domain::values::{Symbol, Promise};
+    use super::Env;
+
+    #[test]
+    fn get() {
+        register_static_t::<Promise>();
+        register_static_t::<Symbol>();
+        register_static_t::<Env>();
+
+        let heap = &mut *Allocator::instance();
+        let key = Symbol::new(heap, "foo").unwrap();
+        let value = ValueRefT::from(5isize);
+        let env = Env::block(heap, None, &[key]).unwrap();
+
+        env.get(key).unwrap().unwrap()
+           .try_downcast::<Promise>().unwrap()
+           .init(value.into());
+
+        assert_eq!(env.get(key).unwrap().unwrap()
+                      .force().unwrap(),
+                   ValueRef::from(value));
+    }
+}

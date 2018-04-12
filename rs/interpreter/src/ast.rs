@@ -107,6 +107,10 @@ impl Block {
         allocator.create_with_slice(|base| Block { base, lex_binders, dyn_binders, expr }, stmts)
     }
 
+    pub fn lex_binders(&self) -> ValueRefT<Tuple> { self.lex_binders }
+
+    pub fn dyn_binders(&self) -> ValueRefT<Tuple> { self.dyn_binders }
+
     pub fn stmts(&self) -> &[ValueRef] { self.tail() }
 
     pub fn expr(&self) -> ValueRef { self.expr }
@@ -334,6 +338,8 @@ impl Def {
     }
 
     pub fn pattern(&self) -> ValueRef { self.pattern }
+
+    pub fn expr(&self) -> ValueRef { self.expr }
 }
 
 impl Debug for Def {

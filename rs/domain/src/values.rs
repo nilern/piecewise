@@ -105,6 +105,8 @@ impl Tuple {
     {
         allocator.create_with_iter(|base| Tuple { base }, len, values)
     }
+
+    pub fn vals(&self) -> &[ValueRef] { self.tail() }
 }
 
 impl Debug for Tuple {
