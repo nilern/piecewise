@@ -325,17 +325,23 @@ impl Pretty for PrimCall {
 /// AST node for definition statements.
 heap_struct! {
     pub struct Def: UniformHeapValue {
+        lex_defs: ValueRefT<Tuple>,
+        dyn_defs: ValueRefT<Tuple>,
         pattern: ValueRef,
         expr: ValueRef
     }
 }
 
 impl Def {
-    pub fn new(allocator: &mut Allocator, pattern: ValueRef, expr: ValueRef)
-        -> Option<ValueRefT<Def>>
+    pub fn new(allocator: &mut Allocator, lex_defs: ValueRefT<Tuple>, dyn_defs: ValueRefT<Tuple>,
+               pattern: ValueRef, expr: ValueRef) -> Option<ValueRefT<Def>>
     {
-        allocator.create_uniform(|base| Def { base, pattern, expr })
+        allocator.create_uniform(|base| Def { base, lex_defs, dyn_defs, pattern, expr })
     }
+
+    pub fn lex_defs(&self) -> ValueRefT<Tuple> { self.lex_defs }
+
+    pub fn dyn_defs(&self) -> ValueRefT<Tuple> { self.dyn_defs }
 
     pub fn pattern(&self) -> ValueRef { self.pattern }
 

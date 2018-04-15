@@ -3,8 +3,8 @@ use std::mem::transmute;
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{Unbox, ValueRef, ValueRefT};
 use pcws_domain::values::Promise;
-use ast::{Block, Call, Def, Lex, Dyn, Const};
-use env::{self, Env};
+use ast::{Block, Def, Lex, Dyn, Const};
+use env::{self, Env, EnvBuffer};
 
 // ================================================================================================
 
@@ -68,6 +68,8 @@ struct Interpreter {
     control: ValueRef,
     lenv: Option<ValueRefT<Env>>,
     denv: Option<ValueRefT<Env>>,
+    lenv_buf: Option<ValueRefT<EnvBuffer>>,
+    denv_buf: Option<ValueRefT<EnvBuffer>>,
     stack: Vec<Option<ValueRef>>,
     fp: usize
 }
@@ -91,6 +93,8 @@ impl Interpreter {
             control: program,
             lenv: None,
             denv: None,
+            lenv_buf: None,
+            denv_buf: None,
             stack: Vec::with_capacity(stack_capacity),
             fp: 0
         }
@@ -127,6 +131,7 @@ impl Interpreter {
                                                                unsafe { transmute(dyns.vals()) }),
                                                    {self, dyns, block})?);
                     }
+
                     self.push_block_frame(block, index);
                     self.control = block.stmts()[index];
                     Ok(State::Exec)
@@ -171,13 +176,13 @@ impl Interpreter {
         // println!("invoke, fp = {}, sp = {}", self.fp, self.stack.len());
         if !self.stack.is_empty() {
             self.restore_envs();
-            match unsafe { transmute(self.stack[self.fp + 3]) } {
+            match unsafe { transmute(self.stack[self.fp + 5]) } {
                 Self::BLOCK => {
-                    let block: ValueRefT<Block> = unsafe { transmute(self.stack[self.fp + 4]) };
-                    let index: ValueRefT<isize> = unsafe { transmute(self.stack[self.fp + 5]) };
+                    let block: ValueRefT<Block> = unsafe { transmute(self.stack[self.fp + 6]) };
+                    let index: ValueRefT<isize> = unsafe { transmute(self.stack[self.fp + 7]) };
                     let new_index: usize = index.unbox() as usize + 1;
                     if new_index < block.stmts().len() {
-                        self.stack[self.fp + 5] = ValueRefT::from(new_index as isize).as_root();
+                        self.stack[self.fp + 7] = ValueRefT::from(new_index as isize).as_root();
                         self.control = block.stmts()[new_index];
                         Ok(State::Exec)
                     } else {
@@ -187,7 +192,7 @@ impl Interpreter {
                     }
                 },
                 Self::VAR => {
-                    let (name, env) = typecase!(self.stack[self.fp + 4].unwrap(), {
+                    let (name, env) = typecase!(self.stack[self.fp + 6].unwrap(), {
                         lvar: Lex => (lvar.name(), self.lenv),
                         dvar: Dyn => (dvar.name(), self.denv),
                         _ => unreachable!()
@@ -211,6 +216,8 @@ impl Interpreter {
     fn restore_envs(&mut self) {
         self.lenv = unsafe { transmute(self.stack[self.fp + 1]) };
         self.denv = unsafe { transmute(self.stack[self.fp + 2]) };
+        self.lenv_buf = unsafe { transmute(self.stack[self.fp + 3]) };
+        self.denv_buf = unsafe { transmute(self.stack[self.fp + 4]) };
     }
 
     fn pop_frame(&mut self) {
@@ -225,6 +232,8 @@ impl Interpreter {
         self.stack.push(ValueRefT::from(old_fp as isize).as_root());
         self.stack.push(self.lenv.as_root());
         self.stack.push(self.denv.as_root());
+        self.stack.push(self.lenv_buf.as_root());
+        self.stack.push(self.denv_buf.as_root());
         push_specific(self);
     }
 

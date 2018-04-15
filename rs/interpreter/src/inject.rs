@@ -24,32 +24,6 @@ impl Inject for Expr {
     fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
         use self::Expr::*;
 
-        fn pattern_binders(pat: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
-            typecase!(pat, {
-                lvar: ast::Lex => lbs.push(lvar.name().into()),
-                dvar: ast::Dyn => dbs.push(dvar.name().into()),
-                _ => unimplemented!()
-            })
-        }
-
-        fn stmt_binders(stmt: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
-            typecase!(stmt, {
-                def: ast::Def => pattern_binders(def.pattern(), lbs, dbs),
-                _ => {}
-            })
-        }
-
-        fn block_binders(stmts: &[ValueRef]) -> (Vec<ValueRef>, Vec<ValueRef>) {
-            let mut lbs = Vec::new();
-            let mut dbs = Vec::new();
-
-            for stmt in stmts {
-                stmt_binders(*stmt, &mut lbs, &mut dbs);
-            }
-
-            (lbs, dbs)
-        }
-
         match self {
             Function(_, params, body) =>
                 params.into_iter()
@@ -63,7 +37,7 @@ impl Inject for Expr {
                       ),
             Block(_, stmts, expr) =>
                 stmts.into_iter()
-                     .map(|stmt| stmt.inject(allocator))
+                     .map(|stmt| inject_stmt(stmt, allocator))
                      .collect::<Option<Vec<_>>>()
                      .and_then(|stmts|
                          expr.inject(allocator)
@@ -160,21 +134,27 @@ impl Inject for Pattern {
     }
 }
 
-impl Inject for Stmt {
-    type Target = ValueRef;
-
-    fn inject(self, allocator: &mut Allocator) -> Option<ValueRef> {
-        match self {
-            Stmt::Def(pattern, expr) =>
-                pattern.inject(allocator)
-                       .and_then(|pattern|
-                           expr.inject(allocator)
-                               .and_then(|expr|
-                                   ast::Def::new(allocator, pattern, expr).map(From::from)
-                               )
-                       ),
-            Stmt::Expr(expr) => expr.inject(allocator)
-        }
+fn inject_stmt(stmt: Stmt, allocator: &mut Allocator) -> Option<ValueRef> {
+    match stmt {
+        Stmt::Def(pattern, expr) =>
+            pattern.inject(allocator)
+                   .and_then(|pattern| {
+                       let mut lbs = Vec::new();
+                       let mut dbs = Vec::new();
+                       pattern_binders(pattern, &mut lbs, &mut dbs);
+                       Tuple::new(allocator, lbs.len(), lbs.into_iter())
+                       .and_then(|lbs|
+                           Tuple::new(allocator, dbs.len(), dbs.into_iter())
+                           .and_then(|dbs|
+                               expr.inject(allocator)
+                                   .and_then(|expr|
+                                       ast::Def::new(allocator, lbs, dbs, pattern, expr)
+                                                .map(From::from)
+                                   )
+                           )
+                       )
+                   }),
+        Stmt::Expr(expr) => expr.inject(allocator)
     }
 }
 
@@ -210,4 +190,30 @@ impl Inject for Const {
             Const::Symbol(cs) => Symbol::new(allocator, &cs).map(From::from)
         }
     }
+}
+
+fn pattern_binders(pat: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
+    typecase!(pat, {
+        lvar: ast::Lex => lbs.push(lvar.name().into()),
+        dvar: ast::Dyn => dbs.push(dvar.name().into()),
+        _ => unimplemented!()
+    })
+}
+
+fn stmt_binders(stmt: ValueRef, lbs: &mut Vec<ValueRef>, dbs: &mut Vec<ValueRef>) {
+    typecase!(stmt, {
+        def: ast::Def => pattern_binders(def.pattern(), lbs, dbs),
+        _ => {}
+    })
+}
+
+fn block_binders(stmts: &[ValueRef]) -> (Vec<ValueRef>, Vec<ValueRef>) {
+    let mut lbs = Vec::new();
+    let mut dbs = Vec::new();
+
+    for stmt in stmts {
+        stmt_binders(*stmt, &mut lbs, &mut dbs);
+    }
+
+    (lbs, dbs)
 }

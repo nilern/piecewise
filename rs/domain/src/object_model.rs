@@ -52,6 +52,14 @@ pub trait RefTailed: HeapValueSub {
                                   transmute::<_, &DynHeapValue>(self).dyn_len)
         }
     }
+
+    /// Get the tail slice mutably.
+    fn tail_mut(&mut self) -> &mut [Self::TailItem] {
+        unsafe {
+            slice::from_raw_parts_mut((self as *mut Self).offset(1) as *mut Self::TailItem,
+                                      transmute::<_, &DynHeapValue>(self).dyn_len)
+        }
+    }
 }
 
 /// A dynamically sized `HeapValue` whose tail does not contain `ValueRef`:s.
@@ -64,6 +72,14 @@ pub trait BlobTailed: HeapValueSub {
         unsafe {
             slice::from_raw_parts((self as *const Self).offset(1) as *const Self::TailItem,
                                   transmute::<_, &DynHeapValue>(self).dyn_len)
+        }
+    }
+
+    /// Get the tail slice mutably.
+    fn tail_mut(&mut self) -> &mut [Self::TailItem] {
+        unsafe {
+            slice::from_raw_parts_mut((self as *mut Self).offset(1) as *mut Self::TailItem,
+                                      transmute::<_, &DynHeapValue>(self).dyn_len)
         }
     }
 }

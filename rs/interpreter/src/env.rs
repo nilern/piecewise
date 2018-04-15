@@ -133,6 +133,46 @@ fn hash<T: Hash>(v: T) -> u64 {
 
 fn scaled_hash<T: Hash>(v: T, len: usize) -> usize { hash(v) as usize % len }
 
+// ================================================================================================
+
+heap_struct! {
+    pub struct EnvBuffer: RefTailed<TailItem=Option<ValueRef>> {
+        len: usize
+    }
+}
+
+impl EnvBuffer {
+    pub fn with_capacity(heap: &mut Allocator, cap: usize) -> Option<ValueRefT<EnvBuffer>> {
+        heap.create_with_iter(|base| EnvBuffer { base, len: 0 },
+                              cap, iter::repeat::<Option<ValueRef>>(None))
+    }
+
+    pub fn push(&mut self, val: ValueRef) {
+        let len = self.len; // HACK: Until NLL arrives.
+        debug_assert!(len <= self.base.dyn_len);
+        self.tail_mut()[len] = Some(val);
+        self.len += 1;
+    }
+}
+
+impl Debug for EnvBuffer {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("EnvBuffer")
+         .field("base", &self.base)
+         .field("lenv", &self.len)
+         .field("tail", &self.tail())
+         .finish()
+    }
+}
+
+impl Display for EnvBuffer {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        Display::fmt("#<EnvBuffer>", f)
+    }
+}
+
+// ================================================================================================
+
 #[cfg(test)]
 mod tests {
     use pcws_domain::{Allocator, register_static_t};
@@ -160,3 +200,5 @@ mod tests {
                    ValueRef::from(value));
     }
 }
+
+// ================================================================================================

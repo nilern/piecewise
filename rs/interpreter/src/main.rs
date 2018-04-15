@@ -19,7 +19,7 @@ use std::io::{self, Read};
 use pcws_domain::{Allocator, register_static_t};
 use pcws_domain::values;
 use pcws_syntax::cst::Expr;
-use env::Env;
+use env::{Env, EnvBuffer};
 use inject::Inject;
 use interpret::interpret;
 
@@ -39,6 +39,7 @@ fn main() {
     register_static_t::<ast::Dyn>();
     register_static_t::<ast::Const>();
     register_static_t::<Env>();
+    register_static_t::<EnvBuffer>();
 
     let mut src = String::new();
     io::stdin().read_to_string(&mut src).unwrap();
