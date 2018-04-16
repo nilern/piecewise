@@ -1,5 +1,7 @@
 use std::mem::transmute;
+use std::slice;
 
+use pcws_gc::GSize;
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{Unbox, ValueRef, ValueRefT};
 use pcws_domain::values::Promise;
@@ -82,12 +84,26 @@ enum State {
     Halt(ValueRef)
 }
 
+// TODO: Also use these in Interpreter::invoke
+trait SubFrame: Copy { const TAG: usize; }
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct BlockFrame {
+    block: ValueRefT<Block>,
+    index: ValueRefT<isize>
+}
+
+impl SubFrame for BlockFrame { const TAG: usize = 0x0001; }
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct VarFrame(ValueRef);
+
+impl SubFrame for VarFrame { const TAG: usize = 0x1001; }
+
 // FIXME: Environment save/restore
 impl Interpreter {
-    // HACK: Manually tagged constants:
-    const BLOCK: usize = 0x0001;
-    const VAR: usize = 0x1001;
-
     fn new(stack_capacity: usize, program: ValueRef) -> Interpreter {
         Interpreter {
             control: program,
@@ -132,7 +148,7 @@ impl Interpreter {
                                                    {self, dyns, block})?);
                     }
 
-                    self.push_block_frame(block, index);
+                    self.push_frame(BlockFrame { block, index: (index as isize).into() });
                     self.control = block.stmts()[index];
                     Ok(State::Exec)
                 } else {
@@ -157,12 +173,12 @@ impl Interpreter {
         typecase!(self.control, {
             def: Def => typecase!(def.pattern(), {
                 lvar: Lex => {
-                    self.push_var_frame(def.pattern());
+                    self.push_frame(VarFrame(def.pattern()));
                     self.control = def.expr();
                     Ok(State::Eval)
                 },
                 dvar: Dyn => {
-                    self.push_var_frame(def.pattern());
+                    self.push_frame(VarFrame(def.pattern()));
                     self.control = def.expr();
                     Ok(State::Eval)
                 },
@@ -176,10 +192,9 @@ impl Interpreter {
         // println!("invoke, fp = {}, sp = {}", self.fp, self.stack.len());
         if !self.stack.is_empty() {
             self.restore_envs();
-            match unsafe { transmute(self.stack[self.fp + 5]) } {
-                Self::BLOCK => {
-                    let block: ValueRefT<Block> = unsafe { transmute(self.stack[self.fp + 6]) };
-                    let index: ValueRefT<isize> = unsafe { transmute(self.stack[self.fp + 7]) };
+            match self.top_frame_tag() {
+                BlockFrame::TAG => {
+                    let BlockFrame { block, index } = self.top_frame();
                     let new_index: usize = index.unbox() as usize + 1;
                     if new_index < block.stmts().len() {
                         self.stack[self.fp + 7] = ValueRefT::from(new_index as isize).as_root();
@@ -191,8 +206,8 @@ impl Interpreter {
                         Ok(State::Eval)
                     }
                 },
-                Self::VAR => {
-                    let (name, env) = typecase!(self.stack[self.fp + 6].unwrap(), {
+                VarFrame::TAG => {
+                    let (name, env) = typecase!(self.top_frame::<VarFrame>().0, {
                         lvar: Lex => (lvar.name(), self.lenv),
                         dvar: Dyn => (dvar.name(), self.denv),
                         _ => unreachable!()
@@ -220,13 +235,21 @@ impl Interpreter {
         self.denv_buf = unsafe { transmute(self.stack[self.fp + 4]) };
     }
 
+    fn top_frame_tag(&self) -> usize {
+        unsafe { transmute(self.stack[self.fp + 5]) }
+    }
+
+    fn top_frame<T: SubFrame>(&self) -> T {
+        unsafe { *transmute::<_, &T>(&self.stack[self.fp + 6]) }
+    }
+
     fn pop_frame(&mut self) {
         let new_fp: ValueRefT<isize> = unsafe { self.stack[self.fp].unwrap().downcast() };
         self.stack.truncate(self.fp);
         self.fp = new_fp.unbox() as _;
     }
 
-    fn push_frame<F>(&mut self, push_specific: F) where F: Fn(&mut Self) {
+    fn push_frame<T: SubFrame>(&mut self, subframe: T) {
         let old_fp = self.fp;
         self.fp = self.stack.len();
         self.stack.push(ValueRefT::from(old_fp as isize).as_root());
@@ -234,22 +257,13 @@ impl Interpreter {
         self.stack.push(self.denv.as_root());
         self.stack.push(self.lenv_buf.as_root());
         self.stack.push(self.denv_buf.as_root());
-        push_specific(self);
-    }
 
-    fn push_block_frame(&mut self, block: ValueRefT<Block>, index: usize) {
-        self.push_frame(|itp| {
-            itp.stack.push(unsafe { transmute(Self::BLOCK) });
-            itp.stack.push(block.as_root());
-            itp.stack.push(ValueRefT::from(index as isize).as_root())
-        })
-    }
-
-    fn push_var_frame(&mut self, var: ValueRef) {
-        self.push_frame(|itp| {
-            itp.stack.push(unsafe { transmute(Self::VAR) });
-            itp.stack.push(Some(var));
-        })
+        self.stack.push(unsafe { transmute(T::TAG) });
+        let ptr = &subframe as *const T as *const Option<ValueRef>;
+        let fields = unsafe { slice::from_raw_parts(ptr, GSize::of::<T>().into()) };
+        for field in fields {
+            self.stack.push(*field);
+        }
     }
 
     fn mark_roots(&mut self, heap: &mut Allocator) {
