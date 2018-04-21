@@ -1,10 +1,11 @@
 use std::mem::transmute;
 use std::slice;
+use std::iter;
 
 use pcws_gc::GSize;
 use pcws_domain::Allocator;
 use pcws_domain::object_model::{Unbox, ValueRef, ValueRefT};
-use pcws_domain::values::Promise;
+use pcws_domain::values::{Tuple, Slice};
 use ast::{Block, Def, Lex, Dyn, Const};
 use env::{self, Env, EnvBuffer};
 
@@ -80,27 +81,31 @@ struct Interpreter {
 enum State {
     Eval,
     Exec,
+    Parse(ValueRefT<Slice>),
     Continue(ValueRef),
     Halt(ValueRef)
 }
 
-// TODO: Also use these in Interpreter::invoke
-trait SubFrame: Copy { const TAG: usize; }
+trait SubFrame { const TAG: usize; }
 
-#[derive(Clone, Copy)]
 #[repr(C)]
 struct BlockFrame {
     block: ValueRefT<Block>,
     index: ValueRefT<isize>
 }
 
-impl SubFrame for BlockFrame { const TAG: usize = 0x0001; }
+impl SubFrame for BlockFrame { const TAG: usize = 0b1; }
+
+#[repr(C)]
+struct DefFrame { def: ValueRefT<Def> }
+
+impl SubFrame for DefFrame { const TAG: usize = 0b1001; }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct VarFrame(ValueRef);
+struct CommitFrame;
 
-impl SubFrame for VarFrame { const TAG: usize = 0x1001; }
+impl SubFrame for CommitFrame { const TAG: usize = 0b10001; }
 
 // FIXME: Environment save/restore
 impl Interpreter {
@@ -122,6 +127,7 @@ impl Interpreter {
             state = match state {
                 State::Eval => self.eval()?,
                 State::Exec => self.exec()?,
+                State::Parse(seq) => self.parse(seq)?,
                 State::Continue(value) => self.invoke(value)?,
                 State::Halt(value) => return Ok(value)
             }
@@ -171,33 +177,48 @@ impl Interpreter {
     fn exec(&mut self) -> EvalResult<State> {
         // println!("exec, fp = {}, sp = {}", self.fp, self.stack.len());
         typecase!(self.control, {
-            def: Def => typecase!(def.pattern(), {
-                lvar: Lex => {
-                    self.push_frame(VarFrame(def.pattern()));
-                    self.control = def.expr();
-                    Ok(State::Eval)
-                },
-                dvar: Dyn => {
-                    self.push_frame(VarFrame(def.pattern()));
-                    self.control = def.expr();
-                    Ok(State::Eval)
-                },
-                _ => unimplemented!()
-            }),
+            def: Def => {
+                self.push_frame(DefFrame { def });
+                self.control = def.expr();
+                Ok(State::Eval)
+            },
+            // typecase!(def.pattern(), {
+            //     lvar: Lex => {
+            //         self.push_frame(VarFrame(def.pattern()));
+            //         self.control = def.expr();
+            //         Ok(State::Eval)
+            //     },
+            //     dvar: Dyn => {
+            //         self.push_frame(VarFrame(def.pattern()));
+            //         self.control = def.expr();
+            //         Ok(State::Eval)
+            //     },
+            //     _ => unimplemented!()
+            // }),
             _ => Ok(State::Eval)
         })
     }
 
-    fn invoke(&mut self, value: ValueRef) -> EvalResult<State> {
+    fn parse(&mut self, seq: ValueRefT<Slice>) -> EvalResult<State> {
+        typecase!(self.control, {
+            lex: Lex => {
+                // TODO
+                unimplemented!()
+            },
+            _ => unimplemented!()
+        })
+    }
+
+    fn invoke(&mut self, mut value: ValueRef) -> EvalResult<State> {
         // println!("invoke, fp = {}, sp = {}", self.fp, self.stack.len());
         if !self.stack.is_empty() {
             self.restore_envs();
             match self.top_frame_tag() {
                 BlockFrame::TAG => {
-                    let BlockFrame { block, index } = self.top_frame();
+                    let &BlockFrame { block, index } = self.top_frame();
                     let new_index: usize = index.unbox() as usize + 1;
                     if new_index < block.stmts().len() {
-                        self.stack[self.fp + 7] = ValueRefT::from(new_index as isize).as_root();
+                        self.top_frame_mut::<BlockFrame>().index = (new_index as isize).into();
                         self.control = block.stmts()[new_index];
                         Ok(State::Exec)
                     } else {
@@ -206,21 +227,35 @@ impl Interpreter {
                         Ok(State::Eval)
                     }
                 },
-                VarFrame::TAG => {
-                    let (name, env) = typecase!(self.top_frame::<VarFrame>().0, {
-                        lvar: Lex => (lvar.name(), self.lenv),
-                        dvar: Dyn => (dvar.name(), self.denv),
-                        _ => unreachable!()
-                    });
-                    let promise = env.unwrap().get(name)?.unwrap();
-                    if let Some(mut promise) = promise.try_downcast::<Promise>() {
-                        promise.init(value);
-                        self.pop_frame();
-                        Ok(State::Continue(value))
-                    } else {
-                        return Err(EvalError::Type);
-                    }
+                DefFrame::TAG => {
+                    let &DefFrame { mut def } = self.top_frame();
+                    self.lenv_buf =
+                        Some(allocate!(EnvBuffer::with_capacity, (def.lex_defs().vals().len()),
+                                       {self, value, def})?);
+                    self.denv_buf =
+                        Some(allocate!(EnvBuffer::with_capacity, (def.dyn_defs().vals().len()),
+                                       {self, value, def})?);
+                    self.push_frame(CommitFrame);
+                    self.control = def.pattern();
+                    let mut tuple = allocate!(Tuple::new, (1, iter::once(value)), {self, value})?;
+                    let seq = allocate!(Slice::new, (tuple, 0, 1), {self, tuple})?;
+                    Ok(State::Parse(seq))
                 },
+                // {
+                //     let (name, env) = typecase!(self.top_frame::<VarFrame>().0, {
+                //         lvar: Lex => (lvar.name(), self.lenv),
+                //         dvar: Dyn => (dvar.name(), self.denv),
+                //         _ => unreachable!()
+                //     });
+                //     let promise = env.unwrap().get(name)?.unwrap();
+                //     if let Some(mut promise) = promise.try_downcast::<Promise>() {
+                //         promise.init(value);
+                //         self.pop_frame();
+                //         Ok(State::Continue(value))
+                //     } else {
+                //         return Err(EvalError::Type);
+                //     }
+                // },
                 _ => unimplemented!()
             }
         } else {
@@ -239,8 +274,12 @@ impl Interpreter {
         unsafe { transmute(self.stack[self.fp + 5]) }
     }
 
-    fn top_frame<T: SubFrame>(&self) -> T {
-        unsafe { *transmute::<_, &T>(&self.stack[self.fp + 6]) }
+    fn top_frame<T: SubFrame>(&self) -> &T {
+        unsafe { transmute::<_, &T>(&self.stack[self.fp + 6]) }
+    }
+
+    fn top_frame_mut<T: SubFrame>(&mut self) -> &mut T {
+        unsafe { transmute::<_, &mut T>(&mut self.stack[self.fp + 6]) }
     }
 
     fn pop_frame(&mut self) {

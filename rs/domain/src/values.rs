@@ -135,6 +135,54 @@ impl Display for Tuple {
 // ================================================================================================
 
 heap_struct! {
+    pub struct Slice: UniformHeapValue {
+        start: usize,
+        end: usize,
+        vals: ValueRefT<Tuple>
+    }
+}
+
+impl Slice {
+    pub fn new(heap: &mut Allocator, vals: ValueRefT<Tuple>, start: usize, end: usize)
+        -> Option<ValueRefT<Slice>>
+    {
+        heap.create_uniform(|base| Slice { base, start, end, vals })
+    }
+
+    pub fn uncons(heap: &mut Allocator, slice: ValueRefT<Slice>)
+        -> Option<Option<(ValueRef, ValueRefT<Slice>)>>
+    {
+        if slice.start < slice.end {
+            heap.create_uniform(|base| Slice {
+                base, start: slice.start + 1, end: slice.end, vals: slice.vals
+            })
+            .map(|remainder| Some((slice.vals.vals()[slice.start], remainder)))
+        } else {
+            Some(None)
+        }
+    }
+}
+
+impl Debug for Slice {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("Slice")
+         .field("base", &self.base)
+         .field("start", &self.start)
+         .field("end", &self.end)
+         .field("vals", &self.vals)
+         .finish()
+    }
+}
+
+impl Display for Slice {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "#<Slice {}, {}, {}>", self.start, self.end, self.vals)
+    }
+}
+
+// ================================================================================================
+
+heap_struct! {
     pub struct String: BlobTailed<TailItem=u8> {}
 }
 

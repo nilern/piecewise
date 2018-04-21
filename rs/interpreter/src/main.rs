@@ -26,6 +26,7 @@ use interpret::interpret;
 fn main() {
     register_static_t::<values::Promise>();
     register_static_t::<values::Tuple>();
+    register_static_t::<values::Slice>();
     register_static_t::<values::String>();
     register_static_t::<values::Symbol>();
     register_static_t::<ast::Function>();
