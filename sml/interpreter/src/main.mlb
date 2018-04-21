@@ -5,18 +5,18 @@ in
         $(SML_LIB)/basis/mlton.mlb
         $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
         $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb (* TODO: More specific path(s) for this stuff *)
-
-        ../../compiler/src/util/pprint.sml
-        ../../compiler/src/util/option_ext.sml
-        ../../compiler/src/util/vector_ext.sml
-        ../../compiler/src/util/vectorslice_ext.sml
-
-        ../../compiler/src/util/pos.sml
-        ../../compiler/src/util/name.sml
     in
         ann "warnUnused true"
         in
             local
+                util/pprint.sml
+                util/option_ext.sml
+                util/vector_ext.sml
+                util/vectorslice_ext.sml
+
+                util/pos.sml
+                util/name.sml
+
                 env.sml
                 dump.sml
                 value.sml
@@ -26,7 +26,7 @@ in
                 in
                     parser.grm.sig
                     parser.grm.sml
-                    ../../compiler/src/pass/lexer.lex.sml
+                    lexer.lex.sml
                 end
 
                 interpreter.sml
