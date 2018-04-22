@@ -1,0 +1,9 @@
+@require Std {SyncIO => IO};
+@require Std.File;
+@require Std.Fn.(|>);
+@require Std.Category.(>>>);
+
+$Std.Process.arguments |> {
+  (filename,) -> File.with filename {:read} (IO.readAll >>> IO.print);
+  argv -> IO.printLine "invalid arguments"
+}
