@@ -1,0 +1,137 @@
+HAMT = recordType :root :count;
+
+EmptyNode = recordType ();
+LeafNode = recordType :hash :key :val;
+BitmapNode = recordType :bitmap :children;
+CollisionNode = recordType :hash :entries;
+
+shiftStep = 5;
+mask = (1 << shiftStep) - 1; # The `shiftStep` LSB:s are ones, the rest zeroes.
+
+subHash = { shift hashCode -> hashCode >>' shift & mask };
+inflateIndex = { bitmap subHash -> popCount (bitmap & subHash - 1) };
+
+empty = HAMT (EmptyNode ()) 0;
+
+count = { (HAMT _ len) -> len };
+
+get = { coll key -> withEscape { return -> update coll key return } };
+
+set = { coll key val -> update coll key (const (Some val)) };
+
+# FIXME: update count
+update = { (HAMT root count) key f -> HAMT (updateNode root key f (hash key) shift) count };
+
+updateNode = { node key f hashCode shift ->
+  match node {
+    (EmptyNode ()) ->
+      match (f (None ())) {
+        (Some val) -> LeafNode hashCode key val;
+        (None ()) -> node
+      };
+
+    (node @& LeafNode _ nodeKey val) ->
+      if nodeKey == key) [
+        match (f (Some val)) {
+          (Some val) -> LeafNode hashCode key val;
+          (None ()) -> EmptyNode ()
+        }
+      ] [
+        match (updateNode (EmptyNode ()) key f hashCode shift) {
+          (EmptyNode ()) -> node;
+          node' -> {
+            combineNodes = {
+              (node1 @& LeafNode h1 k1 v1) (node2 @& LeafNode h1 k1 v1) shift ->
+                if (h1 == h2) [
+                  CollisionNode h1 (k2, v2, k1, v1)
+                ] [
+                  subH1 = subHash h1 shift;
+                  subH2 = subHash h2 shift;
+                  bitmap = 1 << subH1 | 1 << subH2;
+                  children = if (subH1 == subH2) [
+                    (combineNodes node1 node2 (shift + shiftStep),)
+                  ] [
+                    if (subH1 < subH2) [(node1, node2)] [(node2, node1)]
+                  ];
+                  BitmapNode bitmap children
+                ]
+            };
+            combineNodes node node' shift
+          }
+        }
+      ];
+
+    (BitmapNode bitmap children) -> {
+      subHashCode = subHash hashCode shift;
+      bit = 1 << subHashCode;
+      exists = bitmap & bit != 0;
+      index = inflateIndex bitmap subHashCode;
+
+      child = if exists [Tuple.getUnchecked children index] [EmptyNode ()];
+      child' = updateNode child key f hashCode (shift + shiftStep);
+
+      action = if exists [
+        if (child' `isA` EmptyNode) [:removal] [:modification]
+      ] [
+        if (child' `isA` EmptyNode) [:none] [:addition]
+      ];
+
+      bitmap' = match action {
+        :removal -> bitmap & complement bit;
+        :modification @| :none -> bitmap;
+        :addition -> bitmap & bit
+      };
+      children' = match action {
+        :removal -> Tuple.remove children index;
+        :modification -> Tuple.set children index child';
+        :none -> children;
+        :addition -> Tuple.insert children index child';
+      }
+
+      match (Tuple.len children') {
+        0 -> EmptyNode ();
+        1 -> {
+          onlyChild = Tuple.getUnchecked children' 0;
+          if (onlyChild `isA` BitmapNode) [BitmapNode bitmap' children'] [onlyChild]
+        };
+        _ -> BitmapNode bitmap' children'
+      }
+    };
+
+    (CollisionNode hashCode entries) ->
+      match (TupleTable.update entries key f) {
+        (key, val) -> LeafNode hashCode key val;
+        entries -> CollisionNode hashCode entries
+      }
+  }
+};
+
+map = { f (HAMT root count) -> HAMT (mapNode f root) count };
+
+mapNode = { f node ->
+  match node {
+    (EmptyNode ()) -> node;
+    (LeafNode hashCode key val) -> LeafNode hashCode key (f val);
+    (BitmapNode bitmap children) -> BitmapNode bitmap (Tuple.map f children);
+    (CollisionNode hashCode entries) -> CollisionNode hashCode (TupleTable.map f entries)
+  }
+};
+
+foldLeft = { f acc coll -> foldEntriesLeft { acc _ val -> f acc val } acc coll };
+
+foldEntriesLeft = { f acc (HAMT root _) -> foldNodeEntriesLeft f acc root };
+
+foldNodeEntriesLeft = { f acc node ->
+  match node {
+    (EmptyNode ()) -> acc;
+    (LeafNode _ key val) -> f acc key val;
+    (BitmapNode _ children) -> Tuple.foldLeft (foldNodeEntriesLeft f _0 _1 _2) children;
+    (CollisionNode _ entries) -> TupleTable.foldEntriesLeft f acc entries
+  }
+};
+
+table = { (args *) -> TupleTable.foldEntriesLeft set empty args };
+
+apply += { (coll @& (HAMT _ _)) (key,) -> get coll key };
+
+@export {HAMT, table, empty, count, get, set, update, map, foldLeft, foldEntriesLeft}
