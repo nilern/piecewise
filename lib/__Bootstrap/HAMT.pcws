@@ -1,3 +1,5 @@
+(tupleTableUpdate, tupleTableMap, tupleTableFoldEntriesLeft) = @require "TupleTable";
+
 HAMT = recordType :root :count;
 
 EmptyNode = recordType ();
@@ -99,7 +101,7 @@ updateNode = { node key f hashCode shift ->
     };
 
     (CollisionNode hashCode entries) ->
-      match (TupleTable.update entries key f) {
+      match (tupleTableUpdate entries key f) {
         (key, val) -> LeafNode hashCode key val;
         entries -> CollisionNode hashCode entries
       }
@@ -113,7 +115,7 @@ mapNode = { f node ->
     (EmptyNode ()) -> node;
     (LeafNode hashCode key val) -> LeafNode hashCode key (f val);
     (BitmapNode bitmap children) -> BitmapNode bitmap (Tuple.map f children);
-    (CollisionNode hashCode entries) -> CollisionNode hashCode (TupleTable.map f entries)
+    (CollisionNode hashCode entries) -> CollisionNode hashCode (tupleTableMap f entries)
   }
 };
 
@@ -126,11 +128,11 @@ foldNodeEntriesLeft = { f acc node ->
     (EmptyNode ()) -> acc;
     (LeafNode _ key val) -> f acc key val;
     (BitmapNode _ children) -> Tuple.foldLeft (foldNodeEntriesLeft f _0 _1 _2) children;
-    (CollisionNode _ entries) -> TupleTable.foldEntriesLeft f acc entries
+    (CollisionNode _ entries) -> tupleTableFoldEntriesLeft f acc entries
   }
 };
 
-table = { (args *) -> TupleTable.foldEntriesLeft set empty args };
+table = { (args *) -> tupleTableFoldEntriesLeft set empty args };
 
 apply += { (coll @& (HAMT _ _)) (key,) -> get coll key };
 

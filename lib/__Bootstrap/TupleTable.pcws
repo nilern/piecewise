@@ -1,0 +1,37 @@
+(tupleLen, tupleGetUnchecked, tupleIndexOf,
+ tupleUpdate, tupleMapIndexed, tupleRemoveRange, tupleConcat) = @require "Tuple";
+(optionMap, optionFlatMap) = @require "Option";
+
+tupleTableUpdate = { table key f | isEven (tupleLen table) ->
+  optIndex = tupleIndexOf table key |> optionMap (_ + 1) _
+  optValue = optIndex |> optionFlatMap (tupleGetUnchecked table _) _;
+  optValue' = f optValue;
+  applyUpdate = {
+    (Some index) (Some value) (Some value') -> tupleUpdate table index value';
+    (Some index) (Some value) (None ())     -> tupleRemoveRange table index (index + 1);
+    _            (None ())    (Some value') -> tupleConcat table (key, value');
+    _            (None ())    (None ())     -> table
+  };
+  applyUpdate optIndex optValue optValue'
+};
+
+tupleTableMap = { f table | isEven (tupleLen table) ->
+  table |> tupleMapIndexed _ {
+    index key | isEven index -> key;
+    _ value -> f value
+  }
+};
+
+tupleTableFoldEntriesLeft = { f acc table ->
+  len | isEven len = tupleLen table;
+  loop = {
+    acc i | i < len -> {
+      acc' = f acc (tupleGetUnchecked table i) (tupleGetUnchecked table (i + 1));
+      loop acc' (i + 2)
+    };
+    acc _ -> acc
+  };
+  loop acc 0
+};
+
+(tupleTableUpdate, tupleTableMap, tupleTableFoldEntriesLeft)
