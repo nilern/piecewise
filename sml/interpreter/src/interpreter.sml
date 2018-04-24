@@ -15,6 +15,7 @@ end = struct
     exception Panic of Value.value
 
     type envs = { lex: value Env.t, dyn: value Env.t }
+    type env_deltas = { lex: value Env.delta, dyn: value Env.delta }
 
     datatype callable = Value of value
                       | Opcode of string
@@ -23,9 +24,9 @@ end = struct
                    | Arg of envs * expr VectorSlice.slice * callable * value VectorExt.builder
                    | Stmt of envs * stmt VectorSlice.slice * expr
                    | Def of envs * expr * expr option
-                   | Match of envs * (* HACK: *) envs ref * expr VectorSlice.slice
+                   | Match of envs * env_deltas * expr VectorSlice.slice
                    | OuterMatch of value
-                   | Commit of envs * (* HACK: *) envs ref
+                   | Commit of envs * env_deltas
                    | Body of envs * expr
 
     fun lookup dump { lex = lenv, dyn = denv } =
@@ -33,10 +34,10 @@ end = struct
          | Value.Dyn name => valOf (OptionExt.orElse (Env.find denv name)
                                                      (fn () => Dump.find dump name))
 
-    fun insert { lex = lenv, dyn = denv } var value =
+    fun deltaInsert (deltas: env_deltas) var value =
         case var
-        of Value.Lex name => { lex = Env.insert lenv name value, dyn = denv }
-         | Value.Dyn name => { lex = lenv, dyn = Env.insert denv name value }
+        of Value.Lex name => Env.deltaInsert (#lex deltas) name value
+         | Value.Dyn name => Env.deltaInsert (#dyn deltas) name value
 
     fun declare { lex = lenv, dyn = denv } stmts =
         { lex = Env.declare lenv (Value.blockBinders Value.lexName stmts) Value.uninitialized
@@ -48,9 +49,9 @@ end = struct
         , dyn = Env.declare denv (VectorExt.flatMap (Value.patBinders Value.dynName) pats)
                             Value.uninitialized }
 
-    fun define { lex = lenv, dyn = denv } { lex = lDelta, dyn = dDelta } =
-        ( Env.define lenv lDelta Value.initialize
-        ; Env.define denv dDelta Value.initialize )
+    fun applyDeltas { lex = lenv, dyn = denv } { lex = lDelta, dyn = dDelta } =
+        ( Env.applyDelta lenv lDelta Value.initialize;
+          Env.applyDelta denv dDelta Value.initialize )
 
     fun eval dump cont envs =
         fn Value.Fn (pos, methods) =>
@@ -103,7 +104,7 @@ end = struct
                  end
               | NONE => eval dump cont envs expr)
          | Def (envs, pat, (* TODO: *) _) :: cont =>
-            let val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+            let val envDeltas = { lex = Env.emptyDelta (), dyn = Env.emptyDelta () }
                 val seq = wrap (Value.Slice (wrap (Value.Tuple #[value]), 0))
                 val cont = Commit (envs, envDeltas) :: cont
             in match dump cont envs envDeltas pat seq
@@ -120,7 +121,7 @@ end = struct
             continue pos argSeq dump cont
          | Commit (envs, envDeltas) :: cont =>
             (* TODO: Check that `value` is an empty seq *)
-            ( define envs (!envDeltas)
+            ( applyDeltas envs envDeltas
             ; continue pos value dump cont )
          | Body (envs, body) :: cont => eval dump cont envs body
          | [] =>
@@ -140,7 +141,7 @@ end = struct
             in case VectorExt.uncons pats
                of SOME (pat, remPats) =>
                    let val envs = declareParams { lex = lenv, dyn = #dyn envs } pats
-                       val envDeltas = ref { lex = Env.empty, dyn = Env.empty }
+                       val envDeltas = { lex = Env.emptyDelta (), dyn = Env.emptyDelta () }
                        val argSlice = wrap (Value.Slice (args, 0))
                        val cont = Match (envs, envDeltas, remPats)
                                   :: Commit (envs, envDeltas) :: Body (envs, body) :: cont
@@ -178,7 +179,7 @@ end = struct
          | Value.Var (pos, var) =>
             (case Prim.slicePopFront argSeq
              of SOME (arg, remArgs) =>
-                 ( envDeltas := insert (!envDeltas) var arg
+                 ( deltaInsert envDeltas var arg
                  ; continue pos remArgs dump cont )
               | NONE => signal dump cont envs (wrap (Value.String "Argc")) pos)
          | Value.Const _ => raise Fail "unimplemented"
