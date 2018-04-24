@@ -1,4 +1,6 @@
-(tupleTableUpdate, tupleTableMap, tupleTableFoldEntriesLeft) = @require "TupleTable";
+(listTableUpdate, listTableMap, listTableFoldEntriesLeft) =
+  @require "ListTable";
+(tupleTableFoldEntriesLeft,) = @require "TupleTable";
 
 HAMT = recordType :root :count;
 
@@ -22,7 +24,9 @@ get = { coll key -> withEscape { return -> update coll key return } };
 set = { coll key val -> update coll key (const (Some val)) };
 
 # FIXME: update count
-update = { (HAMT root count) key f -> HAMT (updateNode root key f (hash key) shift) count };
+update = { (HAMT root count) key f ->
+  HAMT (updateNode root key f (hash key) shift) count
+};
 
 updateNode = { node key f hashCode shift ->
   match node {
@@ -94,14 +98,18 @@ updateNode = { node key f hashCode shift ->
         0 -> EmptyNode ();
         1 -> {
           onlyChild = Tuple.getUnchecked children' 0;
-          if (onlyChild `isA` BitmapNode) [BitmapNode bitmap' children'] [onlyChild]
+          if (onlyChild `isA` BitmapNode) [
+            BitmapNode bitmap' children'
+          ] [
+            onlyChild
+          ]
         };
         _ -> BitmapNode bitmap' children'
       }
     };
 
     (CollisionNode hashCode entries) ->
-      match (tupleTableUpdate entries key f) {
+      match (listTableUpdate entries key f) {
         (key, val) -> LeafNode hashCode key val;
         entries -> CollisionNode hashCode entries
       }
@@ -115,11 +123,14 @@ mapNode = { f node ->
     (EmptyNode ()) -> node;
     (LeafNode hashCode key val) -> LeafNode hashCode key (f val);
     (BitmapNode bitmap children) -> BitmapNode bitmap (Tuple.map f children);
-    (CollisionNode hashCode entries) -> CollisionNode hashCode (tupleTableMap f entries)
+    (CollisionNode hashCode entries) ->
+      CollisionNode hashCode (listTableMap f entries)
   }
 };
 
-foldLeft = { f acc coll -> foldEntriesLeft { acc _ val -> f acc val } acc coll };
+foldLeft = { f acc coll ->
+  foldEntriesLeft { acc _ val -> f acc val } acc coll
+};
 
 foldEntriesLeft = { f acc (HAMT root _) -> foldNodeEntriesLeft f acc root };
 
@@ -127,8 +138,9 @@ foldNodeEntriesLeft = { f acc node ->
   match node {
     (EmptyNode ()) -> acc;
     (LeafNode _ key val) -> f acc key val;
-    (BitmapNode _ children) -> Tuple.foldLeft (foldNodeEntriesLeft f _0 _1 _2) children;
-    (CollisionNode _ entries) -> tupleTableFoldEntriesLeft f acc entries
+    (BitmapNode _ children) ->
+      Tuple.foldLeft (foldNodeEntriesLeft f _0 _1 _2) children;
+    (CollisionNode _ entries) -> listTableFoldEntriesLeft f acc entries
   }
 };
 
@@ -136,4 +148,5 @@ table = { (args *) -> tupleTableFoldEntriesLeft set empty args };
 
 apply += { (coll @& (HAMT _ _)) (key,) -> get coll key };
 
-@export {HAMT, table, empty, count, get, set, update, map, foldLeft, foldEntriesLeft}
+@export {HAMT, table, empty, count, get, set, update,
+         map, foldLeft, foldEntriesLeft}

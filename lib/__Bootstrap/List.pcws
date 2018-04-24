@@ -1,0 +1,14 @@
+Cons = recordType :head :tail;
+Nil = recordType ();
+
+map = {
+  f (Cons val vals) -> Cons (f val) (map f vals);
+  _ (coll @& Nil ()) -> coll
+};
+
+foldLeft = {
+  f acc (Cons val vals) -> foldLeft f (f acc val) vals;
+  _ acc (Nil ()) -> acc
+};
+
+(Cons, Nil, map, foldLeft)

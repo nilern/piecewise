@@ -1,0 +1,25 @@
+(Cons, Nil, listMap, listFoldLeft) = @require "List";
+
+update = {
+  (Cons (k, v) tail) key f | k == key ->
+    match (f (Some v)) {
+      (Some value) -> Cons (key, value) tail;
+      (None ()) -> tail
+    }
+
+  (Cons _ tail) key f -> update tail key f;
+
+  (table @& Nil ()) key f ->
+    match (f (None ())) {
+      (Some value) -> Cons (key, value) table;
+      (None ()) -> table
+    }
+};
+
+map = { f table -> listMap { (key, value) -> (key, f value) } table };
+
+foldNodeEntriesLeft = { f acc table ->
+  listFoldLeft { acc (key, value) -> f acc key value } table
+};
+
+(update, map, foldEntriesLeft)
