@@ -1,4 +1,4 @@
-(Cons, Nil, listMap, listFoldLeft) = @require "List";
+(Cons, Nil, listFoldLeft, _, listMap) = @require "List";
 
 update = {
   (Cons (k, v) tail) key f | k == key ->
@@ -7,7 +7,7 @@ update = {
       (None ()) -> tail
     }
 
-  (Cons _ tail) key f -> update tail key f;
+  (Cons entry tail) key f -> Cons entry (update tail key f);
 
   (table @& Nil ()) key f ->
     match (f (None ())) {
