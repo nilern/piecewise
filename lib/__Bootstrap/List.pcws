@@ -1,16 +1,17 @@
-Cons = recordType :head :tail;
-Nil = recordType ();
+(Cons, (apply <- +), (apply <- +)) = tupleStruct Any Any;
+(Nil, (apply <- +), (apply <- +)) = (tupleStruct ->);
 
 foldLeft = {
   f acc (Cons val vals) -> foldLeft f (f acc val) vals;
-  _ acc (Nil ()) -> acc
+  _ acc (Nil ->) -> acc
 };
 
 foldRight = {
   f acc (Cons val vals) -> f val (foldRight f acc vals);
-  _ acc (Nil ()) -> acc
+  _ acc (Nil ->) -> acc
 };
 
-map = { f coll -> foldRight { val acc -> Cons (f val) acc } (Nil ()) coll };
+map = { f coll -> foldRight { val acc -> Cons (f val) acc } (Nil ->) coll };
 
+# TODO: How to export (un)apply{Cons, Nil}?
 (Cons, Nil, foldLeft, foldRight, map)

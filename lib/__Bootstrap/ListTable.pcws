@@ -4,15 +4,15 @@ update = {
   (Cons (k, v) tail) key f | k == key ->
     match (f (Some v)) {
       (Some value) -> Cons (key, value) tail;
-      (None ()) -> tail
+      (None ->) -> tail
     }
 
   (Cons entry tail) key f -> Cons entry (update tail key f);
 
-  (table @& Nil ()) key f ->
-    match (f (None ())) {
+  (table @& Nil ->) key f ->
+    match (f (None ->)) {
       (Some value) -> Cons (key, value) table;
-      (None ()) -> table
+      (None ->) -> table
     }
 };
 
