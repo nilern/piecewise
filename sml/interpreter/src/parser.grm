@@ -1,50 +1,6 @@
 datatype block_item = MethodHeader of Value.expr vector * Value.expr option
                     | Stmt of Value.stmt
 
-(* HACK: raise Fail ... *)
-local
-    fun parseBlockPrefix (items as (MethodHeader _ :: _)) = (NONE, items)
-      | parseBlockPrefix (Stmt stmt :: items) =
-        (case parseBlockPrefix items
-         of (SOME (stmts, expr), tail) => (SOME (stmt :: stmts, expr), tail)
-          | (NONE, tail) =>
-             (case stmt
-              of Value.Expr expr => (SOME ([], expr), tail)
-               | _ => raise Fail "block ends in non-expression"))
-      | parseBlockPrefix [] = (NONE, [])
-
-    fun parseFn pos items =
-        let fun parseMethods (MethodHeader (pats, guard) :: items) =
-                (case parseBlockPrefix items
-                 of (SOME (stmts, expr), tail) =>
-                     let val method =
-                             case stmts
-                             of stmt :: _ =>
-                                 Value.Method (pats, guard,
-                                               Value.Block (Value.stmtPos stmt,
-                                                            Vector.fromList stmts, expr))
-                              | [] => Value.Method (pats, guard, expr)
-                         val methods = case tail
-                                       of _ :: _ => parseMethods tail
-                                        | []     => []
-                     in method :: methods
-                     end
-                  | (NONE, _) => raise Fail "method has no body")
-              | parseMethods (_ :: items) = raise Fail "unreachable code reached"
-              | parseMethods [] = raise Fail "function has no methods"
-        in Value.Fn (pos, Vector.fromList (parseMethods items))
-        end
-
-    fun parseBlock pos items =
-        case parseBlockPrefix items
-        of (SOME (stmts, expr), []) => Value.Block (pos, Vector.fromList stmts, expr)
-         | (NONE, []) => raise Fail "empty block"
-         | (_, _ :: _) => raise Fail "method header in block"
-in fun parseBlockOrFn pos =
-       fn items as (MethodHeader _ :: _) => parseFn pos items
-        | items => parseBlock pos items
-end
-
 (*fun opCall pos opPos opStr l r =
         Cst.FixE (Cst.Expr.Call (pos,
                               Cst.FixE (Cst.Expr.Triv (opPos, Cst.Expr.Triv.Var (BaseVar.Lex
@@ -104,6 +60,7 @@ fun extractCall _ [e] = e
     | EOF
 
 %nonterm program of Value.expr
+       | body of Value.expr
        | stmt of Value.stmt
        | expr of Value.expr
 
@@ -124,6 +81,9 @@ fun extractCall _ [e] = e
 
        | simple of Value.expr
 
+       | methodList of Value.method list
+       | method of Value.method
+
        | id of Value.var
 
        (*| datum of Cst.expr*)
@@ -141,18 +101,17 @@ fun extractCall _ [e] = e
 
 %%
 
-program : expr (Value.Block (exprleft, Vector.fromList [], expr))
-        | stmtList SEMI expr (Value.Block (stmtListleft, Vector.fromList (List.rev stmtList),
-                                           expr))
+program : body (body)
+
+body : stmtList SEMI expr (Value.Block ( stmtListleft
+                                       , VectorExt.fromListRev (List.rev stmtList)
+                                       , expr))
+     | expr (Value.Block (exprleft, Vector.fromList [], expr))
 
 stmt : expr EQ expr (Value.Def (expr1, NONE, expr2))
      | expr         (Value.Expr expr)
 
-(*blockItem : app DARROW stmt
-            (Clause (Vector.fromList (List.rev app), NONE, stmt))
-          | stmt (Stmt stmt)
-
-expr : infix0 (infix0) *)
+(*expr : infix0 (infix0) *)
 
 expr : app      (app)
      | primCall (primCall)
@@ -196,10 +155,16 @@ primCall : PRIM appItems (Value.PrimCall (PRIMleft, PRIM, VectorExt.fromListRev 
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | datum (datum) *)
 
-simple : LPAREN expr RPAREN          (expr)
-       | LBRACE blockItemList RBRACE (parseBlockOrFn LBRACEleft blockItemList)
-       | id                          (Value.Var (idleft, id))
-       | prim                        (Value.Const (primleft, Value.wrap prim))
+simple : LPAREN expr RPAREN       (expr)
+       | LBRACE methodList RBRACE (Value.Fn (methodListleft, VectorExt.fromListRev methodList))
+       | LBRACE body RBRACE       (body)
+       | id                       (Value.Var (idleft, id))
+       | prim                     (Value.Const (primleft, Value.wrap prim))
+
+methodList : methodList SEMI method (method :: methodList)
+           | method                 ([method])
+
+method : appItems DARROW expr (Value.Method (VectorExt.fromListRev appItems, NONE, expr))
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
@@ -240,8 +205,3 @@ mapPairs : ARROW                          ([])
 
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
-
-blockItemList : appItems DARROW blockItemList
-                (MethodHeader (VectorExt.fromListRev appItems, NONE) :: blockItemList)
-              | stmt SEMI blockItemList   (Stmt stmt :: blockItemList)
-              | stmt                      ([Stmt stmt])
