@@ -1,8 +1,23 @@
 local
     $(SML_LIB)/basis/basis.mlb
     $(SML_LIB)/basis/mlton.mlb
+
     $(SML_LIB)/mlyacc-lib/mlyacc-lib.mlb
-    $(SML_LIB)/smlnj-lib/Util/smlnj-lib.mlb (* TODO: More specific path(s) for this stuff *)
+
+    $(SML_LIB)/basis/unsafe.mlb
+    $(SML_LIB)/smlnj-lib/Util/lib-base-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/lib-base.sml
+
+    $(SML_LIB)/smlnj-lib/Util/ord-key-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/ord-map-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/binary-map-fn.sml
+
+    $(SML_LIB)/smlnj-lib/Util/hash-key-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/hash-string.sml
+    $(SML_LIB)/smlnj-lib/Util/hash-table-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/mono-hash-table-sig.sml
+    $(SML_LIB)/smlnj-lib/Util/hash-table-rep.sml
+    $(SML_LIB)/smlnj-lib/Util/hash-table-fn.sml
 in
     ann "allowSuccessorML true"
     in  ann "warnUnused true"
