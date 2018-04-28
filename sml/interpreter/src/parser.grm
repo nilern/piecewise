@@ -43,9 +43,10 @@ fun extractCall _ [e] = e
     | CHAR of string
 
     | EQ
-    | AUG
+    | BAR
+    | LARROW
+    | RARROW
     | DARROW
-    | ARROW
 
     | LPAREN
     | RPAREN
@@ -164,7 +165,7 @@ simple : LPAREN expr RPAREN       (expr)
 methodList : methodList SEMI method (method :: methodList)
            | method                 ([method])
 
-method : appItems ARROW expr (Value.Method (VectorExt.fromListRev appItems, NONE, expr))
+method : appItems RARROW expr (Value.Method (VectorExt.fromListRev appItems, NONE, expr))
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
@@ -199,9 +200,9 @@ exprList :                 ([])
 exprListTwoPlus : expr COMMA expr            ([expr2, expr1])
                 | exprListTwoPlus COMMA expr (expr :: exprListTwoPlus)
 
-mapPairs : ARROW                          ([])
-         | expr ARROW expr                ([(expr1, expr2)])
-         | mapPairs COMMA expr ARROW expr ((expr1, expr2) :: mapPairs) *)
+mapPairs : DARROW                          ([])
+         | expr DARROW expr                ([(expr1, expr2)])
+         | mapPairs COMMA expr DARROW expr ((expr1, expr2) :: mapPairs) *)
 
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)

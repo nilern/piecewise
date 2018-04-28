@@ -34,18 +34,20 @@ end = struct
             fun loop lexer =
                 let val (ast, lexer) = invoke lexer
                     val (nextToken, lexer) = PcwsParser.Stream.get lexer
-                    val doc = Value.exprToDoc ast <+> PPrint.text "==>"
-                              <+> Value.valueToDoc (Interpreter.interpret ast)
-                in print (PPrint.pretty 80 doc)
-                 ; if PcwsParser.sameToken(nextToken, dummyEOF)
-                   then ()
-                   else loop lexer
+                    val _ = print (PPrint.pretty 80 (Value.exprToDoc ast))
+                    val evalue = Interpreter.interpret ast
+                    val _ = print "==>\n"
+                    val _ = print (PPrint.pretty 80 (Value.valueToDoc evalue))
+                in  if PcwsParser.sameToken(nextToken, dummyEOF)
+                    then ()
+                    else loop lexer
                 end
         in
             loop lexer
         end
         handle
-            Interpreter.Panic exn =>
+            PcwsLex.LexerError pos => print ("Lexer Error at " ^ (Pos.toString pos) ^ "\n")
+          | Interpreter.Panic exn =>
                 print ("Panic: " ^ (PPrint.pretty 80 (Value.valueToDoc exn)))
 end
 

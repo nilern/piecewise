@@ -1,4 +1,8 @@
-functor PcwsLexerFun(structure Tokens: Pcws_TOKENS) : ARG_LEXER = struct
+functor PcwsLexerFun(structure Tokens: Pcws_TOKENS): sig
+    include ARG_LEXER
+
+    exception LexerError of Pos.t
+end = struct
     structure UserDeclarations = struct
         type ('a, 'b) token = ('a, 'b) Tokens.token
         type pos = Pos.t
@@ -57,6 +61,8 @@ functor PcwsLexerFun(structure Tokens: Pcws_TOKENS) : ARG_LEXER = struct
          | #"\"" => true | #"'" => true | #"`" => true
          | c => Char.isSpace c
 
+    val isOpChar = Char.contains "!%&*+-./:<=>?\\^|~"
+
     fun popIf pred {peek, pop, substring = _, pos = _} =
         case peek ()
         of res as (SOME c) => if pred c
@@ -93,13 +99,6 @@ functor PcwsLexerFun(structure Tokens: Pcws_TOKENS) : ARG_LEXER = struct
                      | SOME #"," => (pop (); Tokens.COMMA (startPos, pos ()))
                      | SOME #";" => (pop (); Tokens.SEMI (startPos, pos ()))
 
-                     | SOME #"=" => (pop (); Tokens.EQ (startPos, pos ()))
-                     | SOME #"-" => ( pop ()
-                                    ; case peek ()
-                                      of SOME #">" => ( pop ()
-                                                      ; Tokens.ARROW (startPos, pos ()) )
-                                       | _ => raise LexerError (pos ()) )
-
                      | SOME #"\"" => let val _ = pop ()
                                          val cs = takeUntil (fn c => c = #"\"") input
                                          val _ = pop ()
@@ -134,7 +133,17 @@ functor PcwsLexerFun(structure Tokens: Pcws_TOKENS) : ARG_LEXER = struct
                         then let val cs = takeUntil isTerminator input
                              in Tokens.LEXID (cs, startPos, pos ())
                              end
-                        else raise Fail "unimplemented"
+                        else if isOpChar c
+                        then let val cs = takeUntil isTerminator input
+                             in  case cs
+                                 of "="  => Tokens.EQ (startPos, pos ())
+                                  | "|"  => Tokens.BAR (startPos, pos ())
+                                  | "->" => Tokens.RARROW (startPos, pos ())
+                                  | "<-" => Tokens.LARROW (startPos, pos ())
+                                  | "=>" => Tokens.DARROW (startPos, pos ())
+                                  | _    => Tokens.OP0 (cs, startPos, pos ())
+                             end
+                        else raise Fail ("unimplemented " ^ (String.str c))
 
                      | NONE => Tokens.EOF (startPos, startPos)
                 end
