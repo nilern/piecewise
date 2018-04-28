@@ -164,7 +164,7 @@ simple : LPAREN expr RPAREN       (expr)
 methodList : methodList SEMI method (method :: methodList)
            | method                 ([method])
 
-method : appItems DARROW expr (Value.Method (VectorExt.fromListRev appItems, NONE, expr))
+method : appItems ARROW expr (Value.Method (VectorExt.fromListRev appItems, NONE, expr))
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)

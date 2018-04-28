@@ -26,8 +26,9 @@ in
                 in
                     parser.grm.sig
                     parser.grm.sml
-                    lexer.lex.sml
                 end
+
+                lexer.sml
 
                 interpreter.sml
             in

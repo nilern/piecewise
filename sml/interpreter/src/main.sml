@@ -5,7 +5,7 @@ end = struct
         PcwsLrValsFun(structure Token = LrParser.Token)
 
     structure PcwsLex =
-        PcwsLexFun(structure Tokens = PcwsLrVals.Tokens)
+        PcwsLexerFun(structure Tokens = PcwsLrVals.Tokens)
 
     structure PcwsParser =
         JoinWithArg(structure LrParser = LrParser
@@ -28,7 +28,7 @@ end = struct
                             (case TextIO.inputLine TextIO.stdIn
                              of SOME s => s
                               | _ => "")) fileName
-            val _ = PcwsLex.UserDeclarations.initialize ()
+            (* val _ = PcwsLex.UserDeclarations.initialize () *)
             val startPos = Pos.start fileName
             val dummyEOF = PcwsLrVals.Tokens.EOF(startPos, startPos)
             fun loop lexer =

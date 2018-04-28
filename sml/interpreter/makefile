@@ -8,12 +8,9 @@ clean:
 	rm -rf target
 
 target/pcws: target src/main.mlb \
-	           $(shell find src -name '*.sml' -or -name '*.fun' -or -name '*.sig') \
-			       src/lexer.lex.sml src/parser.grm.sig src/parser.grm.sml
+	         $(shell find src -name '*.sml' -or -name '*.fun' -or -name '*.sig') \
+			 src/parser.grm.sig src/parser.grm.sml
 	mlton -const 'Exn.keepHistory true' -output target/pcws src/main.mlb
-
-src/lexer.lex.sml: src/lexer.lex
-	mllex src/lexer.lex
 
 src/parser.grm.sig: src/parser.grm
 	mlyacc src/parser.grm
