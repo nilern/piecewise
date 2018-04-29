@@ -1,6 +1,3 @@
-datatype block_item = MethodHeader of Value.expr vector * Value.expr option
-                    | Stmt of Value.stmt
-
 (*fun opCall pos opPos opStr l r =
         Cst.FixE (Cst.Expr.Call (pos,
                               Cst.FixE (Cst.Expr.Triv (opPos, Cst.Expr.Triv.Var (BaseVar.Lex
@@ -60,7 +57,7 @@ fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name),
        | stmt of Value.stmt
        | expr of Value.expr
 
-       (*)| infix0 of Cst.expr
+       (*| infix0 of Cst.expr
        | infix1 of Cst.expr
        | infix2 of Cst.expr
        | infix3 of Cst.expr
@@ -90,7 +87,6 @@ fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name),
        | exprListTwoPlus of Value.expr list
        (* | mapPairs of (Cst.expr * Cst.expr) list *)
        | stmtList of Value.stmt list
-       | blockItemList of block_item list
 
 %eop EOF
 %noshift EOF
@@ -99,9 +95,7 @@ fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name),
 
 program : body (body)
 
-body : stmtList SEMI expr (Value.Block ( stmtListleft
-                                       , VectorExt.fromListRev (List.rev stmtList)
-                                       , expr))
+body : stmtList SEMI expr (Value.Block (stmtListleft, VectorExt.fromListRev stmtList, expr))
      | expr (Value.Block (exprleft, Vector.fromList [], expr))
 
 stmt : expr EQ expr (Value.Def (expr1, NONE, expr2))
@@ -152,6 +146,10 @@ primCall : PRIM appItems (Value.PrimCall (PRIMleft, PRIM, VectorExt.fromListRev 
        | datum (datum) *)
 
 simple : LPAREN expr RPAREN       (expr)
+       | LPAREN expr RARROW expr RPAREN
+         (applyName LPARENleft "apply" #[expr1, expr2])
+       | LPAREN expr RARROW RPAREN
+         (applyName LPARENleft "apply" #[expr, applyName RPARENleft "Tuple" #[]])
        | LBRACE methodList RBRACE (Value.Fn (methodListleft, VectorExt.fromListRev methodList))
        | LBRACE body RBRACE       (body)
        | id                       (Value.Var (idleft, id))
