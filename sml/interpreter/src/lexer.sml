@@ -116,11 +116,16 @@ end = struct
                                     end
                      | SOME #"_" => ( pop ()
                                     ; case peek ()
-                                      of SOME #"_" => let val _ = pop ()
+                                      of SOME c =>
+                                          (case c
+                                           of #"_" => let val _ = pop ()
                                                           val cs = takeUntil isTerminator input
                                                       in Tokens.PRIM (cs, startPos, pos ())
                                                       end
-                                       | _ => raise Fail "unimplemented" )
+                                            | _ => let val cs = takeUntil isTerminator input
+                                                   in Tokens.DUMID (cs, startPos , pos ())
+                                                   end)
+                                       | NONE => raise Fail ("unimplemented: _<EOF>") )
 
                      | SOME c =>
                         if Char.isSpace c

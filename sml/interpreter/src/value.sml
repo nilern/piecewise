@@ -20,6 +20,7 @@ structure Value :> sig
              | Expr of expr
     and var = Lex of string
             | Dyn of string
+            | Dummy of string
 
     exception ReadUninitialized of value
 
@@ -63,6 +64,7 @@ end = struct
              | Expr of expr
     and var = Lex of string
              | Dyn of string
+             | Dummy of string
     and value = Value of value_state ref
     and value_state = Present of content
                     | Redirect of value
@@ -100,11 +102,11 @@ end = struct
 
     val lexName =
         fn Lex name => SOME name
-         | Dyn _ => NONE
+         | _ => NONE
 
     val dynName =
         fn Dyn name => SOME name
-         | Lex _ => NONE
+         | _ => NONE
 
     fun patBinders f =
         fn Fn _ => Vector.fromList [] (* actually, illegal pattern *)
@@ -156,8 +158,9 @@ end = struct
     end
 
     val varToDoc =
-        fn Lex cs  => PP.text cs
-         | Dyn cs  => PP.text ("$" ^ cs)
+        fn Lex cs   => PP.text cs
+         | Dyn cs   => PP.text ("$" ^ cs)
+         | Dummy cs => PP.text ("_" ^ cs)
 
     val rec exprToDoc =
         fn Fn (_, methods) =>

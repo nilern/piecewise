@@ -22,6 +22,7 @@ fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name),
 
 %term LEXID of string
     | DYNID of string
+    | DUMID of string
     | OP0 of string
     | OP1 of string
     | OP2 of string
@@ -163,6 +164,7 @@ method : appItems RARROW expr (Value.Method (VectorExt.fromListRev appItems, NON
 
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
+   | DUMID (Value.Dummy DUMID)
 
 datum : prim     (Value.Const (primleft, Value.wrap prim))
       | compound (compound)
