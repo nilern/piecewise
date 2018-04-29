@@ -5,17 +5,11 @@ datatype block_item = MethodHeader of Value.expr vector * Value.expr option
         Cst.FixE (Cst.Expr.Call (pos,
                               Cst.FixE (Cst.Expr.Triv (opPos, Cst.Expr.Triv.Var (BaseVar.Lex
                                                                       (Name.fromString opStr)))),
-                   Vector.fromList [l, r]))
+                   Vector.fromList [l, r])) *)
 
-fun applyName pos name exprs =
-    Cst.FixE (Cst.Expr.Call(pos,
-                            Cst.FixE (Cst.Expr.Triv (pos,
-                                                     Cst.Expr.Triv.Var (BaseVar.Lex name))), exprs))
+fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name), exprs)
 
-fun applyNameRev pos name revExprs =
-    applyName pos name (Vector.fromList (List.rev revExprs))
-
-fun extractCall _ [e] = e
+(*fun extractCall _ [e] = e
   | extractCall pos (f::args) =
     Cst.FixE (Cst.Expr.Call (pos, f, Vector.fromList args))
   | extractCall _ [] = raise LrParser.ParseError *)
@@ -87,13 +81,13 @@ fun extractCall _ [e] = e
 
        | id of Value.var
 
-       (*| datum of Cst.expr*)
+       | datum of Value.expr
        | prim of Value.content
-       (*| compound of Cst.expr
+       | compound of Value.expr
 
-       | exprList of Cst.expr list
-       | exprListTwoPlus of Cst.expr list
-       | mapPairs of (Cst.expr * Cst.expr) list*)
+       | exprList of Value.expr list
+       | exprListTwoPlus of Value.expr list
+       (* | mapPairs of (Cst.expr * Cst.expr) list *)
        | stmtList of Value.stmt list
        | blockItemList of block_item list
 
@@ -160,7 +154,7 @@ simple : LPAREN expr RPAREN       (expr)
        | LBRACE methodList RBRACE (Value.Fn (methodListleft, VectorExt.fromListRev methodList))
        | LBRACE body RBRACE       (body)
        | id                       (Value.Var (idleft, id))
-       | prim                     (Value.Const (primleft, Value.wrap prim))
+       | datum                    (datum)
 
 methodList : methodList SEMI method (method :: methodList)
            | method                 ([method])
@@ -170,20 +164,20 @@ method : appItems RARROW expr (Value.Method (VectorExt.fromListRev appItems, NON
 id : LEXID (Value.Lex LEXID)
    | DYNID (Value.Dyn DYNID)
 
-(* datum : prim     (prim)
-      | compound (compound) *)
+datum : prim     (Value.Const (primleft, Value.wrap prim))
+      | compound (compound)
 
 prim : INT    (Value.Int (valOf (Int.fromString INT)))
      | STRING (Value.String STRING)
      | CHAR   (Value.Char (String.sub (CHAR, 0)))
 
-(*compound : LPAREN exprList RPAREN
-           (applyNameRev LPARENleft (Name.fromString "tuple") exprList)
+compound : LPAREN exprList RPAREN
+           (applyName LPARENleft "Tuple" (VectorExt.fromListRev exprList))
          | LBRACKET exprList RBRACKET
-           (applyNameRev LBRACKETleft (Name.fromString "array") exprList)
+           (applyName LBRACKETleft "Array" (VectorExt.fromListRev exprList))
          | LBRACE exprList RBRACE
-           (applyNameRev LBRACEleft (Name.fromString "set") exprList)
-         | LBRACE mapPairs RBRACE
+           (applyName LBRACEleft "Set" (VectorExt.fromListRev exprList))
+         (*| LBRACE mapPairs RBRACE
            (let val pos = LBRACEleft
                 val args = List.foldl (fn ((k, v), acc) => k::v::acc)
                                       [] mapPairs
@@ -193,16 +187,16 @@ prim : INT    (Value.Int (valOf (Int.fromString INT)))
                                                                      (Name.fromString "hashMap")))),
                        Vector.fromList args)) end)
 
+mapPairs : DARROW                          ([])
+         | expr DARROW expr                ([(expr1, expr2)])
+         | mapPairs COMMA expr DARROW expr ((expr1, expr2) :: mapPairs) *)
+
 exprList :                 ([])
          | expr COMMA      ([expr])
          | exprListTwoPlus (exprListTwoPlus)
 
 exprListTwoPlus : expr COMMA expr            ([expr2, expr1])
                 | exprListTwoPlus COMMA expr (expr :: exprListTwoPlus)
-
-mapPairs : DARROW                          ([])
-         | expr DARROW expr                ([(expr1, expr2)])
-         | mapPairs COMMA expr DARROW expr ((expr1, expr2) :: mapPairs) *)
 
 stmtList : stmt               ([stmt])
          | stmtList SEMI stmt (stmt :: stmtList)
