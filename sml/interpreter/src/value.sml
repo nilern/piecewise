@@ -10,7 +10,7 @@ structure Value :> sig
                      | Closure of method vector * value Env.t
 
     and expr = Fn of Pos.t * method vector
-             | Call of Pos.t * expr * expr vector
+             | Apply of Pos.t * expr * expr
              | PrimCall of Pos.t * string * expr vector
              | Block of Pos.t * stmt vector * expr
              | Var of Pos.t * var
@@ -54,7 +54,7 @@ end = struct
     val op<$> = PPrint.<$>
 
     datatype expr = Fn of Pos.t * method vector
-                  | Call of Pos.t * expr * expr vector
+                  | Apply of Pos.t * expr * expr
                   | PrimCall of Pos.t * string * expr vector
                   | Block of Pos.t * stmt vector * expr
                   | Var of Pos.t * var
@@ -111,7 +111,7 @@ end = struct
     fun patBinders f =
         fn Fn _ => Vector.fromList [] (* actually, illegal pattern *)
          | PrimCall (_, _, args) => VectorExt.flatMap (patBinders f) args
-         | Call (_, _, args) => VectorExt.flatMap (patBinders f) args
+         | Apply (_, _, arg) => patBinders f arg
          | Block _ => Vector.fromList [] (* actually, illegal pattern *)
          | Var (_, v) => OptionExt.toVector (f v)
          | Const _ => Vector.fromList []
@@ -125,7 +125,7 @@ end = struct
     val exprPos =
         fn Fn (pos, _) => pos
          | PrimCall (pos, _, _) => pos
-         | Call (pos, _, _) => pos
+         | Apply (pos, _, _) => pos
          | Block (pos, _, _) => pos
          | Var (pos, _) => pos
          | Const (pos, _) => pos
@@ -168,10 +168,8 @@ end = struct
                 PP.nest 2 (PP.line ^^ PP.punctuate (PP.semi ^^ PP.line)
                                                    (Vector.map methodToDoc methods)) <$>
                     PP.rBrace
-         | Call (_, callee, args) =>
-            let fun step (arg, acc) = acc <+> exprToDoc arg
-            in PP.parens (PP.align (Vector.foldl step (exprToDoc callee) args))
-            end
+         | Apply (_, callee, arg) =>
+            PP.parens (exprToDoc callee <+> PP.text "->" <+> exprToDoc arg)
          | PrimCall (_, opcode, args) =>
             let fun step (arg, acc) = acc <+> exprToDoc arg
             in PP.parens (PP.align (Vector.foldl step (PP.text ("__" ^ opcode)) args))

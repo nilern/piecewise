@@ -24,6 +24,7 @@ end = struct
              of #[Value.Int a, Value.Int b] => Value.wrap (Value.Int (a + b))
               | #[_, _] => raise Fail "__iAdd: arg types"
               | _ => raise Fail "__iAdd: argc")
+         | "tupleNew" => Value.wrap (Value.Tuple args)
          | _ => raise Fail ("tried to apply unknown opcode __" ^ opcode)
 
     fun unApply opcode argSeq patternCount =

@@ -4,7 +4,9 @@
                                                                       (Name.fromString opStr)))),
                    Vector.fromList [l, r])) *)
 
-fun applyName pos name exprs = Value.Call (pos, Value.Var (pos, Value.Lex name), exprs)
+fun callName pos name exprs =
+    Value.Apply (pos, Value.Var (pos, Value.Lex name)
+                    , Value.PrimCall (pos, "tupleNew", exprs))
 
 (*fun extractCall _ [e] = e
   | extractCall pos (f::args) =
@@ -130,7 +132,11 @@ infix7 : infix7 OP7 app
 
 app : appItems (case List.rev appItems
                 of [simple] => simple
-                 | callee :: args => Value.Call (appItemsleft, callee, Vector.fromList args)
+                 | callee :: args =>
+                   let val pos = Value.exprPos callee
+                       val argtup = Value.PrimCall (pos, "tupleNew", (Vector.fromList args))
+                   in Value.Apply (appItemsleft, callee, argtup)
+                   end
                  | [] => raise Fail "unreachable")
 
 appItems : simple          ([simple])
@@ -145,11 +151,11 @@ primCall : PRIM appItems (Value.PrimCall (PRIMleft, PRIM, VectorExt.fromListRev 
                                                 blockFromStmts LBRACKETleft (List.rev stmtList))])))
        | datum (datum) *)
 
-simple : LPAREN expr RPAREN       (expr)
+simple : LPAREN expr RPAREN (expr)
        | LPAREN expr RARROW expr RPAREN
-         (applyName LPARENleft "apply" #[expr1, expr2])
+         (Value.Apply (LPARENleft, expr1, expr2))
        | LPAREN expr RARROW RPAREN
-         (applyName LPARENleft "apply" #[expr, applyName RPARENleft "Tuple" #[]])
+         (Value.Apply (LPARENleft, expr, Value.PrimCall (RPARENleft, "tupleNew", #[])))
        | LBRACE methodList RBRACE (Value.Fn (methodListleft, VectorExt.fromListRev methodList))
        | LBRACE body RBRACE       (body)
        | id                       (Value.Var (idleft, id))
@@ -172,11 +178,11 @@ prim : INT    (Value.Int (valOf (Int.fromString INT)))
      | CHAR   (Value.Char (String.sub (CHAR, 0)))
 
 compound : LPAREN exprList RPAREN
-           (applyName LPARENleft "Tuple" (VectorExt.fromListRev exprList))
+           (callName LPARENleft "Tuple" (VectorExt.fromListRev exprList))
          | LBRACKET exprList RBRACKET
-           (applyName LBRACKETleft "Array" (VectorExt.fromListRev exprList))
+           (callName LBRACKETleft "Array" (VectorExt.fromListRev exprList))
          | LBRACE exprList RBRACE
-           (applyName LBRACEleft "Set" (VectorExt.fromListRev exprList))
+           (callName LBRACEleft "Set" (VectorExt.fromListRev exprList))
          (*| LBRACE mapPairs RBRACE
            (let val pos = LBRACEleft
                 val args = List.foldl (fn ((k, v), acc) => k::v::acc)
