@@ -1,3 +1,5 @@
+(_, _, tupleStruct) = @require "Types";
+
 (Cons, (apply <- +), (apply <- +)) = tupleStruct Any Any;
 (Nil, (apply <- +), (apply <- +)) = (tupleStruct ->);
 

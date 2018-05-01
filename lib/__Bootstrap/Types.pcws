@@ -1,0 +1,40 @@
+(tupleSliceLen, tupleSliceGet) = @require "TupleSlice";
+
+typeOf = { v -> __typeOf v };
+
+(:) = { v T -> typeOf v == T };
+
+tupleStruct = { (fieldTypes *) ->
+  len = tupleSliceLen fieldTypes;
+  T = __newRecordType len;
+
+  construct = { (args *) | tupleSliceLen args == len ->
+    loop = {
+      i | i < len -> {
+        assert (tupleSliceGet args i : tupleSliceGet fieldTypes i);
+        loop (i + 1)
+      };
+      _ -> ()
+    };
+    loop 0;
+
+    instance = __beginRecord T len;
+    initLoop = {
+      i | i < len -> {
+        __recordInit instance i (tupleSliceGet args i);
+        initLoop (i + 1)
+      };
+      _ -> instance
+    };
+    __endRecord (initLoop 0)
+  };
+
+  deconstruct = {
+    instance | instance : T <- Some (__recordSlice instance);
+    _ <- (None ->)
+  };
+
+  (T, construct, deconstruct)
+};
+
+(typeOf, (:), tupleStruct)
